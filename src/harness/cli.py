@@ -27,7 +27,7 @@ def _root() -> Path:
 
 
 def status_main() -> None:
-    """タスクと WBS から tasks/STATUS.md を再生成する（導出・手書き禁止）。"""
+    """タスクと WBS から tasks/STATUS.md を作り直す（自動算出・手書き禁止）。"""
 
     def _run(
         check: Annotated[bool, typer.Option(help="生成せず、最新かどうかだけ判定する")] = False,
@@ -38,7 +38,7 @@ def status_main() -> None:
         if check:
             actual = out.read_text(encoding="utf-8") if out.is_file() else ""
             if actual.strip() != content.strip():
-                typer.echo("STATUS.md が最新でない（uv run status で再生成）")
+                typer.echo("STATUS.md が最新でない（uv run status で作り直す）")
                 raise typer.Exit(1)
             typer.echo("STATUS.md は最新")
             return
@@ -50,7 +50,7 @@ def status_main() -> None:
 
 
 def task_lint_main() -> None:
-    """孤児検出（余白を許容）。真の孤児だけ赤（終了コード 1）。"""
+    """参照チェック（未分解・未割り当ては許容）。存在しないエピックを指すタスクだけ失敗（終了コード 1）。"""
 
     root = _root()
     problems = pm.lint(root)
@@ -61,15 +61,15 @@ def task_lint_main() -> None:
         if p.level == "error":
             errors += 1
     if errors:
-        typer.echo(f"真の孤児 {errors} 件（赤）")
+        typer.echo(f"参照エラー {errors} 件（失敗）")
         # console_script 入口（typer.run を通さない）なので sys.exit で綺麗に終える。
         # typer.Exit を raise すると未捕捉で Traceback が出る（L-006）。
         sys.exit(1)
-    typer.echo("孤児なし（outline・epic: none は余白として許容）")
+    typer.echo("参照エラーなし（未分解・未割り当ては許容）")
 
 
 def check_main() -> None:
-    """共通の検証（fast/standard/full）。合否を緑/赤で返す。"""
+    """共通の検証（fast/standard/full）。合否（成功/失敗）を返す。"""
 
     def _run(
         level: Annotated[str, typer.Option(help="fast | standard | full")] = "full",
@@ -80,7 +80,7 @@ def check_main() -> None:
 
 
 def verify_main() -> None:
-    """完了判定＝check full の別名。緑になったら done にできる。"""
+    """完了判定＝check full と同じ。すべて成功したら done にできる。"""
 
     sys.exit(checks.run_check(_root(), "full"))
 

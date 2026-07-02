@@ -2,12 +2,12 @@
 project: demo
 epics:
   - id: EP-01
-    name: PM層の骨格
+    name: プロジェクト管理の骨格
     plan: detailed
     status: in-progress
     requirements: [REQ-001]
   - id: EP-02
-    name: 開発ループの残り
+    name: 開発の進め方の残り
     plan: outline
     status: todo
     requirements: []
@@ -19,9 +19,9 @@ epics:
 ---
 # WBS：demo
 
-計画は時間で成熟する（ローリングウェーブ）。立ち上げでは粗い全体像だけを置き、
-着手が近いエピックだけを直前に detailed 化する。outline のままは正常な余白。
+計画は近い作業だけ先に詳しくする。立ち上げでは全体の見出しだけを粗く置き、
+着手が近いエピックだけを、その直前に詳しく分解する。まだ分解していない状態は正常。
 
-- **EP-01 PM層の骨格（detailed）**：charter/wbs/tasks・STATUS 導出・孤児検出・共通の検証コマンド。
-- **EP-02 開発ループの残り（outline）**：スキル一式・仕様駆動・TDD ゲート。着手時に具体化する。
-- **EP-03 引き渡し・振り返り（outline）**：DoD 確認・friction の learnings 反映。
+- **EP-01 プロジェクト管理の骨格（detailed）**：charter/wbs/tasks・STATUS の自動算出・参照チェック・共通の検証コマンド。
+- **EP-02 開発の進め方の残り（outline）**：スキル一式・仕様に沿った進め方・テスト先行の判定。着手時に詳しくする。
+- **EP-03 引き渡し・振り返り（outline）**：完了の定義の確認・気づきの learnings への反映。

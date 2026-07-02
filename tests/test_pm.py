@@ -1,6 +1,6 @@
-"""PM層の中核ロジックのテスト。
+"""プロジェクト管理の中核ロジックのテスト。
 
-生成と評価の分離：実装（pm）とは別に、期待する不変条件をテストで固定する。
+作る側（pm）と確かめる側（テスト）を分け、期待する動きをテストで固定する。
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _scaffold(root: Path) -> None:
 
 def test_lint_accepts_outline_and_backlog(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # outline エピック（EP-02）はタスク 0 でも余白として許容。バックログも許容。
+    # 未分解のエピック（EP-02）はタスク 0 でも許容。未割り当て（none）も許容。
     _write(tmp_path / "tasks" / "T-0003-c.md", {"id": "T-0003", "status": "todo", "epic": "none"})
     problems = pm.lint(tmp_path)
     assert not [p for p in problems if p.level == "error"]
@@ -44,7 +44,7 @@ def test_lint_accepts_outline_and_backlog(tmp_path: Path) -> None:
 
 def test_lint_flags_true_orphan(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # 存在しないエピックを指す＝真の孤児＝赤。
+    # 存在しないエピックを指す＝参照エラー＝失敗。
     _write(tmp_path / "tasks" / "T-0009-x.md", {"id": "T-0009", "status": "todo", "epic": "EP-99"})
     errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
     assert len(errors) == 1
@@ -56,12 +56,12 @@ def test_render_status_counts_done(tmp_path: Path) -> None:
     status = pm.render_status(tmp_path)
     assert "EP-01" in status
     assert "1/2" in status  # done 1 / 総数 2
-    assert "余白" in status  # EP-02 は outline で未分解
+    assert "未分解" in status  # EP-02 は outline で未分解
 
 
 def test_broken_frontmatter_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # status が不正値＝型検証で赤。
+    # status が不正値＝型検証で失敗。
     bad: dict[str, object] = {"id": "T-0010", "status": "unknown", "epic": "EP-01"}
     _write(tmp_path / "tasks" / "T-0010-bad.md", bad)
     errors = [p for p in pm.lint(tmp_path) if p.level == "error"]

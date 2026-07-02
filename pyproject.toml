@@ -40,7 +40,8 @@ build-backend = "hatchling.build"
 packages = ["src/harness"]
 
 [tool.ruff]
-line-length = 100
+# 日本語の説明・メッセージは長くなりやすいため 120（L-003 の判断）。
+line-length = 120
 target-version = "py314"
 
 [tool.ruff.lint]

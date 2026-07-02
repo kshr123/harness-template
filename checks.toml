@@ -1,6 +1,6 @@
 # 検証の登録先。共通の検証コマンド（uv run check / verify）がこれを読む。
-# レベル：fast（フック相当・速い）→ standard（pre-commit 相当）→ full（CI・done）。
-# PM層の検査（孤児検出・STATUS 一致）はコードに内蔵（どのレベルでも走る）。
+# レベル：fast（速い・コミット前の一部）→ standard（コミット前）→ full（CI・完了判定）。
+# プロジェクト管理の検査（参照チェック・STATUS 一致）はコードに内蔵（どのレベルでも走る）。
 
 [fast]
 commands = [

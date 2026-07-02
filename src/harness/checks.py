@@ -1,8 +1,8 @@
-"""共通の検証コマンド（check共通IF）の実体。
+"""共通の検証コマンドの実体。
 
 一つの入口（uv run check / verify）で、言語ツール（ruff/mypy/pytest）と
-PM層の不変条件（孤児検出・STATUS 再生成一致）を走らせ、合否を緑/赤で返す。
-CI もローカルもこの同じ入口を叩く＝完了（done）の定義を一致させる。
+プロジェクト管理の決まりごと（参照チェック・STATUS 再生成一致）を走らせ、
+合否（成功/失敗）を返す。CI もローカルもこの同じ入口を使う＝完了の定義を一致させる。
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _load_commands(root: Path, level: str) -> list[list[str]]:
 
 
 def _pm_checks(root: Path) -> bool:
-    """PM層の不変条件を検査する。真の孤児・壊れた frontmatter・STATUS 不一致は赤。"""
+    """プロジェクト管理の決まりごとを検査する。参照エラー・壊れた frontmatter・STATUS 不一致は失敗。"""
 
     ok = True
     problems = pm.lint(root)
@@ -47,15 +47,15 @@ def _pm_checks(root: Path) -> bool:
     expected = pm.render_status(root)
     actual = status_path.read_text(encoding="utf-8") if status_path.is_file() else ""
     if actual.strip() != expected.strip():
-        print("  ✗ tasks/STATUS.md が最新でない（uv run status で再生成すること）")
+        print("  ✗ tasks/STATUS.md が最新でない（uv run status で作り直すこと）")
         ok = False
     else:
-        print("  ✓ PM層の検査（孤児検出・STATUS 一致）")
+        print("  ○ プロジェクト管理の検査（参照チェック・STATUS 一致）")
     return ok
 
 
 def run_check(root: Path, level: str = "full") -> int:
-    """検証を実行し、終了コードを返す（0=緑・非0=赤）。"""
+    """検証を実行し、終了コードを返す（0=成功・非0=失敗）。"""
 
     if level not in LEVELS:
         print(f"不明なレベル: {level}（{', '.join(LEVELS)} のいずれか）")
@@ -70,5 +70,5 @@ def run_check(root: Path, level: str = "full") -> int:
         if result.returncode != 0:
             ok = False
 
-    print("緑（すべて通過）" if ok else "赤（未通過あり）")
+    print("成功（すべて通過）" if ok else "失敗（未通過あり）")
     return 0 if ok else 1

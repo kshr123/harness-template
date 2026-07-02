@@ -1,7 +1,7 @@
-"""PM層のデータ型（タスク frontmatter と WBS のエピック）。
+"""プロジェクト管理のデータ型（タスクの frontmatter と WBS のエピック）。
 
-構造化データは pydantic v2 で型付き検証する。壊れた frontmatter は
-検証コマンドで赤にする（＝機械が読める形を保証）。
+構造化データは pydantic v2 で型を検証する。壊れた frontmatter は
+検証コマンドで失敗にする（＝機械が読める形を保証する）。
 """
 
 from __future__ import annotations
@@ -10,12 +10,12 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# エピック未割当を表す番兵。バックログ（割当待ち）を意味する正当な状態。
+# エピック未割り当てを表す既定値。「あとで割り当てる」を意味する正当な状態。
 NONE_EPIC = "none"
 
 
 class TaskStatus(StrEnum):
-    """タスクの状態。done は「検証が緑」でのみ確定する（自己申告不可）。"""
+    """タスクの状態。done は検証にすべて成功したときだけにする（自己申告では確定しない）。"""
 
     todo = "todo"
     in_progress = "in-progress"
@@ -25,20 +25,20 @@ class TaskStatus(StrEnum):
 
 
 class PlanMaturity(StrEnum):
-    """計画の成熟度。outline（粗い＝余白）は正常な状態で、lint は咎めない。"""
+    """計画の詳しさ。outline（まだ分解していない）は正常な状態で、参照チェックは咎めない。"""
 
     outline = "outline"
     detailed = "detailed"
 
 
 class Task(BaseModel):
-    """タスク（葉）＝存在と状態の唯一の情報源。1 タスク＝1 MD。"""
+    """タスク（個々の作業）＝存在と状態の唯一の情報源。1 タスク＝1 MD。"""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
     status: TaskStatus
-    epic: str = NONE_EPIC  # 所属エピック ID。未割当は "none"（バックログ）。
+    epic: str = NONE_EPIC  # 所属エピック ID。未割り当ては "none"。
     requirements: list[str] = Field(default_factory=list)
     priority: str | None = None
     dependencies: list[str] = Field(default_factory=list)
@@ -47,9 +47,9 @@ class Task(BaseModel):
 
 
 class Epic(BaseModel):
-    """WBS のエピック＝意図（目的）と計画の成熟度だけを手で持つ。
+    """WBS のエピック＝目的と計画の詳しさだけを手で持つ。
 
-    配下タスク一覧と進捗はタスクから導出する（二重管理しない）。
+    配下のタスク一覧と進捗はタスクから算出する（二重に管理しない）。
     """
 
     model_config = ConfigDict(extra="forbid")
