@@ -25,7 +25,10 @@ configs/config.local.yaml
 # STATUS.md は生成物：その都度 `uv run status` で作り直す・追跡しない
 STATUS.md
 
-# ML成果物（実体は fsspec 先。実装は Phase 1）
+# データ実体・マニフェスト（正本は config の保存先URI。コミットしない）
 data/**/*.parquet
+data/**/*.manifest.yaml
+data/**/*.tmp
+data/cache/
 mlruns/
 mlflow.db

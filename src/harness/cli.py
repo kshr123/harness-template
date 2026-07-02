@@ -139,3 +139,39 @@ def issue_main() -> None:
     """`uv run issue <サブコマンド>` の入口。"""
 
     issue_app()
+
+
+data_app = typer.Typer(help="テーブル定義（データのメタデータ）", add_completion=False)
+
+
+@data_app.command("lint")
+def _data_lint() -> None:
+    """テーブル定義の静的検査（ID重複・型名・系譜・越境参照）。verify にも含まれる。"""
+    from harness.ds import schema
+
+    errors = 0
+    for p in schema.data_lint(_root()):
+        typer.echo(f"{'✗' if p.level == 'error' else '・'} {p.message}")
+        errors += 1 if p.level == "error" else 0
+    if errors:
+        typer.echo(f"問題 {errors} 件（失敗）")
+        raise typer.Exit(1)
+    typer.echo("テーブル定義：問題なし")
+
+
+@data_app.command("list")
+def _data_list() -> None:
+    """テーブル定義を scope→role でグループ表示する（生成ビュー）。"""
+    from harness.ds import schema
+
+    schemas = schema.load_schemas(_root())
+    for scope in sorted({s.scope for s in schemas}):
+        typer.echo(f"[scope: {scope}]")
+        for s in sorted((x for x in schemas if x.scope == scope), key=lambda x: (x.role or "", x.id)):
+            typer.echo(f"  {s.layer.value}\t{s.role or '-'}\t{s.id}\t{s.description}")
+
+
+def data_main() -> None:
+    """`uv run data <サブコマンド>` の入口。"""
+
+    data_app()

@@ -27,6 +27,7 @@ check = "harness.cli:check_main"
 status = "harness.cli:status_main"
 task-lint = "harness.cli:task_lint_main"
 issue = "harness.cli:issue_main"
+data = "harness.cli:data_main"
 changelog = "harness.cli:changelog_main"
 
 [dependency-groups]
@@ -62,8 +63,8 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-# python-frontmatter は型スタブを提供していない（外部ライブラリ）。
-module = ["frontmatter"]
+# 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML）。
+module = ["frontmatter", "yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
