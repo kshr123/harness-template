@@ -20,6 +20,11 @@
 - **対応**：メッセージを短く保つ。現時点で line-length 変更はしない（適正規模＝標準に合わせる）。
 - **判断**：友好度と規約のトレードオフ。今は「短く書く」で対応。多発するなら line-length=120 を検討（保留）。
 
+## L-006 typer.Exit を console_script 直入口で raise すると Traceback が漏れる
+- **要点**：`[project.scripts]` の入口関数（typer.run を通さない）で `raise typer.Exit(1)` すると、未捕捉で Traceback が表示される（終了コードは 1 で正しいが見苦しい）。
+- **対応**：直入口では `sys.exit(1)` を使う（task-lint）。typer.run を通すコマンド（status/check）は typer.Exit のままでよい。
+- **PM設計への反映**：不要（実装の作法）。ドッグフーディングで発見＝仕組みが機能している例。
+
 ## L-005 Windows で git が LF→CRLF 変換の警告を出す（クロスプラットフォームのテンプレで差分の温床）
 - **要点**：Windows の作業コピーで改行が CRLF になり、Linux CI と差分になりうる。
 - **対応**：`.gitattributes` に `* text=auto eol=lf` を置き、`git add --renormalize .` で LF に統一。

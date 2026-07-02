@@ -62,7 +62,9 @@ def task_lint_main() -> None:
             errors += 1
     if errors:
         typer.echo(f"真の孤児 {errors} 件（赤）")
-        raise typer.Exit(1)
+        # console_script 入口（typer.run を通さない）なので sys.exit で綺麗に終える。
+        # typer.Exit を raise すると未捕捉で Traceback が出る（L-006）。
+        sys.exit(1)
     typer.echo("孤児なし（outline・epic: none は余白として許容）")
 
 
