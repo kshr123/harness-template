@@ -1,7 +1,7 @@
 [project]
 name = "harness"
 version = "0.1.0"
-description = "AIコーディング中心の汎用開発ハーネス（汎用コア）。PM層＋検証の共通入口。"
+description = "AIコーディング中心の汎用開発ハーネス（土台）。プロジェクト管理と検証の共通入口。"
 requires-python = ">=3.14"
 dependencies = [
     "typer>=0.15",
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# 共通の検証コマンド（check共通IF）とPM層の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
+# 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
 verify = "harness.cli:verify_main"
 check = "harness.cli:check_main"
 status = "harness.cli:status_main"
