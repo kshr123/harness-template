@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# uv
+# (uv.lock はコミットする＝再現性)
+
+# 環境・秘密（シークレット隔離：エージェントに渡さない）
+.env
+secrets/
+
+# ツールキャッシュ
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# ローカル上書き設定（個人モード：追跡しない）
+configs/config.local.yaml
+
+# ML成果物（実体は fsspec 先。実装は Phase 1）
+data/**/*.parquet
+mlruns/
+mlflow.db

@@ -1,0 +1,23 @@
+# CI（検証の最終層）。ローカルと同じ共通の検証コマンド（uv run verify）を叩く＝done の定義を一致。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: uv をセットアップ
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: 依存を同期
+        run: uv sync
+      - name: STATUS.md が最新か（手書き・陳腐化を赤に）
+        run: uv run status --check
+      - name: 共通の検証コマンド（done＝緑）
+        run: uv run verify

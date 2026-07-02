@@ -1,0 +1,19 @@
+# 検証の登録先。共通の検証コマンド（uv run check / verify）がこれを読む。
+# レベル：fast（フック相当・速い）→ standard（pre-commit 相当）→ full（CI・done）。
+# PM層の検査（孤児検出・STATUS 一致）はコードに内蔵（どのレベルでも走る）。
+
+[fast]
+commands = [
+    ["ruff", "format", "--check", "."],
+    ["ruff", "check", "."],
+]
+
+[standard]
+commands = [
+    ["mypy"],
+]
+
+[full]
+commands = [
+    ["pytest", "-q"],
+]
