@@ -1,7 +1,7 @@
 """共通の検証コマンドの実体。
 
 一つの入口（uv run check / verify）で、言語ツール（ruff/mypy/pytest）と
-プロジェクト管理の決まりごと（参照チェック・STATUS 再生成一致）を走らせ、
+プロジェクト管理の決まりごと（参照チェック・完了↔検証の結びつけ）を走らせ、
 合否（成功/失敗）を返す。CI もローカルもこの同じ入口を使う＝完了の定義を一致させる。
 """
 
@@ -32,7 +32,11 @@ def _load_commands(root: Path, level: str) -> list[list[str]]:
 
 
 def _pm_checks(root: Path) -> bool:
-    """プロジェクト管理の決まりごとを検査する。参照エラー・壊れた frontmatter・STATUS 不一致は失敗。"""
+    """プロジェクト管理の決まりごとを検査する。参照エラー・壊れた frontmatter・完了↔検証の欠落は失敗。
+
+    STATUS.md は生成物（その都度 `uv run status` で作り直す・コミットしない）なので、
+    ここで「生成物とソースの一致」は突き合わせない（古い生成物を理由に検証を落とさない）。
+    """
 
     ok = True
     problems = pm.lint(root) + pm.spec_lint(root)
@@ -41,16 +45,8 @@ def _pm_checks(root: Path) -> bool:
         print(f"  {mark} {p.message}")
         if p.level == "error":
             ok = False
-
-    # STATUS.md 再生成一致（手書き・古いままを失敗にする）。
-    status_path = root / "STATUS.md"
-    expected = pm.render_status(root)
-    actual = status_path.read_text(encoding="utf-8") if status_path.is_file() else ""
-    if actual.strip() != expected.strip():
-        print("  ✗ STATUS.md が最新でない（uv run status で作り直すこと）")
-        ok = False
-    else:
-        print("  ○ プロジェクト管理の検査（参照チェック・STATUS 一致）")
+    if ok:
+        print("  ○ プロジェクト管理の検査（参照チェック・完了↔検証の結びつけ）")
     return ok
 
 

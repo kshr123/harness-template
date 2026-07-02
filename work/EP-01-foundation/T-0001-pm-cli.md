@@ -4,6 +4,7 @@ kind: task
 status: done
 title: プロジェクト管理の CLI（status / task-lint / verify）
 requirements: [REQ-001]
+verified_by: [tests/test_pm.py]
 owner: sakurada
 ---
 # T-0001 プロジェクト管理の CLI

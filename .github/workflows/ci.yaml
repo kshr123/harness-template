@@ -17,7 +17,5 @@ jobs:
           python-version: "3.14"
       - name: 依存を同期
         run: uv sync
-      - name: STATUS.md が最新か（手書き・古いままを失敗に）
-        run: uv run status --check
       - name: 共通の検証コマンド（完了判定）
         run: uv run verify

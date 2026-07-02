@@ -6,7 +6,7 @@ Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを�
 ## 原則
 - **完了＝検証にすべて成功したときだけ**。自己申告で完了にしない。`uv run verify` がすべて成功して初めて完了。
 - **意味のある 1 まとまり＝1 ディレクトリ**。作業単位（エピック・タスク・実験）は `work/` の中に置き、そのまとまりのもの（説明・SPEC・コード・結果・メモ）を同じフォルダに同居させる。**親はフォルダ**（置き場所）で表す。小さい単位はフォルダでなくファイル 1 つでよい。
-- **進捗は `uv run status` で自動算出**（`work/` の木をたどる）。`STATUS.md` は自動生成のファイル・手で編集しない。
+- **進捗は `uv run status` で自動算出**（`work/` の木をたどる）。`STATUS.md` は生成物（その都度作り直す・手で編集しない・コミットしない）。見たいときに `uv run status` を走らせる。
 - **計画は近い作業だけ先に詳しくする**。着手が近いエピックだけ直前に分解する（`plan: detailed`）。まだ分解していない（`plan: outline`）状態は正常。
 
 ## 作業単位（item）
@@ -20,8 +20,8 @@ Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを�
 3. `uv run verify` にすべて成功させる。成功した出力（証拠）を示す。テストは緩めない・消さない。
 
 ## コマンド（実体は uv。make は使わない）
-- `uv run verify` … 完了判定（作業単位の検査＋STATUS 一致＋ruff＋mypy＋pytest）
-- `uv run status` … STATUS.md を作り直す ／ `uv run status --check` … 最新かどうかだけ判定
+- `uv run verify` … 完了判定（作業単位の検査＋完了↔検証の結びつけ＋ruff＋mypy＋pytest）
+- `uv run status` … STATUS.md を作り直す（生成物・コミットしない）
 - `uv run task-lint` … 作業単位の検査（ID の重複・depends_on の指す先が無い、を失敗にする）
 
 ## してはいけないこと

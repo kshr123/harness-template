@@ -113,6 +113,17 @@ def lint(root: Path) -> list[Problem]:
             if dep not in known:
                 problems.append(Problem("error", f"{n.item.id}: depends_on の '{dep}' が見つからない（参照エラー）"))
 
+    # 完了↔検証の結びつけ：done のタスクは、対応するテスト（verified_by）を持ち、それが存在すること。
+    # これにより「テストを書かずに done にする」自己申告完了を機械的に防ぐ。
+    for n in everything:
+        if n.item.kind is Kind.task and n.item.status is Status.done:
+            if not n.item.verified_by:
+                problems.append(Problem("error", f"{n.item.id}: done だが verified_by（対応するテスト）が無い"))
+            for v in n.item.verified_by:
+                test_file = v.split("::")[0]
+                if not (root / test_file).is_file():
+                    problems.append(Problem("error", f"{n.item.id}: verified_by の '{test_file}' が見つからない"))
+
     # plan=detailed なのに子の単位が無い＝分解し忘れの可能性（失敗にはしない）。
     for n in everything:
         if n.item.plan is PlanMaturity.detailed and n.item.kind is Kind.epic and not n.children:
@@ -135,6 +146,24 @@ def render_status(root: Path) -> str:
     ]
     for node in top:
         _render_node(node, lines, depth=0)
+
+    # 人の判断待ち（承認待ち・止まっている・未解決の質問）を集約する。
+    # 人はここを見れば「要所が来た」と分かる（見に行かないと分からない状態を減らす）。
+    pending: list[str] = []
+    for n in _all_nodes(top):
+        if n.item.status is Status.blocked:
+            pending.append(f"- {n.item.display}：止まっている（blocked）")
+        elif n.item.status is Status.in_review:
+            pending.append(f"- {n.item.display}：承認待ち（in-review）")
+    work = root / WORK_DIR
+    if work.is_dir():
+        for md in sorted(work.rglob("*.md")):
+            if "[要確認]" in md.read_text(encoding="utf-8"):
+                pending.append(f"- {md.relative_to(root)}：未解決の [要確認] あり")
+
+    lines.append("")
+    lines.append("## 人の判断待ち")
+    lines.extend(pending if pending else ["（なし）"])
     lines.append("")
     return "\n".join(lines)
 

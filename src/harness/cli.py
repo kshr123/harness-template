@@ -27,26 +27,18 @@ def _root() -> Path:
 
 
 def status_main() -> None:
-    """作業単位の木から STATUS.md を作り直す（自動算出・手書き禁止）。"""
+    """作業単位の木から STATUS.md を作り直す（その都度生成・手書き禁止・コミットしない）。
 
-    def _run(
-        check: Annotated[bool, typer.Option(help="生成せず、最新かどうかだけ判定する")] = False,
-    ) -> None:
-        root = _root()
-        content = pm.render_status(root)
-        out = root / "STATUS.md"
-        if check:
-            actual = out.read_text(encoding="utf-8") if out.is_file() else ""
-            if actual.strip() != content.strip():
-                typer.echo("STATUS.md が最新でない（uv run status で作り直す）")
-                raise typer.Exit(1)
-            typer.echo("STATUS.md は最新")
-            return
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(content + "\n", encoding="utf-8")
-        typer.echo(f"生成: {out}")
+    STATUS.md は生成物なので追跡しない（.gitignore）。「見たいときに作り直す」ため、
+    生成物とソース（work/ の木）の一致をコミットのたびに突き合わせる仕掛け（ゲート）は置かない。
+    見たいときにこのコマンドを走らせれば、最新の進捗と「人の判断待ち」が得られる。
+    """
 
-    typer.run(_run)
+    root = _root()
+    out = root / "STATUS.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(pm.render_status(root) + "\n", encoding="utf-8")
+    typer.echo(f"生成: {out}")
 
 
 def task_lint_main() -> None:

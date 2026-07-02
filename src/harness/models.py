@@ -49,6 +49,9 @@ class Item(BaseModel):
     plan: PlanMaturity = PlanMaturity.outline  # epic / experiment の計画の詳しさ
     requirements: list[str] = Field(default_factory=list)  # 満たす要件 ID（REQ-xxx）
     depends_on: list[str] = Field(default_factory=list)  # 先行する単位の ID
+    # 受け入れ基準を確かめるテストの場所（例 tests/test_foo.py::test_bar）。
+    # done のタスクは、これが空でなく、指すテストが存在することを要求する（完了↔検証の結びつけ）。
+    verified_by: list[str] = Field(default_factory=list)
     priority: str | None = None
     owner: str | None = None
 
