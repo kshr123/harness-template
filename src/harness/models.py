@@ -1,7 +1,8 @@
-"""プロジェクト管理のデータ型（タスクの frontmatter と WBS のエピック）。
+"""作業単位のデータ型（エピック・タスク・実験に共通の item）。
 
-構造化データは pydantic v2 で型を検証する。壊れた frontmatter は
-検証コマンドで失敗にする（＝機械が読める形を保証する）。
+意味のある 1 まとまり＝1 ディレクトリ（または軽いときは 1 ファイル）。
+親は「そのファイルの置き場所（ディレクトリ）」で表す。frontmatter に親の欄は持たない。
+構造化データは pydantic v2 で型を検証する。壊れた frontmatter は検証コマンドで失敗にする。
 """
 
 from __future__ import annotations
@@ -10,12 +11,17 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# エピック未割り当てを表す既定値。「あとで割り当てる」を意味する正当な状態。
-NONE_EPIC = "none"
+
+class Kind(StrEnum):
+    """作業単位の種類。"""
+
+    epic = "epic"  # 大きな束（複数セッションにまたがる。子の単位を持つ）
+    task = "task"  # 工学的な 1 つの変更（1 PR で完結）
+    experiment = "experiment"  # 1 つの仮説を試す単位（結果を同居させ、比べる）
 
 
-class TaskStatus(StrEnum):
-    """タスクの状態。done は検証にすべて成功したときだけにする（自己申告では確定しない）。"""
+class Status(StrEnum):
+    """作業単位の状態。done は検証にすべて成功したときだけにする（自己申告では確定しない）。"""
 
     todo = "todo"
     in_progress = "in-progress"
@@ -25,37 +31,27 @@ class TaskStatus(StrEnum):
 
 
 class PlanMaturity(StrEnum):
-    """計画の詳しさ。outline（まだ分解していない）は正常な状態で、参照チェックは咎めない。"""
+    """計画の詳しさ。outline（まだ分解していない）は正常な状態で、検査は咎めない。"""
 
     outline = "outline"
     detailed = "detailed"
 
 
-class Task(BaseModel):
-    """タスク（個々の作業）＝存在と状態の唯一の情報源。1 タスク＝1 MD。"""
+class Item(BaseModel):
+    """1 つの作業単位（item.md、または軽い単位のファイル）の frontmatter。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    status: TaskStatus
-    epic: str = NONE_EPIC  # 所属エピック ID。未割り当ては "none"。
-    requirements: list[str] = Field(default_factory=list)
+    id: str  # 例 EP-01 / T-0007 / E-0003。一意・再利用しない。
+    kind: Kind
+    status: Status
+    title: str | None = None  # 表示名。無ければ id を使う。
+    plan: PlanMaturity = PlanMaturity.outline  # epic / experiment の計画の詳しさ
+    requirements: list[str] = Field(default_factory=list)  # 満たす要件 ID（REQ-xxx）
+    depends_on: list[str] = Field(default_factory=list)  # 先行する単位の ID
     priority: str | None = None
-    dependencies: list[str] = Field(default_factory=list)
     owner: str | None = None
-    mode: str | None = None  # personal | team（任意。案件既定を上書き）
 
-
-class Epic(BaseModel):
-    """WBS のエピック＝目的と計画の詳しさだけを手で持つ。
-
-    配下のタスク一覧と進捗はタスクから算出する（二重に管理しない）。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    name: str
-    plan: PlanMaturity = PlanMaturity.outline
-    status: TaskStatus = TaskStatus.todo
-    requirements: list[str] = Field(default_factory=list)
+    @property
+    def display(self) -> str:
+        return f"{self.id} {self.title}" if self.title else self.id

@@ -10,7 +10,7 @@ repos:
         pass_filenames: false
         always_run: true
       - id: harness-check-standard
-        name: 共通の検証コマンド（standard＝ruff＋mypy＋PM層検査）
+        name: 共通の検証コマンド（standard＝ruff＋mypy＋作業単位の検査）
         entry: uv run check --level standard
         language: system
         pass_filenames: false

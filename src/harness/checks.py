@@ -42,12 +42,12 @@ def _pm_checks(root: Path) -> bool:
         if p.level == "error":
             ok = False
 
-    # STATUS.md 再生成一致（手書き・陳腐化を赤にする）。
-    status_path = root / "tasks" / "STATUS.md"
+    # STATUS.md 再生成一致（手書き・古いままを失敗にする）。
+    status_path = root / "STATUS.md"
     expected = pm.render_status(root)
     actual = status_path.read_text(encoding="utf-8") if status_path.is_file() else ""
     if actual.strip() != expected.strip():
-        print("  ✗ tasks/STATUS.md が最新でない（uv run status で作り直すこと）")
+        print("  ✗ STATUS.md が最新でない（uv run status で作り直すこと）")
         ok = False
     else:
         print("  ○ プロジェクト管理の検査（参照チェック・STATUS 一致）")

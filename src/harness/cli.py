@@ -27,14 +27,14 @@ def _root() -> Path:
 
 
 def status_main() -> None:
-    """タスクと WBS から tasks/STATUS.md を作り直す（自動算出・手書き禁止）。"""
+    """作業単位の木から STATUS.md を作り直す（自動算出・手書き禁止）。"""
 
     def _run(
         check: Annotated[bool, typer.Option(help="生成せず、最新かどうかだけ判定する")] = False,
     ) -> None:
         root = _root()
         content = pm.render_status(root)
-        out = root / "tasks" / "STATUS.md"
+        out = root / "STATUS.md"
         if check:
             actual = out.read_text(encoding="utf-8") if out.is_file() else ""
             if actual.strip() != content.strip():
@@ -50,7 +50,7 @@ def status_main() -> None:
 
 
 def task_lint_main() -> None:
-    """参照チェック（未分解・未割り当ては許容）。存在しないエピックを指すタスクだけ失敗（終了コード 1）。"""
+    """作業単位の検査。ID の重複・depends_on の指す先が無い、を失敗にする（終了コード 1）。"""
 
     root = _root()
     problems = pm.lint(root)
@@ -61,11 +61,11 @@ def task_lint_main() -> None:
         if p.level == "error":
             errors += 1
     if errors:
-        typer.echo(f"参照エラー {errors} 件（失敗）")
+        typer.echo(f"問題 {errors} 件（失敗）")
         # console_script 入口（typer.run を通さない）なので sys.exit で綺麗に終える。
         # typer.Exit を raise すると未捕捉で Traceback が出る（L-006）。
         sys.exit(1)
-    typer.echo("参照エラーなし（未分解・未割り当ては許容）")
+    typer.echo("問題なし（未分解・未割り当ては許容）")
 
 
 def check_main() -> None:

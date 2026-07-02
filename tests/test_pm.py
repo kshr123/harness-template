@@ -20,64 +20,64 @@ def _write(path: Path, meta: dict[str, object], body: str = "") -> None:
 
 
 def _scaffold(root: Path) -> None:
-    _write(
-        root / "projects" / "demo" / "wbs.md",
-        {
-            "project": "demo",
-            "epics": [
-                {"id": "EP-01", "name": "骨格", "plan": "detailed", "status": "todo"},
-                {"id": "EP-02", "name": "残り", "plan": "outline", "status": "todo"},
-            ],
-        },
-    )
-    _write(root / "tasks" / "T-0001-a.md", {"id": "T-0001", "status": "done", "epic": "EP-01"})
-    _write(root / "tasks" / "T-0002-b.md", {"id": "T-0002", "status": "todo", "epic": "EP-01"})
+    """work/EP-01（詳しく分解済み・子タスク2件）と EP-02（未分解）を作る。"""
+    ep1 = root / "work" / "EP-01-foundation"
+    _write(ep1 / "item.md", {"id": "EP-01", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    _write(ep1 / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "done"})
+    t2: dict[str, object] = {"id": "T-0002", "kind": "task", "status": "todo", "depends_on": ["T-0001"]}
+    _write(ep1 / "T-0002-b.md", t2)
+    ep2 = root / "work" / "EP-02-dev"
+    _write(ep2 / "item.md", {"id": "EP-02", "kind": "epic", "status": "todo", "plan": "outline"})
 
 
-def test_lint_accepts_outline_and_backlog(tmp_path: Path) -> None:
+def test_outline_epic_without_children_is_ok(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # 未分解のエピック（EP-02）はタスク 0 でも許容。未割り当て（none）も許容。
-    _write(tmp_path / "tasks" / "T-0003-c.md", {"id": "T-0003", "status": "todo", "epic": "none"})
-    problems = pm.lint(tmp_path)
-    assert not [p for p in problems if p.level == "error"]
+    # EP-02 は未分解（outline・子なし）でも失敗にしない。
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
 
 
-def test_lint_flags_true_orphan(tmp_path: Path) -> None:
+def test_duplicate_id_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # 存在しないエピックを指す＝参照エラー＝失敗。
-    _write(tmp_path / "tasks" / "T-0009-x.md", {"id": "T-0009", "status": "todo", "epic": "EP-99"})
+    # 同じ ID をもう 1 つ作る＝重複＝失敗。
+    dup: dict[str, object] = {"id": "T-0001", "kind": "task", "status": "todo"}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0001-dup.md", dup)
     errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
-    assert len(errors) == 1
-    assert "EP-99" in errors[0].message
+    assert any("重複" in p.message for p in errors)
 
 
-def test_render_status_counts_done(tmp_path: Path) -> None:
+def test_dangling_depends_on_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 存在しない単位に依存＝参照エラー＝失敗。
+    x: dict[str, object] = {"id": "T-0009", "kind": "task", "status": "todo", "depends_on": ["T-9999"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0009-x.md", x)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("T-9999" in p.message for p in errors)
+
+
+def test_render_status_counts_leaves(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     status = pm.render_status(tmp_path)
     assert "EP-01" in status
-    assert "1/2" in status  # done 1 / 総数 2
-    assert "未分解" in status  # EP-02 は outline で未分解
-
-
-def test_spec_lint_requires_headings(tmp_path: Path) -> None:
-    _scaffold(tmp_path)
-    # 見出しが欠けた SPEC は失敗にする。
-    spec = tmp_path / "tasks" / "T-0001" / "SPEC.md"
-    spec.parent.mkdir(parents=True, exist_ok=True)
-    spec.write_text("# SPEC\n## 目的\nあれ\n", encoding="utf-8")
-    assert [p for p in pm.spec_lint(tmp_path) if p.level == "error"]
-    # 必要な見出しがそろえば通る。
-    spec.write_text(
-        "# SPEC\n## 目的\nx\n## 受け入れ基準\nx\n## やらないこと\nx\n## 最後の確認手順\nx\n",
-        encoding="utf-8",
-    )
-    assert not pm.spec_lint(tmp_path)
+    assert "1/2" in status  # 末端タスク done 1 / 総数 2
+    assert "未分解" in status  # EP-02 は outline で子なし
 
 
 def test_broken_frontmatter_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # status が不正値＝型検証で失敗。
-    bad: dict[str, object] = {"id": "T-0010", "status": "unknown", "epic": "EP-01"}
-    _write(tmp_path / "tasks" / "T-0010-bad.md", bad)
-    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
-    assert errors
+    bad: dict[str, object] = {"id": "T-0010", "kind": "task", "status": "unknown"}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0010-bad.md", bad)
+    assert [p for p in pm.lint(tmp_path) if p.level == "error"]
+
+
+def test_spec_lint_requires_headings(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    spec = tmp_path / "work" / "EP-01-foundation" / "E-0001-exp" / "SPEC.md"
+    _write(spec.parent / "item.md", {"id": "E-0001", "kind": "experiment", "status": "todo"})
+    spec.write_text("# SPEC\n## 目的\nあれ\n", encoding="utf-8")
+    assert [p for p in pm.spec_lint(tmp_path) if p.level == "error"]
+    spec.write_text(
+        "# SPEC\n## 目的\nx\n## 受け入れ基準\nx\n## やらないこと\nx\n## 最後の確認手順\nx\n",
+        encoding="utf-8",
+    )
+    assert not pm.spec_lint(tmp_path)
