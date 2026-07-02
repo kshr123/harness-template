@@ -11,7 +11,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-from harness import pm
+from harness import issues, pm
 
 # レベル：fast（フック相当）→ standard（pre-commit 相当）→ full（CI・done）。
 LEVELS = ("fast", "standard", "full")
@@ -39,14 +39,14 @@ def _pm_checks(root: Path) -> bool:
     """
 
     ok = True
-    problems = pm.lint(root) + pm.spec_lint(root)
+    problems = pm.lint(root) + pm.spec_lint(root) + issues.run_checks(root)
     for p in problems:
         mark = "✗" if p.level == "error" else "・"
         print(f"  {mark} {p.message}")
         if p.level == "error":
             ok = False
     if ok:
-        print("  ○ プロジェクト管理の検査（参照チェック・完了↔検証の結びつけ）")
+        print("  ○ プロジェクト管理の検査（参照チェック・完了↔検証の結びつけ・課題の整合）")
     return ok
 
 

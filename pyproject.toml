@@ -26,6 +26,7 @@ verify = "harness.cli:verify_main"
 check = "harness.cli:check_main"
 status = "harness.cli:status_main"
 task-lint = "harness.cli:task_lint_main"
+issue = "harness.cli:issue_main"
 changelog = "harness.cli:changelog_main"
 
 [dependency-groups]

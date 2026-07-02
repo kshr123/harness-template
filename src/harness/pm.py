@@ -140,8 +140,11 @@ def lint(root: Path) -> list[Problem]:
     return problems
 
 
-def render_status(root: Path) -> str:
-    """作業単位の木から STATUS.md（自動生成のファイル）を算出する。手書き禁止。"""
+def render_status(root: Path, extra_pending: list[str] | None = None) -> str:
+    """作業単位の木から STATUS.md（自動生成のファイル）を算出する。手書き禁止。
+
+    extra_pending は課題など、木の外から集約する「人の判断待ち」の行（呼び出し側が渡す）。
+    """
     top, _ = load_tree(root)
 
     lines: list[str] = [
@@ -167,6 +170,8 @@ def render_status(root: Path) -> str:
         for md in sorted(work.rglob("*.md")):
             if "[要確認]" in md.read_text(encoding="utf-8"):
                 pending.append(f"- {md.relative_to(root)}：未解決の [要確認] あり")
+    if extra_pending:
+        pending.extend(extra_pending)
 
     lines.append("")
     lines.append("## 人の判断待ち")

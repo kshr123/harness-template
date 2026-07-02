@@ -7,12 +7,13 @@ make は使わない（Windows 含むクロスプラットフォームのため�
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from harness import checks, pm
+from harness import checks, issues, pm
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
 # クロスプラットフォームの前提（make 非依存と同じ理由）。
@@ -37,7 +38,7 @@ def status_main() -> None:
     root = _root()
     out = root / "STATUS.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(pm.render_status(root) + "\n", encoding="utf-8")
+    out.write_text(pm.render_status(root, extra_pending=issues.open_pending(root)) + "\n", encoding="utf-8")
     typer.echo(f"生成: {out}")
 
 
@@ -81,3 +82,60 @@ def changelog_main() -> None:
     """CHANGELOG 生成（Phase 0 ではひな形。Conventional Commits から生成予定）。"""
 
     typer.echo("changelog: 未実装（Phase 0 骨格）。実装は開発ワークフローの段階で。")
+
+
+issue_app = typer.Typer(help="課題の登録簿（発見された問題・リスク・疑問）", add_completion=False)
+
+
+@issue_app.command("list")
+def _issue_list(open_only: Annotated[bool, typer.Option("--open", help="未対処(open)だけ")] = False) -> None:
+    """課題の一覧。--open で未対処だけ。"""
+    for li in issues.load_issues(_root()):
+        if open_only and li.issue.state is not issues.IssueState.open:
+            continue
+        typer.echo(f"{li.issue.id}\t{li.issue.kind.value}\t{li.issue.state.value}\t{li.issue.title or ''}")
+
+
+@issue_app.command("check")
+def _issue_check() -> None:
+    """課題の整合検査（作業単位との紐付けが崩れていないか）。verify にも含まれる。"""
+    errors = 0
+    for p in issues.run_checks(_root()):
+        typer.echo(f"{'✗' if p.level == 'error' else '・'} {p.message}")
+        errors += 1 if p.level == "error" else 0
+    if errors:
+        typer.echo(f"問題 {errors} 件（失敗）")
+        raise typer.Exit(1)
+    typer.echo("課題の整合：問題なし")
+
+
+@issue_app.command("new")
+def _issue_new(
+    title: str,
+    kind: Annotated[str, typer.Option(help="bug | risk | question")] = "question",
+    found_in: Annotated[str | None, typer.Option(help="発見元の作業単位ID")] = None,
+) -> None:
+    """課題を起票する（open で作る）。github: backend では GitHub 側で行う。"""
+    root = _root()
+    if kind not in {k.value for k in issues.IssueKind}:
+        typer.echo("kind は bug / risk / question のいずれか")
+        raise typer.Exit(1)
+    directory = issues.local_dir(root)
+    if directory is None:
+        typer.echo("github: backend では起票は GitHub 側で行う")
+        raise typer.Exit(1)
+    directory.mkdir(parents=True, exist_ok=True)
+    iid = issues.next_id(root)
+    meta = f"kind: {kind}\nstate: open\ncreated: {date.today().isoformat()}"
+    if found_in:
+        meta += f"\nfound_in: {found_in}"
+    body = f"# {iid} {title}\n\n## 事象\n\n\n## 根拠・影響\n"
+    path = directory / f"{iid}.md"
+    path.write_text(f"---\nid: {iid}\n{meta}\ntitle: {title}\n---\n{body}", encoding="utf-8")
+    typer.echo(f"起票: {path}")
+
+
+def issue_main() -> None:
+    """`uv run issue <サブコマンド>` の入口。"""
+
+    issue_app()
