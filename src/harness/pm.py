@@ -99,6 +99,22 @@ def lint(root: Path) -> list[Problem]:
     return problems
 
 
+def spec_lint(root: Path) -> list[Problem]:
+    """タスクの SPEC（tasks/<id>/SPEC.md）があれば、必要な見出しがそろっているか確認する。
+
+    SPEC は任意（無くてもよい）。ただし置いたら中身が欠けないようにする。
+    """
+
+    required = ["## 目的", "## 受け入れ基準", "## やらないこと", "## 最後の確認手順"]
+    problems: list[Problem] = []
+    for spec in sorted((root / "tasks").glob("*/SPEC.md")):
+        text = spec.read_text(encoding="utf-8")
+        missing = [h for h in required if h not in text]
+        if missing:
+            problems.append(Problem("error", f"{spec.parent.name}/SPEC.md: 必要な見出しが不足: {', '.join(missing)}"))
+    return problems
+
+
 def render_status(root: Path) -> str:
     """タスクと WBS から STATUS.md（自動生成のファイル）を算出する。手書き禁止。"""
 

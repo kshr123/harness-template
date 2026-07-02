@@ -59,6 +59,21 @@ def test_render_status_counts_done(tmp_path: Path) -> None:
     assert "未分解" in status  # EP-02 は outline で未分解
 
 
+def test_spec_lint_requires_headings(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 見出しが欠けた SPEC は失敗にする。
+    spec = tmp_path / "tasks" / "T-0001" / "SPEC.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# SPEC\n## 目的\nあれ\n", encoding="utf-8")
+    assert [p for p in pm.spec_lint(tmp_path) if p.level == "error"]
+    # 必要な見出しがそろえば通る。
+    spec.write_text(
+        "# SPEC\n## 目的\nx\n## 受け入れ基準\nx\n## やらないこと\nx\n## 最後の確認手順\nx\n",
+        encoding="utf-8",
+    )
+    assert not pm.spec_lint(tmp_path)
+
+
 def test_broken_frontmatter_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # status が不正値＝型検証で失敗。

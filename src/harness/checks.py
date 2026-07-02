@@ -35,7 +35,7 @@ def _pm_checks(root: Path) -> bool:
     """プロジェクト管理の決まりごとを検査する。参照エラー・壊れた frontmatter・STATUS 不一致は失敗。"""
 
     ok = True
-    problems = pm.lint(root)
+    problems = pm.lint(root) + pm.spec_lint(root)
     for p in problems:
         mark = "✗" if p.level == "error" else "・"
         print(f"  {mark} {p.message}")
