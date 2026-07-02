@@ -77,6 +77,23 @@ def test_done_task_with_missing_test_is_error(tmp_path: Path) -> None:
     assert any("nope.py" in p.message for p in errors)
 
 
+def test_investigation_done_requires_conclusion(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # done の調査に「## 結論」が無い＝失敗（verified_by の代わりの検査）。
+    d: dict[str, object] = {"id": "INV-0001", "kind": "investigation", "status": "done"}
+    _write(tmp_path / "work" / "EP-01-foundation" / "INV-0001-x.md", d, body="調べた。")
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("結論" in p.message for p in errors)
+
+
+def test_investigation_with_conclusion_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    d: dict[str, object] = {"id": "INV-0002", "kind": "investigation", "status": "done"}
+    _write(tmp_path / "work" / "EP-01-foundation" / "INV-0002-y.md", d, body="## 結論\nこう分かった。")
+    # 調査は verified_by 不要。結論があればエラーにしない。
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "INV-0002" in p.message]
+
+
 def test_pending_human_section_lists_blocked_and_questions(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # blocked のタスクと [要確認] を「人の判断待ち」に集約する。

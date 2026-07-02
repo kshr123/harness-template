@@ -18,8 +18,8 @@ from harness.models import Item, Kind, PlanMaturity, Status
 
 WORK_DIR = "work"
 MARKER = "item.md"
-# 軽い単位のファイル名の印。EP- / T- / E- で始まる .md を単位とみなす（notes.md 等の付属ファイルと区別する）。
-UNIT_FILE = re.compile(r"^(EP|T|E)-\d+.*\.md$")
+# 軽い単位のファイル名の印。EP- / T- / INV- / E- で始まる .md を単位とみなす（notes.md 等の付属ファイルと区別する）。
+UNIT_FILE = re.compile(r"^(EP|T|INV|E)-\d+.*\.md$")
 _ARTIFACT_FILES = {MARKER, "STATUS.md", "SPEC.md", "PLAN.md", "notes.md", "README.md"}
 
 
@@ -124,6 +124,13 @@ def lint(root: Path) -> list[Problem]:
                 if not (root / test_file).is_file():
                     problems.append(Problem("error", f"{n.item.id}: verified_by の '{test_file}' が見つからない"))
 
+    # 調査は done のとき、本文に「結論」の節が必須（verified_by の代わり。②自動検証）。
+    for n in everything:
+        if n.item.kind is Kind.investigation and n.item.status is Status.done:
+            src = n.path if n.path.is_file() else n.path / MARKER
+            if "## 結論" not in frontmatter.load(src).content:
+                problems.append(Problem("error", f"{n.item.id}: done の調査に「## 結論」の節が無い"))
+
     # plan=detailed なのに子の単位が無い＝分解し忘れの可能性（失敗にはしない）。
     for n in everything:
         if n.item.plan is PlanMaturity.detailed and n.item.kind is Kind.epic and not n.children:
@@ -182,7 +189,7 @@ def _render_node(node: Node, lines: list[str], depth: int) -> None:
     else:
         progress = "1/1 ✅" if node.item.status is Status.done else f"0/1（{node.item.status.value}）"
 
-    plan = node.item.plan.value if node.item.kind is not Kind.task else "—"
+    plan = node.item.plan.value if node.item.kind in (Kind.epic, Kind.experiment) else "—"
     reqs = ", ".join(node.item.requirements) if node.item.requirements else "—"
     indent = "　" * depth
     lines.append(f"| {indent}{node.item.display} | {node.item.kind.value} | {plan} | {progress} | {blocked} | {reqs} |")

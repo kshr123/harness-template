@@ -1,0 +1,19 @@
+# 置き場の切り替え設定。データ・課題・メタデータの保存先を URI で持つ。
+# コードは置き場の違いを意識せず、この設定だけで手元と共有先を切り替える。
+
+[data]
+default_backend = "local"
+
+[data.backends.local]
+uri = "file:data"
+
+# 層ごとに backend を上書きしたいときだけ書く（例：raw = "object"）。
+[data.layer]
+
+[issues]
+# 個人はローカルのファイル、チームは GitHub Issues（github:owner/repo）。
+backend = "file:issues"
+
+[metadata]
+# テーブル定義の正本の置き場。既定はリポジトリ内。
+uri = "file:docs/data"
