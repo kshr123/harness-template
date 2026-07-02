@@ -15,7 +15,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.14"
-      - name: 依存を同期
-        run: uv sync
+      - name: 依存を同期（データサイエンスの上乗せも含める）
+        run: uv sync --extra ds
       - name: 共通の検証コマンド（完了判定）
         run: uv run verify

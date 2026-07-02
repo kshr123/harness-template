@@ -12,6 +12,14 @@ dependencies = [
     "jsonschema>=4.23",
 ]
 
+# データサイエンスの上乗せ（プロファイル）。土台の中核とは分け、案件に応じて足す。
+# インストール例: uv sync --extra ds
+[project.optional-dependencies]
+ds = [
+    "numpy>=2.1",
+    "polars>=1.17",
+]
+
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
 verify = "harness.cli:verify_main"
