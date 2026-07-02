@@ -20,6 +20,11 @@
 - **対応**：メッセージを短く保つ。現時点で line-length 変更はしない（適正規模＝標準に合わせる）。
 - **判断**：友好度と規約のトレードオフ。今は「短く書く」で対応。多発するなら line-length=120 を検討（保留）。
 
+## L-005 Windows で git が LF→CRLF 変換の警告を出す（クロスプラットフォームのテンプレで差分の温床）
+- **要点**：Windows の作業コピーで改行が CRLF になり、Linux CI と差分になりうる。
+- **対応**：`.gitattributes` に `* text=auto eol=lf` を置き、`git add --renormalize .` で LF に統一。
+- **PM設計への反映**：不要（テンプレの標準装備として `.gitattributes` を含める）。
+
 ## L-004 STATUS.md は「タスク変更→uv run status」を挟まないとコミットで赤になる
 - **要点**：STATUS は生成物で再生成一致を CI/フックが検査するため、タスク編集後に `uv run status` を忘れると赤。
 - **対応**：pre-commit フックに `uv run status --check` を入れて早い層で気づけるようにした。AGENTS.md の手順にも明記。

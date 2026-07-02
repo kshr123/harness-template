@@ -1,0 +1,4 @@
+# 改行を LF に正規化（Windows↔Linux CI で CRLF 差分が出ないようにする）。
+* text=auto eol=lf
+*.png binary
+*.parquet binary
