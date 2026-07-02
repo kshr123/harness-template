@@ -1,6 +1,6 @@
 # AGENTS.md — エージェント向けの決まりごと（正本）
 
-このリポジトリは AIコーディング中心の開発ハーネス（土台）。Claude Code / Codex 共通の正本。
+このリポジトリは AIコーディング中心の開発基盤。Claude Code / Codex 共通の正本。
 Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを読む。
 
 ## 原則

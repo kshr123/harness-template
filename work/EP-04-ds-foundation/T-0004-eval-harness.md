@@ -2,13 +2,13 @@
 id: T-0004
 kind: task
 status: done
-title: 評価ハーネス（指標の算出と設定の閾値による合否）
+title: 評価の仕組み（指標の算出と設定の閾値による合否）
 requirements: [REQ-002]
 verified_by: [tests/test_ds_eval.py]
 depends_on: [T-0003]
 owner: sakurada
 ---
-# T-0004 評価ハーネス（指標の算出と合否判定）
+# T-0004 評価の仕組み（指標の算出と合否判定）
 
 ## 目的
 予測と正解から指標（正解率・AUC）を算出し、設定ファイルに書いた閾値で合否（成功/失敗）を返す
