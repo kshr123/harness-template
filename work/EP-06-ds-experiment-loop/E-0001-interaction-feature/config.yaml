@@ -1,0 +1,9 @@
+# E-0001 の設定。変種は features 節で持つ（実験＝1 仮説・変種は設定ファイル）。
+seed: 20260703
+n: 2000
+n_folds: 5
+variants:
+  baseline: { features: [columns] }
+  interaction: { features: [columns, interaction] }
+test_mode: { n: 240, n_folds: 3 } # --test のときの小さな規模
+thresholds: { roc_auc: 0.80 } # 合否の閾値（案件のパラメータ・値はここで決めない）
