@@ -33,6 +33,13 @@ def test_models_have_docstrings_and_task() -> None:
         assert entry.task in ("classification", "regression"), f"MODELS['{kind}'] の task が不正"
 
 
+def test_ts_models_have_docstrings() -> None:
+    from harness.ds.forecast import TS_MODELS
+
+    for kind, factory in TS_MODELS.items():
+        assert factory.__doc__, f"TS_MODELS['{kind}'] に docstring が無い（カタログに載れない）"
+
+
 def test_metrics_have_descriptions() -> None:
     # 指標も config の語彙（thresholds）＝カタログ対象。説明文が無いと一覧に載れない。
     for name, metric in METRICS.items():
@@ -51,3 +58,4 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert "target" in out
     assert "logreg" in out
     assert "roc_auc" in out  # 指標カタログ
+    assert "timeseries" in out  # 古典時系列（statsmodels 導入環境・all-extras）

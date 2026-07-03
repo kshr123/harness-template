@@ -26,6 +26,8 @@ ds = [
 # 追加モデルの optional 依存（ライブラリ名＝extra 名）。入れれば `data models` に増える（条件登録）。
 # 入れなくても ds は全機能動く（sklearn の hist_gb で勾配ブースティングは賄える）。導入例: uv sync --extra ds --extra lightgbm
 lightgbm = ["lightgbm>=4.5"]
+# 古典時系列（ARIMA/SARIMA/ETS）の別経路（forecast.py）。入れれば `data models` に [timeseries] が増える。
+statsmodels = ["statsmodels>=0.14"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -75,7 +77,7 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 # 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
-module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*"]
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

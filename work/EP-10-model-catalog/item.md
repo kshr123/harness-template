@@ -1,11 +1,12 @@
 ---
 id: EP-10
 kind: epic
-status: in-progress
+status: done
 title: モデルカタログの拡充（分類・回帰・時系列・目的関数変更）
 plan: detailed
 requirements: [REQ-004]
 created: 2026-07-03
+closed: 2026-07-03
 ---
 # EP-10 モデルカタログの拡充（分類・回帰・時系列）
 

@@ -202,13 +202,18 @@ def _data_encoders() -> None:
 @data_app.command("models")
 def _data_models() -> None:
     """モデル種の一覧（MODELS レジストリから生成）。config の model 節に書ける kind と task。"""
+    from harness.ds.forecast import TS_MODELS
     from harness.ds.pipeline import MODELS
 
     for kind, entry in sorted(MODELS.items()):
         doc = entry.factory.__doc__.strip().splitlines()[0] if entry.factory.__doc__ else ""
         typer.echo(f"{kind}\t{entry.task}\t{doc}")
+    for kind, factory in sorted(TS_MODELS.items()):  # statsmodels 導入時のみ。sklearn 背骨に載らない別経路。
+        doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
+        typer.echo(f"{kind}\ttimeseries\t{doc}")
     typer.echo(
-        "\nparams は sklearn 本体へ素通し（目的関数も loss/criterion/objective で変える・各 docstring 参照）。"
+        "\nparams は本体へ素通し（目的関数も loss/criterion/objective で変える・各 docstring 参照）。"
+        "\n[timeseries] は run_forecast 用（sklearn Pipeline には載らない）。未表示なら `uv sync --extra statsmodels`。"
         "学習済みモデル（保存版）の一覧は `uv run data saved`。"
     )
 

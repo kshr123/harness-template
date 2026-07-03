@@ -18,6 +18,7 @@ description: DS の実験（仮説検証・モデル比較・特徴量の効果�
 - **ハイパラ・目的関数は config の params で変える**（`model: {kind: hist_gb_reg, loss: absolute_error}`＝外れ値に強い／`loss: quantile, quantile: 0.9`＝上振れ分位／`criterion: entropy`）。どの引数で変えられるかは各 kind の docstring（`data models`）。
 - モデル比較は variants にモデルを持つ（`variants: {a: {model: {kind: ridge}}, b: {model: {kind: hist_gb_reg}}}`）。回帰は `task: regression`。
 - **時間の順序があるデータ**（時系列予測）は `order_by: <日付/時刻列>` で**時間順分割**（過去→未来の拡大窓・最古 fold は学習専用）。shuffle CV は使わない（未来を先に見ると評価が甘くなる）。ラグ特徴は features スキル（最初の時系列実験で追加）。
+- **古典時系列**（単変量で季節構造そのものが主題）は `task: timeseries`＋`data models` の [timeseries] 群（arima/sarima/ets）。config に `order_by`/`horizon`/`n_windows`/`thresholds: {rmse: ...}`。評価は `forecast.run_forecast`（バックテスト＝過去で fit→先の horizon を forecast→実測と比較）で sklearn 背骨とは**別経路**（run_cv・build_estimator に載せない）。まず第一選択は ML 方式（上の `order_by` 付き）で試し、季節の説明や単変量が主眼なら古典へ。雛形は最初の時系列実験が E-0001 の作法（--test 必須・save_folds・results/metrics_*.yaml・e2e 接続）を踏襲して最小の train.py を書く（Rule of Three＝先に2本目の雛形を作らない）。
 
 ## 結果の深掘り（すべて OOF/valid の予測で・`analysis`／`eval`）
 どこで・どんな行で・どの列で外しているかを構造化レポートで掴み、特徴量の仮説（features スキルへ）に変える。

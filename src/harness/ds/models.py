@@ -31,7 +31,7 @@ MANIFEST_FILE = "manifest.yaml"
 PROMOTIONS_DIR = "promotions"
 VERSION_FORMAT = "%Y%m%dT%H%M%S%fZ"  # 辞書順＝時刻順（最新＝降順1件）
 # 依存版を記録する配布物（入っていないものは飛ばす）。記録のみ・照合は既定でしない。
-TRACKED_DISTRIBUTIONS = ("scikit-learn", "numpy", "polars", "lightgbm")
+TRACKED_DISTRIBUTIONS = ("scikit-learn", "numpy", "polars", "lightgbm", "statsmodels")
 
 
 @dataclass(frozen=True)

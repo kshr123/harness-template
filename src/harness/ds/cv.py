@@ -92,6 +92,35 @@ def make_time_folds(
     return ordered.select(id_column).with_columns(pl.Series("fold", fold))
 
 
+def make_backtest_folds(
+    df: pl.DataFrame,
+    *,
+    order_by: str,
+    horizon: int,
+    n_windows: int = 1,
+    id_column: str = "id",
+) -> pl.DataFrame:
+    """時間順バックテストの fold 割当表 (id_column, fold)。末尾から horizon 行ずつ n_windows 個の検証窓を切る。
+
+    fold 0 ＝学習専用の頭・fold 1..n_windows ＝古い順の検証窓。表の意味は expanding と同一
+    （fold k の train ＝ fold < k の全行）なので `fold_indices(how="expanding")` がそのまま使える（T-D の流用）。
+    決定的（seed 不要・shuffle しない）。古典時系列の run_forecast が使う。
+    """
+    if horizon < 1 or n_windows < 1:
+        raise ValueError("horizon・n_windows は 1 以上にすること")
+    n = df.height
+    if n_windows * horizon >= n:
+        raise ValueError(f"検証窓 {n_windows}×{horizon} が行数 {n} 以上（学習の頭が空になる分割は誤り）")
+    ordered = df.select(id_column, order_by).sort(order_by)
+    if ordered[order_by].n_unique() != n:
+        raise ValueError(f"order_by '{order_by}' に重複がある（複数系列の混在は未対応）")
+    fold = np.zeros(n, dtype=np.int64)  # 既定 0＝学習専用の頭
+    for w in range(n_windows):
+        start = n - (n_windows - w) * horizon  # 古い窓ほど前
+        fold[start : start + horizon] = w + 1
+    return ordered.select(id_column).with_columns(pl.Series("fold", fold))
+
+
 def fold_indices(
     df: pl.DataFrame,
     folds: pl.DataFrame,
