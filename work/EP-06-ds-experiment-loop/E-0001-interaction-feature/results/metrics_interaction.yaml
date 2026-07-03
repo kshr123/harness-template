@@ -1,0 +1,27 @@
+variant: interaction
+mode: full
+seed: 20260703
+n: 2000
+n_folds: 5
+metrics:
+  accuracy: 0.9345
+  roc_auc: 0.9856022408963585
+passed: true
+threshold:
+  method: max_f1
+  value: 0.5029869863479663
+  f1: 0.9338085539714868
+metrics_at_threshold:
+  accuracy: 0.935
+  roc_auc: 0.9856022408963585
+fingerprints:
+  folds: 19d95639ca9f5ea983a35b5a83c2313dcd62cf0e4e4d2ba0a3aab13d5fa56ac5
+  oof: 4e03eefcfca9e7bd1b5b060eb0515e2e33d8965332c112c014e23908bd54dbde
+  model: 296932bde57848d21595916badf6f70f2317d82c46c7a0f557b33e71f330c26b
+model:
+  name: interaction
+  version: 20260703T043613196998Z
+feature_names:
+- x1
+- x2
+- x1_x_x2

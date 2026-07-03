@@ -1,0 +1,10 @@
+# E-0001 の結論（本規模 n=2000・n_folds=5・seed=20260703・両変種は同一分割）。
+conclusion: rejected # 交互作用特徴量 x1*x2 は採択しない
+criterion: interaction の OOF roc_auc が baseline + 0.01 以上なら採択
+baseline: { roc_auc: 0.9856542617046818, threshold: 0.4881618945572817 }
+interaction: { roc_auc: 0.9856022408963585, threshold: 0.5029869863479663 }
+difference: -0.0000520208083233 # interaction - baseline（ほぼ同じ・わずかに悪い）
+folds_fingerprint: 19d95639ca9f5ea983a35b5a83c2313dcd62cf0e4e4d2ba0a3aab13d5fa56ac5 # 両変種で共通＝同一分割で比較した証拠
+note: >-
+  合成データは 1.5*x1 - 2*x2 + 雑音 の線形生成。交互作用 x1*x2 は効かず（見込みどおり棄却）。
+  棄却でも done ＝「負の結果も記録で完了」の実地確認まで含めて本実験の完了条件。

@@ -1,11 +1,12 @@
 ---
 id: EP-06
 kind: epic
-status: in-progress
+status: done
 title: データサイエンスの実験ループ（ローカル完結・テスト先行）
 plan: detailed
 requirements: [REQ-004]
 created: 2026-07-03
+closed: 2026-07-03
 ---
 # EP-06 実験ループ（ローカル完結・テスト先行）
 

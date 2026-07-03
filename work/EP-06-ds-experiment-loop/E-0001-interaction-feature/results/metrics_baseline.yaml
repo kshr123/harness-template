@@ -1,0 +1,26 @@
+variant: baseline
+mode: full
+seed: 20260703
+n: 2000
+n_folds: 5
+metrics:
+  accuracy: 0.932
+  roc_auc: 0.9856542617046818
+passed: true
+threshold:
+  method: max_f1
+  value: 0.4881618945572817
+  f1: 0.932994923857868
+metrics_at_threshold:
+  accuracy: 0.934
+  roc_auc: 0.9856542617046818
+fingerprints:
+  folds: 19d95639ca9f5ea983a35b5a83c2313dcd62cf0e4e4d2ba0a3aab13d5fa56ac5
+  oof: 646b693ef17367508e33a0f997d91e348efb07108b7cffb61c4feee20031bd92
+  model: 1eead79775ea67b761cbe6bc0614fa65fea2771235d66e326a6bc59bf6f70993
+model:
+  name: baseline
+  version: 20260703T043611296061Z
+feature_names:
+- x1
+- x2
