@@ -34,6 +34,11 @@
 - **対応**：`.gitattributes` に `* text=auto eol=lf` を置き、改行を LF に統一。
 - **設計への反映**：不要（テンプレートの標準装備として `.gitattributes` を含める）。
 
+## L-007 業界標準（scikit-learn）があるのに評価メトリクス・標準化・CV 分割を自前で書いていた
+- **状態**：昇格済み → DEC-0006（「標準ライブラリを再発明しない」を DEC＋AGENTS のレビュー観点に落とした。次の棚卸しで削除可）。
+- **要点**：roc_auc・accuracy・StandardScale・fold 分割を numpy で手書きしていた。これは業界標準の再発明で、保守負債・バグの温床だった（参考リポも全メトリクスを sklearn 実装）。
+- **対応**：`scikit-learn` を ds の一級依存にし、eval のメトリクス・transforms.StandardScale・cv.make_folds を sklearn（accuracy_score/roc_auc_score・StandardScaler・KFold/StratifiedKFold）へ置換。置換後も既存テストが全通過＝手書きは純粋な再発明だった。モデルの具体・直列化の形式は注入して差し替え可能に保つ（sklearn→LightGBM の移行路は維持）。
+
 ## L-006 typer.Exit を console_script の入口で raise すると余計なエラー表示が出る
 - **要点**：`[project.scripts]` の入口関数（typer.run を通さない）で `raise typer.Exit(1)` すると、捕捉されず余計なエラー表示（Traceback）が出る（終了コードは 1 で正しいが見苦しい）。
 - **対応**：入口では `sys.exit(1)` を使う（task-lint・status・verify）。typer.run を通すコマンド（check）は typer.Exit のままでよい。

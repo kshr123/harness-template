@@ -3,7 +3,37 @@
      この文書は正本。着手順は item.md と一致させること。 -->
 # 段階1（EP-06）実験ループ設計書 — 特徴量→学習→評価→記録→登録
 
-## A. 全体像
+## R. 改訂：ゼロベース再設計（2026-07-03・DEC-0006/0007）
+
+利用者の指摘（sklearn ライクな自前 Protocol は二重・個別変換は sklearn・特徴量作成の枠組み＝BaseBlock の考え方は作る・過剰分割を適切な粒度へ・エージェントファースト）を受けた改訂。**以下 R が正本。旧 B-2/B-4/D-2/D-3/D-4 はこれで置き換わる**。
+
+**背骨は sklearn の Pipeline。** 特徴量→モデルを1本の `sklearn.pipeline.Pipeline` にし、CV の fold ごとに `sklearn.base.clone` して train 側だけで fit する。**漏れ防止は「規約」でなく「構造」**（clone された Pipeline が train でだけ fit するので valid の統計が混ざる経路が無い）。個別の標準変換（StandardScaler・OneHotEncoder 等）は sklearn を直接使い、自作しない。ハーネスが足すのは sklearn の外の薄い層だけ。
+
+**捨てる自前抽象**：`TargetTransform`/`Identity`/`Log1p`/`StandardScale`（＝`TransformedTargetRegressor`＋`StandardScaler`／`FunctionTransformer(np.log1p, np.expm1)` の焼き直し。transforms.py 削除）。`Trainer`/`FoldOutcome`/`SklearnTrainer`（＝sklearn estimator＋`clone` の焼き直し。train.py は作らない）。
+
+**作る特徴量枠組み（BaseBlock の考え方・モデル非依存）**：`features.py`。
+- `FeatureBlock(BaseEstimator, TransformerMixin)`：特徴量作成の1単位の基底。polars 入→polars 出・名前付き出力列・`get_feature_names_out`・`describe`。sklearn 互換なので `clone` でき Pipeline に入る。**個別の標準変換のブロックは作らない**（StandardScaler 等は sklearn を直接 ColumnTransformer/Pipeline に入れる）。作るのは「モデルに依らない特徴量ロジック」（交互作用・集約など複数列から作る本物の特徴量）だけ。段階1の具体は `Interactions(pairs)`（`a_x_b` 列）1つ。
+- `FeaturePipeline`：ブロック（と必要なら sklearn transformer）を横に束ねる薄い sklearn 互換 transformer。`fit/transform/get_feature_names_out/describe`。検査＝行数不変・出力列名の重複禁止（人にもエージェントにも「どの特徴量がどこから来たか」を describe で示す）。これを estimator Pipeline の `"features"` 段に入れる。
+
+**一気通貫の薄い接着**：`experiment.py`。`build_estimator(spec, model)`（config の特徴量指定＋モデルから Pipeline を組む）と `run_experiment(...)`（load→make_folds→store.save(split)→run_cv→eval.passes→store.save(OOF)→save_model→results）。実験の `code/train.py` はこれを呼ぶだけ（＝二重実装を避けつつ端から端まで1関数で追える）。
+
+**残すハーネス固有**（sklearn の外・自作が正当）：`data.py`（合成・id ハッシュ固定分割）／`schema.py`＋`store.py`（テーブル定義・config URI 保存・指紋・manifest・split 再保存拒否）／`cv.py`（fold 表＋`run_cv` の clone-per-fold 約40行。sklearn に「1回で OOF＋mask＋fold 別 estimator＋指標」を返す口が無い）／`eval.py`（sklearn.metrics＋passes＋閾値選択）／`models.py`（Pipeline 丸ごと保存・版・指紋・台帳・昇格）／実験構造（SPEC・--test・verify）。
+
+**モジュール構成（適切な粒度・エージェントファースト。参考リポの過剰分割はしない）**：`src/harness/ds/` を平らな8ファイルに——`data.py`／`schema.py`／`store.py`／`features.py`／`cv.py`／`eval.py`／`models.py`／`experiment.py`。各ファイル＝1責務・名前で引ける。blocks/ サブパッケージや training/ の細分化はしない。
+
+**着手順（改訂・全体→詳細）**：T-0017（済）→ ①transforms.py 削除 → ②cv.py 作り直し（`run_cv(estimator,…)`・clone-per-fold・`Trainer` 削除）→ ③features.py（FeatureBlock/FeaturePipeline/Interactions）→ ④experiment.py＋E-0001 骨組み（baseline を `--test` で一気通貫・e2e を verify に接続）→ ⑤eval 閾値選択 → ⑥models.py → ⑦E-0001 完了。T-0013/T-0015 は「sklearn Pipeline/estimator で代替」として廃止（ID 再利用しない）。
+
+**run_cv の署名（改訂）**：
+```python
+def run_cv(estimator, x: pl.DataFrame, y, splits, *, predict="proba", metric_fn=evaluate) -> CVResult:
+    # fold ごとに clone(estimator).fit(train部) → valid を予測して oof に格納。
+    # CVResult(oof, oof_mask, fold_metrics, estimators, oof_metrics)。valid 重複は失敗。
+```
+テストは `FakeTrainer` を廃し **sklearn の `DummyClassifier`** を使う。漏れ検知は `Pipeline([("sc",StandardScaler()),("m",DummyClassifier())])` を run_cv に通し `estimators[k].named_steps["sc"].mean_` が train 部の平均と一致すること（train 統計だけで fit した証拠）で確かめる。
+
+---
+
+## A. 全体像（※R で改訂。以下は初版の記録）
 
 新規モジュールはすべて `src/harness/ds/` に置く（eval.py への追記1件＋新規4件）。データの表（polars DataFrame）はテーブル定義・保存・fold 表・特徴量の入出力までで使い、学習の数値計算（行列 X・目的 y・予測・指標）は numpy 配列だけで行う。境界は「FeaturePipeline の出力を `.to_numpy()` した瞬間」の1か所に固定する。学習系（cv.py / train.py）は store を import しない（保存は実験スクリプトの仕事）。依存の向きは一方通行：`実験スクリプト → cv/train/features/eval/models → transforms/eval(数値) → numpy` と `実験スクリプト → store/schema → config`。乱数は全関数で `seed` 明示引数、グローバル種設定は使わない（参考リポの `set_seed` は非採用を維持）。
 
@@ -31,9 +61,9 @@ store.load(raw)                       … polars。テーブル定義で検証�
 
 ## B. モジュール詳細設計
 
-### B-1. eval.py への追記（T-0012 閾値選択）— sklearn 不使用・numpy のみ
+### B-1. eval.py への追記（T-0012 閾値選択）— sklearn.metrics を使う
 
-参考リポ `domain/threshold.py` は sklearn.metrics（f1_score / roc_curve / precision_recall_curve）に依存し、閾値候補を `linspace(0.01, 0.99, 100)` の格子で探す。移植では **候補＝y_score の一意な値の集合** に変える。格子より正確で、テストの期待値が入力の構成から厳密に導出できる（合否数値が決め打ちできる）。
+閾値選択も `sklearn.metrics`（`precision_recall_curve` / `f1_score`）で実装する（再発明しない・参考リポ `domain/threshold.py` と同じ）。`precision_recall_curve` は各「distinct なスコア」を閾値候補として返すので、格子探索より正確で、テストの期待値も入力の構成から厳密に導ける。ハーネス固有なのは「valid/OOF で選ぶ・train/test で選ばない」という**使い方の規約**だけ（下の関数名と docstring がそれを担う）。
 
 ```python
 def f1(y_true: NDArray[np.int_], y_pred: NDArray[np.int_]) -> float:
@@ -59,7 +89,7 @@ def select_threshold_at_precision(
 
 - Youden's J 版（optimize_threshold_roc）は取り込まない。F1 最大・recall/precision 指定の3つで段階1の用途は足りる。必要になった実験で足す。
 - `get_threshold_metrics` 相当は既存 `evaluate(y_true, y_score, threshold=...)` がそのまま担う（新設しない）。
-- 実装は「score 降順に並べ、累積和で TP/FP を一括計算」（既存 roc_auc と同じ流儀の numpy ベクトル計算）。
+- 実装は `sklearn.metrics.precision_recall_curve` に委譲（distinct なスコアごとの precision/recall/threshold を得て、f1 最大・recall/precision 指定をその配列から選ぶ）。手書きの TP/FP 集計はしない。
 
 ### B-2. features.py（T-0013）— FeatureBlock Protocol＋FeaturePipeline
 
@@ -93,13 +123,13 @@ class FeaturePipeline:
 同梱する汎用ブロックは3つだけ（列名は引数で渡す＝案件固有に寄せない）：
 - `ColumnsBlock(columns: Sequence[str])` … 素通し選択（無状態）
 - `InteractionBlock(pairs: Sequence[tuple[str, str]])` … 積の特徴量 `a_x_b`（無状態。E-0001 の主役）
-- `StandardScaleBlock(columns: Sequence[str])` … fit で平均・標準偏差を学習（有状態。漏れ検知テストの被験体でもある）
+- `StandardScaleBlock(columns: Sequence[str])` … fit で平均・標準偏差を学習（有状態・漏れ検知テストの被験体）。標準化は `sklearn.preprocessing.StandardScaler` に委譲する（再発明しない）
 
 blocks サブパッケージは作らない（EP-06 の「やらないこと」どおり、実験駆動で features.py に足し、増えたら分割）。
 
 ### B-3. cv.py（T-0014）— fold 表・添字対・run_cv
 
-参考リポとの差分：`CVSplitter` は sklearn KFold の包み＋`random_state=42` の隠れ既定。非採用。fold 割当を**データ（split 層テーブル）**にし、分割の再現をコードでなくデータで担保する（核2）。`create_cv_splitter(config)` のような設定→部品の工場も作らない（実験スクリプトが組み立てる。段階1に分岐は2種しかない）。
+分割そのものは sklearn の `KFold`/`StratifiedKFold`（shuffle・random_state=seed）を使う（再発明しない）。参考リポとの差分は「隠れ既定 `random_state=42` を持つ包み `CVSplitter`」や `create_cv_splitter(config)` 工場を作らない点と、**fold 割当をデータ（split 層テーブル）にして再現をデータで担保する**点（核2）。make_folds はその sklearn の分割結果を (id, fold) 表に落とすだけ。
 
 ```python
 def make_folds(
@@ -359,9 +389,11 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 
 ## D. 横断的な設計判断
 
-**D-1. sklearn は ds extra に追加する。ただし src の核は import しない（結論）。**
-- pyproject の `[project.optional-dependencies] ds` に `scikit-learn>=1.6` を追加。mypy overrides に `sklearn.*` の ignore_missing_imports を追加。
-- 理由：(1) E-0001 には本物の学習器が要る。ロジスティック回帰の自前実装は本題（実験ループの結線）の外で、保守負債にしかならない。(2) eval の AUC・閾値選択・make_folds を自前 numpy に保つのは、既に半分できており（roc_auc 自前）、決定性・依存の軽さ・テスト期待値の導出可能性で勝る。(3) 分水嶺は「**src/harness/ds/ のどのファイルも sklearn を import しない**」に引く。sklearn が現れるのは実験コード（model_factory の中身）とテストだけ。核の型検査・単体テストは sklearn 無しの環境でも通る。LightGBM も同じ扱いで足せる。
+**D-1. sklearn は ds の一級依存。標準の数値・分割・スケーリングは sklearn を使う（再発明しない）。ただしモデルの具体と直列化は注入して差し替え可能に保つ。**（当初の「核は sklearn 非 import」から反転。DEC-0006・L-007）
+- pyproject の ds extra に `scikit-learn>=1.6`、mypy overrides に `sklearn.*` を追加。
+- 使う所：eval のメトリクス（`accuracy_score`/`roc_auc_score`…）、`cv.make_folds`（`KFold`/`StratifiedKFold`）、`transforms.StandardScale`（`StandardScaler`）、threshold（`sklearn.metrics`）。手書きの数値・分割・スケーリングは置かない（保守負債・バグの温床。参考リポも全メトリクスを sklearn 実装）。Log1p/Identity は numpy 標準関数そのものなので追加ライブラリ不要。
+- 差し替えを保つ境界：**モデルの具体**（LogisticRegression/LightGBM 等）は Trainer の `model_factory` で注入し train.py は特定モデルライブラリを import しない。**直列化の形式**は Serializer で注入し models.py は形式ライブラリを import しない。これで sklearn→LightGBM の移行を一本道に保ちつつ標準実装の恩恵を受ける。
+- 標準が例外を投げる縁（単一クラスの AUC 等）だけハーネスの方針で吸収（`roc_auc` は 0.5 を返す）。
 
 **D-2. numpy/polars の境界は1点。** polars＝表とメタデータの世界（store/schema/fold表/FeatureBlock）、numpy＝学習の数値の世界（X, y, oof, 指標, 変換）。変換は `FeaturePipeline` の出力 DataFrame を `.to_numpy()` する1か所だけ。列順は `feature_names()` で記録し、モデル manifest の config に残す（推論時の列ずれ検知の材料）。
 

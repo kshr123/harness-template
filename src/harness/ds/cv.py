@@ -1,21 +1,24 @@
 """交差検証（CV）と固定分割：fold 割当・添字対のリスト・run_cv。
 
-- 分割は「行番号の対のリスト」で学習系へ渡す（固定分割＝要素1・CV＝要素k）。形をそろえる。
-- fold 割当は表（id, fold）にして split 層に保存でき、再現をコードでなくデータで担保する。
-- run_cv は fold ごとに種を SeedSequence で導出し、trainer に明示引数で渡す（グローバル種を使わない）。
+- 分割は「行番号の対のリスト」で渡す（固定分割＝要素1・CV＝要素k）。形をそろえる。
+- fold 割当は表 (id, fold) にして split 層に保存でき、再現をコードでなくデータで担保する。
+- 分割の計算そのものは sklearn（KFold/StratifiedKFold）を使う（再発明しない）。
+- run_cv は estimator（sklearn 互換の Pipeline 等）を **fold ごとに clone して train 側だけで fit** する。
+  これで特徴量の学習も train でだけ起き、valid の統計が混ざらない（漏れ防止が規約でなく構造）。
 - 未カバー行の黙認を避けるため CVResult は oof に加えて oof_mask を持つ（固定分割でも同じ関数が正しく使える）。
-- Trainer は「run_cv が消費する契約」なのでここに置く。具体（SklearnTrainer 等）は別モジュールで実装する。
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 import numpy as np
 import polars as pl
 from numpy.typing import NDArray
+from sklearn.base import clone
+from sklearn.model_selection import KFold, StratifiedKFold
 
 from harness.ds.eval import evaluate
 
@@ -23,28 +26,16 @@ Splits = Sequence[tuple[NDArray[np.int64], NDArray[np.int64]]]
 MetricFn = Callable[[NDArray[np.int_], NDArray[np.float64]], dict[str, float]]
 
 
-@dataclass(frozen=True)
-class FoldOutcome:
-    """1 つの fold の学習結果。y_pred は valid への予測（必ず元スケール）。"""
-
-    y_pred: NDArray[np.float64]
-    model: object
-    feature_importance: NDArray[np.float64] | None = None
-
-
 @runtime_checkable
-class Trainer(Protocol):
-    """1 fold を学習する契約。seed は明示引数（呼ぶ場所で決めた種だけが効く）。"""
+class SklearnLike(Protocol):
+    """sklearn 互換の最小契約（clone できる＝get_params を持ち、fit できる）。
 
-    def train(
-        self,
-        x_train: NDArray[np.float64],
-        y_train: NDArray[np.float64],
-        x_valid: NDArray[np.float64],
-        y_valid: NDArray[np.float64],
-        *,
-        seed: int,
-    ) -> FoldOutcome: ...
+    LogisticRegression も LGBMClassifier も Pipeline も FeaturePipeline もこれを満たす。
+    run_cv はこの型だけに依存し、モデルの具体を知らない（差し替えは estimator の交換だけ）。
+    """
+
+    def fit(self, x: object, y: object) -> object: ...
+    def get_params(self, deep: bool = True) -> dict[str, object]: ...
 
 
 def make_folds(
@@ -55,27 +46,27 @@ def make_folds(
     id_column: str = "id",
     stratify_by: str | None = None,
 ) -> pl.DataFrame:
-    """fold 割当表 (id_column, fold) を作る。同じ (df, seed) なら必ず同じ表（純 numpy）。
+    """fold 割当表 (id_column, fold) を作る。同じ (df, seed) なら必ず同じ表。
 
-    - 無層化：行の並びをシャッフルし n_folds に等分（各 fold の行数差は高々 1）。
-    - 層化：stratify_by の値ごとにシャッフルして順に fold を配る（各 fold 内のクラス件数差はクラスごとに高々 1）。
+    分割は scikit-learn の標準実装を使う（再発明しない）：無層化は KFold、層化は StratifiedKFold
+    （クラス比率を保つ）。どちらも shuffle・random_state=seed で再現する。
     """
     if n_folds < 2:
         raise ValueError("n_folds は 2 以上にすること")
     n = df.height
     if n < n_folds:
         raise ValueError(f"行数 {n} が n_folds {n_folds} より少ない")
-    rng = np.random.default_rng(seed)
     fold = np.empty(n, dtype=np.int64)
+    rows = np.arange(n)
     if stratify_by is None:
-        for k, group in enumerate(np.array_split(rng.permutation(n), n_folds)):
-            fold[group] = k
+        splitter = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
+        for k, (_, valid) in enumerate(splitter.split(rows)):
+            fold[valid] = k
     else:
         strat = df[stratify_by].to_numpy()
-        for value in np.unique(strat):  # 値の昇順＝決定的な反復（再現性）
-            idx = np.nonzero(strat == value)[0]
-            shuffled = rng.permutation(idx)
-            fold[shuffled] = np.arange(len(shuffled)) % n_folds
+        stratified = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+        for k, (_, valid) in enumerate(stratified.split(rows, strat)):
+            fold[valid] = k
     return df.select(id_column).with_columns(pl.Series("fold", fold))
 
 
@@ -122,40 +113,51 @@ class CVResult:
     oof: NDArray[np.float64]
     oof_mask: NDArray[np.bool_]
     fold_metrics: list[dict[str, float]]
-    models: list[object]
+    estimators: list[object]  # fold ごとに学習済みの estimator（Pipeline 丸ごと）
     oof_metrics: dict[str, float]
 
 
+def _predict(estimator: object, x: pl.DataFrame, how: Literal["proba", "value"]) -> NDArray[np.float64]:
+    """valid への予測。分類は陽性の確率（predict_proba[:, 1]）、回帰は predict の値。"""
+    if how == "proba":
+        proba: NDArray[np.float64] = estimator.predict_proba(x)[:, 1]  # type: ignore[attr-defined]
+        return proba
+    value: NDArray[np.float64] = np.asarray(estimator.predict(x), dtype=np.float64)  # type: ignore[attr-defined]
+    return value
+
+
 def run_cv(
-    x: NDArray[np.float64],
+    estimator: SklearnLike,
+    x: pl.DataFrame,
     y: NDArray[np.float64],
     splits: Splits,
-    trainer: Trainer,
     *,
-    seed: int,
+    predict: Literal["proba", "value"] = "proba",
     metric_fn: MetricFn = evaluate,
 ) -> CVResult:
-    """fold ごとに trainer.train を呼び、valid への予測を oof に格納する。
+    """fold ごとに estimator を clone して train 側だけで fit し、valid の予測を oof に格納する。
 
-    - fold の種は SeedSequence(seed).spawn(k) から導出（fold 間で独立・再現可能）。
+    - clone するので特徴量の学習も fold の train でだけ起きる（valid の統計が混ざらない＝構造的な漏れ防止）。
     - valid_idx が重複していたら失敗（同じ行に 2 回書く分割は分割の誤り）。
     - 指標は分類（evaluate＝accuracy・roc_auc）を既定にし、y_true は整数ラベルとして渡す（段階1）。
+    - 再現性は estimator が持つ random_state に委ねる（fold ごとの独立種は作らない。clone で足りる）。
     """
     n = len(y)
     oof = np.zeros(n, dtype=np.float64)
     oof_mask = np.zeros(n, dtype=np.bool_)
     fold_metrics: list[dict[str, float]] = []
-    models: list[object] = []
-    fold_seeds = np.random.SeedSequence(seed).spawn(len(splits))
-    for (train_idx, valid_idx), fold_seed in zip(splits, fold_seeds, strict=True):
+    estimators: list[object] = []
+    for train_idx, valid_idx in splits:
         if oof_mask[valid_idx].any():
             raise ValueError("valid_idx が重複している（同じ行に 2 回予測を書く分割は誤り）")
-        outcome = trainer.train(
-            x[train_idx], y[train_idx], x[valid_idx], y[valid_idx], seed=int(fold_seed.generate_state(1)[0])
-        )
-        oof[valid_idx] = outcome.y_pred
+        fitted = clone(estimator)
+        fitted.fit(x[train_idx], y[train_idx])
+        pred = _predict(fitted, x[valid_idx], predict)
+        oof[valid_idx] = pred
         oof_mask[valid_idx] = True
-        fold_metrics.append(metric_fn(y[valid_idx].astype(np.int_), outcome.y_pred))
-        models.append(outcome.model)
+        fold_metrics.append(metric_fn(y[valid_idx].astype(np.int_), pred))
+        estimators.append(fitted)
     oof_metrics = metric_fn(y[oof_mask].astype(np.int_), oof[oof_mask])
-    return CVResult(oof=oof, oof_mask=oof_mask, fold_metrics=fold_metrics, models=models, oof_metrics=oof_metrics)
+    return CVResult(
+        oof=oof, oof_mask=oof_mask, fold_metrics=fold_metrics, estimators=estimators, oof_metrics=oof_metrics
+    )

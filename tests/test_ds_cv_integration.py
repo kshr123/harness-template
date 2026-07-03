@@ -1,95 +1,77 @@
-"""cv.run_cv の結線テスト（統合）。Fake の学習器で「繋がっていること」を確かめる。
+"""cv.run_cv の結線テスト（統合）。sklearn の estimator を fold ごとに clone して回すことを確かめる。
 
-Fake は呼ばれた順に定数 (呼び出し回数)/10 を返すだけの学習器（Trainer 契約を満たす最小実装）。
-これで OOF が全行埋まること・呼び出し回数・fold ごとに種が違うこと・valid 重複の検知を、
-テストデータの構成から導ける値で固定する。fold 表の store 往復も併せて確かめる。
+- 結線：DummyClassifier(strategy="prior") は train 側の陽性率を返すので、oof の各 valid が
+  その fold の train 陽性率と一致することで「clone→train で fit→valid を予測」の結線を厳密に確かめる。
+- 漏れ防止：train と valid で分布をずらし、Pipeline 内の StandardScaler が train 側だけで fit された
+  （mean_ が train 部の平均）ことを estimators から確認する（漏れていれば混ざった平均になる）。
+- fold 表の store 往復も併せて確かめる。
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
-from numpy.typing import NDArray
+from sklearn.dummy import DummyClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from harness.ds import cv, data, store
 
 pytestmark = pytest.mark.integration
 
 
-@dataclass
-class FakeTrainer:
-    """呼ばれるたびに記録し、その回の定数予測を返す（1 回目→0.1, 2 回目→0.2, …）。"""
-
-    seeds: list[int] = field(default_factory=list)
-    shapes: list[tuple[int, int]] = field(default_factory=list)
-
-    def train(
-        self,
-        x_train: NDArray[np.float64],
-        y_train: NDArray[np.float64],
-        x_valid: NDArray[np.float64],
-        y_valid: NDArray[np.float64],
-        *,
-        seed: int,
-    ) -> cv.FoldOutcome:
-        self.seeds.append(seed)
-        self.shapes.append((len(x_train), len(x_valid)))
-        value = len(self.seeds) / 10.0  # 1 回目=0.1, 2 回目=0.2, 3 回目=0.3
-        return cv.FoldOutcome(y_pred=np.full(len(x_valid), value, dtype=np.float64), model=object())
-
-
-def _xy(n: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    x = np.arange(n * 2, dtype=np.float64).reshape(n, 2)
-    y = np.zeros(n, dtype=np.float64)  # 指標は結線確認では見ないので単純な値
-    return x, y
-
-
-def test_run_cv_wiring_fills_oof_and_counts_calls() -> None:
-    x, y = _xy(30)
-    # 3 fold：valid が 0:10, 10:20, 20:30 を順に覆う分割。
+def test_run_cv_wiring_with_dummy() -> None:
+    y = np.array([0, 0, 0, 0, 1, 1, 1, 1, 0, 1] * 3, dtype=np.float64)  # 30 行
+    x = data.generate_synthetic(n=30, seed=0).select("x1", "x2")
     splits = [
         (np.arange(10, 30, dtype=np.int64), np.arange(0, 10, dtype=np.int64)),
         (np.concatenate([np.arange(0, 10), np.arange(20, 30)]).astype(np.int64), np.arange(10, 20, dtype=np.int64)),
         (np.arange(0, 20, dtype=np.int64), np.arange(20, 30, dtype=np.int64)),
     ]
-    trainer = FakeTrainer()
-    result = cv.run_cv(x, y, splits, trainer, seed=42)
+    result = cv.run_cv(DummyClassifier(strategy="prior"), x, y, splits, predict="proba")
 
-    assert len(trainer.seeds) == 3  # train は fold 数だけ呼ばれる
+    assert len(result.estimators) == 3  # fold ごとに 1 つずつ学習済み estimator
     assert result.oof_mask.all()  # OOF は全行埋まる
-    np.testing.assert_array_equal(result.oof[0:10], 0.1)  # 1 回目の予測が最初の valid に入る
-    np.testing.assert_array_equal(result.oof[10:20], 0.2)
-    np.testing.assert_array_equal(result.oof[20:30], 0.3)
+    for train_idx, valid_idx in splits:
+        # DummyClassifier(prior) の陽性確率＝train の陽性率。oof はそれが入る（構成から厳密）。
+        np.testing.assert_allclose(result.oof[valid_idx], y[train_idx].mean())
     assert len(result.fold_metrics) == 3
-    assert len(set(trainer.seeds)) == 3  # fold ごとに種が異なる（SeedSequence で導出）
 
 
-def test_run_cv_holdout_single_fold() -> None:
-    x, y = _xy(30)
-    trainer = FakeTrainer()
-    result = cv.run_cv(x, y, cv.holdout_indices(20, 10), trainer, seed=1)
-    assert len(trainer.seeds) == 1  # 固定分割＝要素1 → 1 回だけ
-    assert result.oof_mask.sum() == 10  # valid の 10 行だけ覆う
-    assert not result.oof_mask[0:20].any()  # train 側は未カバー（黙って 0 埋めしない）
+def test_run_cv_no_leak_standardscaler_fits_on_train_only() -> None:
+    # train 部（行 0:10）は f=0、valid 部（行 10:20）は f=100。分布をずらす。
+    x = (
+        data.generate_synthetic(n=20, seed=0)
+        .with_columns(f=np.concatenate([np.zeros(10), np.full(10, 100.0)]))
+        .select("f")
+    )
+    y = np.array([0, 1] * 10, dtype=np.float64)
+    splits = cv.holdout_indices(10, 10)
+    estimator = Pipeline([("sc", StandardScaler()), ("m", DummyClassifier(strategy="prior"))])
+    result = cv.run_cv(estimator, x, y, splits, predict="proba")
+
+    fitted_scaler = result.estimators[0].named_steps["sc"]  # type: ignore[attr-defined]
+    # train 側（f=0）だけで fit された証拠。valid の f=100 が混ざっていれば平均は 50 になる。
+    np.testing.assert_allclose(fitted_scaler.mean_, [0.0])
 
 
 def test_run_cv_rejects_overlapping_valid() -> None:
-    x, y = _xy(20)
+    x = data.generate_synthetic(n=20, seed=0).select("x1", "x2")
+    y = np.array([0, 1] * 10, dtype=np.float64)  # 両クラスある（predict_proba が 2 列になる）
     overlapping = [
         (np.arange(10, 20, dtype=np.int64), np.arange(0, 10, dtype=np.int64)),
         (np.arange(0, 10, dtype=np.int64), np.arange(5, 15, dtype=np.int64)),  # 5:10 が重複
     ]
     with pytest.raises(ValueError, match="重複"):
-        cv.run_cv(x, y, overlapping, FakeTrainer(), seed=0)
+        cv.run_cv(DummyClassifier(strategy="prior"), x, y, overlapping, predict="proba")
 
 
 def test_fold_table_store_roundtrip(make_project: Callable[..., Any]) -> None:
-    # make_folds → store.save(split 層) → load → fold_indices が元と一致すること。
+    # make_folds → store.save(split 層) → load → fold_indices が元と一致すること＋再保存拒否。
     proj = make_project()
     proj.add_schema(
         {
@@ -110,12 +92,9 @@ def test_fold_table_store_roundtrip(make_project: Callable[..., Any]) -> None:
     store.save(root, folds, "folds")
     loaded = store.load(root, "folds")
 
-    before = cv.fold_indices(df, folds)
-    after = cv.fold_indices(df, loaded)
-    for (tr_a, va_a), (tr_b, va_b) in zip(before, after, strict=True):
+    for (tr_a, va_a), (tr_b, va_b) in zip(cv.fold_indices(df, folds), cv.fold_indices(df, loaded), strict=True):
         np.testing.assert_array_equal(tr_a, tr_b)
         np.testing.assert_array_equal(va_a, va_b)
 
-    # split 層は同じ id への再書き込みを許さない（分割を切り直さない）。
     with pytest.raises(ValueError, match="split"):
-        store.save(root, folds, "folds")
+        store.save(root, folds, "folds")  # split 層は再書き込みを許さない
