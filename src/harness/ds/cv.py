@@ -118,7 +118,11 @@ class CVResult:
 
 
 def _predict(estimator: object, x: pl.DataFrame, how: Literal["proba", "value"]) -> NDArray[np.float64]:
-    """valid への予測。分類は陽性の確率（predict_proba[:, 1]）、回帰は predict の値。"""
+    """valid への予測。分類は陽性の確率（predict_proba[:, 1]）、回帰は predict の値。
+
+    proba は二値・両クラスがある前提（predict_proba が 2 列）。fold の train が単一クラスだと壊れるが、
+    層化（make_folds の stratify_by）で各 fold にクラスが揃うため段階1では起きない。
+    """
     if how == "proba":
         proba: NDArray[np.float64] = estimator.predict_proba(x)[:, 1]  # type: ignore[attr-defined]
         return proba

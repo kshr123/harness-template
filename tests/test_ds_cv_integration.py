@@ -16,12 +16,26 @@ from typing import Any
 import numpy as np
 import pytest
 from sklearn.dummy import DummyClassifier
+from sklearn.exceptions import NotFittedError
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.validation import check_is_fitted
 
 from harness.ds import cv, data, store
 
 pytestmark = pytest.mark.integration
+
+
+def test_run_cv_clones_and_leaves_original_unfitted() -> None:
+    # run_cv は fold ごとに clone してから fit する。元の estimator は未 fit のまま——
+    # これが「漏れ防止は構造」の担保。clone を消して同一オブジェクトを再 fit する退行が入れば、
+    # 元 estimator が fit 済みになり NotFittedError が出ず、このテストが落ちる。
+    x = data.generate_synthetic(n=20, seed=0).select("x1", "x2")
+    y = np.array([0, 1] * 10, dtype=np.float64)
+    estimator = Pipeline([("sc", StandardScaler()), ("m", DummyClassifier(strategy="prior"))])
+    cv.run_cv(estimator, x, y, cv.holdout_indices(10, 10), predict="proba")
+    with pytest.raises(NotFittedError):
+        check_is_fitted(estimator.named_steps["sc"])
 
 
 def test_run_cv_wiring_with_dummy() -> None:

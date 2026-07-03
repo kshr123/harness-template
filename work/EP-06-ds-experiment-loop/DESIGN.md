@@ -383,7 +383,7 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 **e2e→verify の接続（この仕組みの帰結）**：
 - e2e テストは実験スクリプト**そのもの**を subprocess で叩く（`sys.executable` ＋ `--test --root <tmp>`）。「雛形から乖離した実験」「テストだけ通る二重実装」が構造的に不可能になる——full が落ちるのはスクリプト本体が壊れたとき。
 - E-0001 の `verified_by: tests/test_e2e_experiment.py::test_e0001_smoke`。既存 pm.lint（`::名` の実在検査・done 実験の results/ 必須）にそのまま噛み合う。
-- 追加の機械ガード：pm.spec_lint に「`work/**/code/*.py` に `np.random.seed` / `random.seed` を含んだら error」を足す。グローバル種の禁止をレビュー頼みにしない。
+- 追加の機械ガード（**後で足す**・G 節「後で足す分」）：`work/**/code/*.py` に `np.random.seed` / `random.seed` を含んだら error にする検査。当面はグローバル種の禁止を AGENTS のレビュー観点で担保し、追って機械強制に上げる。
 
 **この仕組みを組み込む作業（T-0017 として先に入れる）**：(1) `checks.toml` の各段階 pytest を上表の marker 選択にする、(2) 既存テスト8ファイルに `pytestmark` でピラミッドの目印を付ける（分類は下のピラミッド表の「マーカー」列）、(3) 未マーク失敗ガードを conftest に置く。これは ML モジュールに依存しないので、歩く骨組み（T-0014）より前に置ける。
 
