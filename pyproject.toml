@@ -16,6 +16,8 @@ dependencies = [
 # インストール例: uv sync --extra ds
 [project.optional-dependencies]
 ds = [
+    "altair>=5.4",
+    "marimo>=0.9",
     "numpy>=2.1",
     "polars>=1.17",
     # 業界標準を再発明しない：メトリクス・交差検証の分割・スケーリングは scikit-learn を使う。
@@ -58,6 +60,10 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# marimo のセルは末尾の式を「表示」に使う（B018＝無用な式、ではない）。ビュー雛形だけの除外。
+"notebooks/*.py" = ["B018"]
 
 [tool.mypy]
 python_version = "3.14"

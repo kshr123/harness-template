@@ -71,9 +71,10 @@ def test_count_encode_fits_on_train_fold_only() -> None:
 
 def test_target_aggregate_fits_on_train_fold_only() -> None:
     # target 系の外側の漏れ検知：run_cv の clone-per-fold で統計が fold の train でだけ学習される。
-    # train fold（0:4・y=[0,1,0,1]）と全データ（y に 10 が混ざる）で group 統計が変わる設計。
+    # train fold（0:4・y=[0,1,0,1]・std≈0.577）と valid（4:8・y=[1,1,1,1]）で group 統計が変わる設計
+    # （valid が混ざれば A の std は小さくなる）。y は二値 {0,1}（評価指標の分類前提に合わせる）。
     g = pl.DataFrame({"g": ["A"] * 8})
-    y = np.array([0.0, 1.0, 0.0, 1.0, 10.0, 10.0, 10.0, 10.0])
+    y = np.array([0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     est = Pipeline(
         [
             ("features", FeaturePipeline([("ta", TargetAggregate(["g"], ["std"], cv=2, seed=0))])),
@@ -82,7 +83,7 @@ def test_target_aggregate_fits_on_train_fold_only() -> None:
     )
     result = cv.run_cv(est, g, y, cv.holdout_indices(4, 4), predict="proba")
     ta = result.estimators[0].named_steps["features"].blocks[0][1]  # type: ignore[attr-defined]
-    # train fold の y[0:4]=[0,1,0,1] だけで学習 → std は約 0.577（valid の 10 が混ざれば大きくなる）。
+    # train fold の y[0:4]=[0,1,0,1] だけで学習 → std は約 0.577（valid の [1,1,1,1] が混ざれば約 0.463 に下がる）。
     assert ta.stats_.filter(pl.col("g") == "A")["target_std_by_g"].to_list() == pytest.approx(
         [float(np.std([0, 1, 0, 1], ddof=1))]
     )

@@ -210,6 +210,38 @@ def _data_models() -> None:
     typer.echo("\nparams は sklearn 本体へ素通し。学習済みモデル（保存版）の一覧は `uv run data saved`。")
 
 
+@data_app.command("profile")
+def _data_profile(
+    table_id: str,
+    target: Annotated[str | None, typer.Option(help="目的変数の列名（付けると分布の要約も出す）")] = None,
+    task: Annotated[str, typer.Option(help="classification | regression")] = "classification",
+) -> None:
+    """テーブルの構造化レポートを YAML で出す（store 経由＝検証済みテーブルだけを見る）。"""
+    import yaml
+
+    from harness.ds import eda, store
+
+    df = store.load(_root(), table_id)
+    report: dict[str, object] = {"table": table_id, "profile": eda.profile(df).to_dict()}
+    if target is not None:
+        if task not in ("classification", "regression"):
+            typer.echo("task は classification / regression のいずれか")
+            raise typer.Exit(1)
+        report["target"] = eda.target_summary(df, target=target, task=task)  # type: ignore[arg-type]
+    typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("metrics")
+def _data_metrics() -> None:
+    """評価指標の一覧（METRICS レジストリから生成）。config の thresholds に書ける指標名。"""
+    from harness.ds.eval import METRICS
+
+    for name, metric in sorted(METRICS.items()):
+        arrow = "大きいほど良い" if metric.higher_is_better else "小さいほど良い"
+        typer.echo(f"{name}\t{metric.task}\t{arrow}\t{metric.description}")
+    typer.echo("\nthresholds に書くと passes が向き（大/小）を見て合否判定する。本体は sklearn.metrics 素通し。")
+
+
 @data_app.command("saved")
 def _data_saved(work: Annotated[str | None, typer.Option(help="作業単位IDで絞る")] = None) -> None:
     """保存済みモデルの一覧（manifest 走査の生成ビュー）。現 champion に ★ を付ける。"""

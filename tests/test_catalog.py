@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from harness.cli import _data_blocks, _data_encoders, _data_models
+from harness.cli import _data_blocks, _data_encoders, _data_metrics, _data_models
+from harness.ds.eval import METRICS
 from harness.ds.features import BLOCKS
 from harness.ds.pipeline import ENCODERS, MODELS
 
@@ -31,13 +32,21 @@ def test_models_have_docstrings() -> None:
         assert factory.__doc__, f"MODELS['{kind}'] に docstring が無い（カタログに載れない）"
 
 
+def test_metrics_have_descriptions() -> None:
+    # 指標も config の語彙（thresholds）＝カタログ対象。説明文が無いと一覧に載れない。
+    for name, metric in METRICS.items():
+        assert metric.description, f"METRICS['{name}'] に説明文が無い（カタログに載れない）"
+
+
 def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     _data_blocks()
     _data_encoders()
     _data_models()
+    _data_metrics()
     out = capsys.readouterr().out
     # レジストリの項目が一覧に出る（エージェントが1コマンドで発見できる）。
     assert "columns" in out
     assert "onehot" in out
     assert "target" in out
     assert "logreg" in out
+    assert "roc_auc" in out  # 指標カタログ
