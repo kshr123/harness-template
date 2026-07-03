@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 from harness.cli import _data_blocks, _data_encoders
@@ -18,13 +16,14 @@ pytestmark = pytest.mark.unit
 
 
 def test_blocks_have_docstrings() -> None:
+    # cls.__doc__（自前の説明）で判定する。inspect.getdoc は親 FeatureBlock の説明を継承して空振りするため使わない。
     for kind, cls in BLOCKS.items():
-        assert inspect.getdoc(cls), f"BLOCKS['{kind}'] に docstring が無い（カタログに載れない）"
+        assert cls.__doc__, f"BLOCKS['{kind}'] に自前の docstring が無い（親の継承では入口にならない）"
 
 
 def test_encoders_have_docstrings() -> None:
     for kind, factory in ENCODERS.items():
-        assert inspect.getdoc(factory), f"ENCODERS['{kind}'] に docstring が無い（カタログに載れない）"
+        assert factory.__doc__, f"ENCODERS['{kind}'] に docstring が無い（カタログに載れない）"
 
 
 def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:

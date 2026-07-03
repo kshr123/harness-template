@@ -1,11 +1,12 @@
 ---
 id: EP-08
 kind: epic
-status: in-progress
+status: done
 plan: detailed
 title: 部品を使える入口（エージェントファースト化）
 requirements: [REQ-004]
 created: 2026-07-03
+closed: 2026-07-03
 ---
 # EP-08 部品を使える入口（エージェントファースト化）
 

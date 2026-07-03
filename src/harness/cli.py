@@ -179,7 +179,8 @@ def _data_blocks() -> None:
     from harness.ds.features import BLOCKS
 
     for kind, cls in sorted(BLOCKS.items()):
-        doc = (inspect.getdoc(cls) or "").splitlines()[0] if inspect.getdoc(cls) else ""
+        # 自前の docstring（親からの継承は使わない）。継承を許すと説明が抜けても親の汎用行が黙って載る。
+        doc = cls.__doc__.strip().splitlines()[0] if cls.__doc__ else ""
         params = [p for p in inspect.signature(cls.__init__).parameters if p != "self"]
         typer.echo(f"{kind}\t({', '.join(params)})\t{doc}")
     typer.echo(
@@ -190,12 +191,10 @@ def _data_blocks() -> None:
 @data_app.command("encoders")
 def _data_encoders() -> None:
     """sklearn エンコーダの一覧（ENCODERS レジストリから生成）。config の encode 節に書ける kind。"""
-    import inspect
-
     from harness.ds.pipeline import ENCODERS
 
     for kind, factory in sorted(ENCODERS.items()):
-        doc = (inspect.getdoc(factory) or "").splitlines()[0] if inspect.getdoc(factory) else ""
+        doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
         typer.echo(f"{kind}\t{doc}")
     typer.echo("\nparams は sklearn 本体へ素通し（安全既定だけ焼き込み済み）。対象列は encode 項目の columns で指定。")
 
