@@ -1,10 +1,15 @@
 ---
 id: T-0010
 kind: task
-status: todo
+status: done
 title: テストの土台（フィクスチャ・マーカー・experiment完了検査・規約）
 requirements: [REQ-004]
+verified_by:
+  - tests/test_pm.py::test_verified_by_missing_named_test_is_error
+  - tests/test_pm.py::test_experiment_done_without_results_is_error
+  - tests/test_pm.py::test_make_project_builds_lintable_project
 created: 2026-07-03
+closed: 2026-07-03
 owner: sakurada
 ---
 # T-0010 テストの土台

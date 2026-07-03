@@ -120,9 +120,22 @@ def lint(root: Path) -> list[Problem]:
             if not n.item.verified_by:
                 problems.append(Problem("error", f"{n.item.id}: done だが verified_by（対応するテスト）が無い"))
             for v in n.item.verified_by:
-                test_file = v.split("::")[0]
-                if not (root / test_file).is_file():
+                parts = v.split("::")
+                test_file = parts[0]
+                target = root / test_file
+                if not target.is_file():
                     problems.append(Problem("error", f"{n.item.id}: verified_by の '{test_file}' が見つからない"))
+                    continue
+                # ::名 が付いていれば、そのテスト名がファイル本文に在ることまで確かめる（穴埋め(b)）。
+                # ファイルは在るが指すテストが無い「空振り」を防ぐ。名前だけの参照（::無し）は従来どおり許す。
+                text = target.read_text(encoding="utf-8")
+                for name in parts[1:]:
+                    base = name.split("[")[0].strip()  # パラメータ化の [..] を落として素の名前で照合
+                    # 単語境界で照合する（test_a が test_answer を含むファイルで空振りしないように）。
+                    if base and not re.search(rf"\b{re.escape(base)}\b", text):
+                        problems.append(
+                            Problem("error", f"{n.item.id}: verified_by の '{name}' が {test_file} に見つからない")
+                        )
 
     # 調査は done のとき、本文に「結論」の節が必須（verified_by の代わり。②自動検証）。
     for n in everything:
@@ -130,6 +143,21 @@ def lint(root: Path) -> list[Problem]:
             src = n.path if n.path.is_file() else n.path / MARKER
             if "## 結論" not in frontmatter.load(src).content:
                 problems.append(Problem("error", f"{n.item.id}: done の調査に「## 結論」の節が無い"))
+
+    # 実験は done のとき、結果記録（results/ の指標・設定・データ指紋）が必須（調査の「## 結論」検査と同型）。
+    # 実験はフォルダ単位で再現一式を同居させる約束なので、ファイル単位の done は記録の置き場が無く失敗にする。
+    for n in everything:
+        if n.item.kind is Kind.experiment and n.item.status is Status.done:
+            if n.path.is_file():
+                problems.append(
+                    Problem("error", f"{n.item.id}: done の実験はフォルダ単位で results/ に結果を同居させること")
+                )
+                continue
+            results = n.path / "results"
+            if not (results.is_dir() and any(results.iterdir())):
+                problems.append(
+                    Problem("error", f"{n.item.id}: done の実験に結果記録（results/ の指標・設定・データ指紋）が無い")
+                )
 
     # plan=detailed なのに子の単位が無い＝分解し忘れの可能性（失敗にはしない）。
     for n in everything:

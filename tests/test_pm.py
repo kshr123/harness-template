@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import frontmatter
 
@@ -75,6 +77,81 @@ def test_done_task_with_missing_test_is_error(tmp_path: Path) -> None:
     _write(tmp_path / "work" / "EP-01-foundation" / "T-0004-e.md", d)
     errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
     assert any("nope.py" in p.message for p in errors)
+
+
+def test_verified_by_missing_named_test_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # ファイルは在るが、その中に無いテスト名（::名）を指す＝失敗（穴埋め(b) の強化）。
+    d: dict[str, object] = {
+        "id": "T-0007",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_a.py::test_missing"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0007-g.md", d)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("test_missing" in p.message for p in errors)
+
+
+def test_verified_by_present_named_test_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # ::名 がファイル本文に在れば通る（test_a.py には def test_a がある）。
+    d: dict[str, object] = {
+        "id": "T-0008",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_a.py::test_a"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0008-h.md", d)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0008" in p.message]
+
+
+def test_verified_by_file_only_still_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # ::名 を付けずファイル全体を指す従来の書き方は、ファイルが在れば通る（強化は ::名 のときだけ）。
+    d: dict[str, object] = {"id": "T-0011", "kind": "task", "status": "done", "verified_by": ["tests/test_a.py"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0011-i.md", d)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0011" in p.message]
+
+
+def test_experiment_done_without_results_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # done の実験に結果記録（results/）が無い＝失敗（穴埋め(a)・調査の「## 結論」と同型）。
+    e: dict[str, object] = {"id": "E-0001", "kind": "experiment", "status": "done", "plan": "detailed"}
+    _write(tmp_path / "work" / "EP-01-foundation" / "E-0001-exp" / "item.md", e)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error" and "E-0001" in p.message]
+    assert errors
+
+
+def test_experiment_done_with_results_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    d = tmp_path / "work" / "EP-01-foundation" / "E-0002-exp"
+    _write(d / "item.md", {"id": "E-0002", "kind": "experiment", "status": "done", "plan": "detailed"})
+    (d / "results").mkdir(parents=True)
+    (d / "results" / "metrics.yaml").write_text("auc: 0.5\n", encoding="utf-8")
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "E-0002" in p.message]
+
+
+def test_experiment_todo_needs_no_results(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # まだ done でない実験は結果記録を要求されない。
+    _write(
+        tmp_path / "work" / "EP-01-foundation" / "E-0003-exp" / "item.md",
+        {"id": "E-0003", "kind": "experiment", "status": "todo", "plan": "detailed"},
+    )
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "E-0003" in p.message]
+
+
+def test_make_project_builds_lintable_project(make_project: Callable[..., Any]) -> None:
+    # conftest の工場が、検査を通る一時プロジェクトを組み立てられること（フィクスチャの結線確認）。
+    proj = make_project()
+    proj.add_file("tests/test_x.py", "def test_x():\n    assert True\n")
+    proj.add_item("work/EP-09/item.md", {"id": "EP-09", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    proj.add_item(
+        "work/EP-09/T-0100-a.md",
+        {"id": "T-0100", "kind": "task", "status": "done", "verified_by": ["tests/test_x.py::test_x"]},
+    )
+    assert not [p for p in pm.lint(proj.root) if p.level == "error"]
 
 
 def test_investigation_done_requires_conclusion(tmp_path: Path) -> None:

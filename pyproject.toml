@@ -69,3 +69,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 未登録のマーカーは失敗にする（誤字・野良マーカーを防ぐ）。full は除外なしで全実行。
+addopts = "--strict-markers"
+markers = [
+    "unit: 依存の少ない純粋な単体テスト（既定・速い）",
+    "integration: 複数の部品の結線（ファイル・設定をまたぐ）",
+    "e2e: 実験の一巡のスモーク（--test 規模。ネットワーク・サーバ無し）",
+    "slow: 実行が重いテスト（full では走らせる。日常は選別してもよい）",
+]
