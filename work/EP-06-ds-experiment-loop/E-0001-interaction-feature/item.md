@@ -8,6 +8,7 @@ requirements: [REQ-004]
 depends_on: [T-0013, T-0014]
 verified_by:
   - tests/test_e2e_experiment.py::test_e0001_smoke
+  - tests/test_e2e_experiment.py::test_e0001_two_variants_share_folds
 created: 2026-07-03
 owner: sakurada
 ---
