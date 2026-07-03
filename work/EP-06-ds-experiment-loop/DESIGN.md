@@ -191,7 +191,8 @@ class ModelRecord:
     name: str
     work: str                         # 作業単位ID（E-0001 等）
     path: Path
-    fingerprint: str                  # pickle ファイルの sha256
+    format: str                       # 保存形式。既定 "pickle"。可搬形式(onnx 等)を後から足す差し替え口
+    fingerprint: str                  # 保存ファイルの sha256
     data_fingerprint: str | None      # 学習に使った表の指紋（store.save の返り値と結ぶ）
     metrics: dict[str, float]
     config: dict[str, object]         # 変種名・seed・n_folds 等
@@ -199,12 +200,15 @@ class ModelRecord:
 
 def save_model(
     root: Path, model: object, *, name: str, work: str,
+    fmt: str = "pickle",              # 保存形式。既定は pickle。将来 "onnx" 等をここで受ける
     data_fingerprint: str | None = None,
     config: Mapping[str, object] | None = None,
     metrics: Mapping[str, float] | None = None,
 ) -> ModelRecord:
-    """pickle＋manifest.yaml を書く。既存の同名は拒否（上書きしない。別名にするか消してから）。
-    置き場は config の data backend から解決：<uri>/work/<work>/models/<name>.pkl（store と同じ規約）。"""
+    """model を fmt の形式で保存し、manifest.yaml（format・指紋・由来）を書く。
+    既存の同名は拒否（上書きしない。別名にするか消してから）。
+    置き場は config の data backend から解決：<uri>/work/<work>/models/<name>.<ext>（store と同じ規約）。
+    fmt=="pickle" のみ実装、他形式は NotImplementedError（可搬形式が要る運用要件が出た時に足す差し替え口）。"""
 
 def load_model(root: Path, *, name: str, work: str) -> tuple[object, ModelRecord]:
     """manifest が無い pickle は読まない。pickle の指紋が manifest と食い違っても読まない。"""
@@ -305,9 +309,9 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 
 各ステップは「スタブ＋赤テスト→実装→verify 緑」の1タスク内完結（EP-06 の進め方）を維持。4 以降は常に e2e が守っている。
 
-## F. 人の判断待ち（業務価値に関わる決定のみ）
+## F. 人の判断待ち（業務価値に関わる決定のみ）— 2026-07-03 に方針確定
 
-1. **合否の閾値の値**（E-0001 config.yaml の `thresholds:`）。roc_auc 0.80 は「データ構成上まず割らない下限」としての仮置き。実案件でこのテンプレートを使うとき、何をもって「実験成功」とするかは業務目標（誤検知と見逃しのコスト比）の決定事項。
-2. **モデルの保存形式と引き渡し先**。pickle＋manifest はローカル・同一 Python 環境内では十分だが、他システム・他言語への引き渡し（ONNX 等の可搬形式）が要るかは案件の運用要件次第。要るなら T-0016 のインターフェースに export 口を足す。
-3. **slow（本規模実行）を CI で回すか**。現状はローカル verify で数秒だが、実データ・重いモデルに移った時に「CI の計算時間・費用をどこまで払うか」は予算判断。切替条件（full 2分超）は C で決めてある。
-4. **backend 切替（S3/DWH）の着手時期**。インターフェースは file: 前提で固定済みだが、共有が必要になる時点（チーム参加・データ量）は業務側のマイルストーン次第。
+1. **合否の閾値の値**（config.yaml `thresholds:`）→ **決着：ここで値を決めない。案件ごとのパラメータ**。設計は値を埋めず config で外から受け `passes(metrics, thresholds)` で判定する（決められる設計を担保）。E-0001 の 0.80 は「合成データ構成上まず割らない下限」の仮置きにすぎない。
+2. **モデルの保存形式**→ **決着：pickle＋manifest を既定。形式は差し替え可能に**。`save_model(fmt="pickle")`＋`ModelRecord.format` で manifest に記録し、`load_model`/エクスポータが形式で分岐できる構造にする。可搬形式（ONNX 等）は「別システム・別言語へ引き渡す運用要件」が出た時に、呼び出し側を壊さず足す（今は pickle のみ実装・他形式は NotImplementedError）。
+3. **slow（本規模実行）を CI で回すか**→ **決着：今は分けない（本規模も verify に入れる。数秒）**。分岐は所要を引き金にする——full verify が約2分を超えたら default を `pytest -m "not slow"` にし、slow を別経路へ移す。**未確定は「別経路の意図」だけ**（夜間 CI で自動 か 実験を done にする時に手で1回か）。軽い `--test` e2e スモークは常に verify に残りパイプラインは常時守られる。
+4. **backend 切替（S3/DWH）の着手時期**→ **決着：まだ着手しない。ローカルのまま**。ただし models.py も store.py と同じく config URI 解決・`file:` 以外は NotImplementedError で書き、口だけ開けておく（見越して設計・実装はしない）。着手時期は共有が要る時点（チーム参加・データ量）で判断。
