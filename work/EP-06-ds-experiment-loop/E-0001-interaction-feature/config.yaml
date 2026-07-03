@@ -1,9 +1,15 @@
-# E-0001 の設定。変種は features 節で持つ（実験＝1 仮説・変種は設定ファイル）。
+# E-0001 の設定。変種は variants 節で持つ（実験＝1 仮説・変種は設定ファイル）。
+# 各変種は build_estimator の spec（features / encode）。kind は `uv run data blocks` / `data encoders` の一覧から選ぶ。
 seed: 20260703
 n: 2000
 n_folds: 5
 variants:
-  baseline: { features: [columns] }
-  interaction: { features: [columns, interaction] }
+  baseline:
+    features:
+      - { kind: columns, columns: [x1, x2] }
+  interaction:
+    features:
+      - { kind: columns, columns: [x1, x2] }
+      - { kind: interactions, pairs: [[x1, x2]] }
 test_mode: { n: 240, n_folds: 3 } # --test のときの小さな規模
 thresholds: { roc_auc: 0.80 } # 合否の閾値（案件のパラメータ・値はここで決めない）

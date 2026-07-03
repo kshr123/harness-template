@@ -17,6 +17,7 @@ owner: sakurada
 
 詳細は SPEC.md、実行体は code/train.py、設定は config.yaml。データ生成→特徴量→交差検証→合否→
 store 保存（fold=split・OOF=processed）→モデル保存（Pipeline 丸ごと）→results を一気通貫で回す。
+**この実験は以後の実験のコピー元（雛形）**：train.py を `build_estimator`（config 駆動）ベースに変更（EP-08/T-0022・指標は不変）。
 
 ## 結論
 **棄却**：交互作用特徴量 x1*x2 は採択しない。本規模（n=2000・n_folds=5・両変種は同一分割で比較）の

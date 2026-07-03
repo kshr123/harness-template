@@ -1,9 +1,14 @@
 """E-0001 の唯一の実行体。データ生成→特徴量→交差検証→合否→保存→results を一気通貫で回す。
 
-使い方：`python train.py --variant baseline|interaction [--test] [--root <dir>] [--out <dir>]`
-- 変種は config.yaml の features 節で持つ（実験＝1 仮説）。
+**この実験フォルダは以後の実験のコピー元（雛形）**。新しい実験は experiment スキルの手順どおり、これを
+丸ごとコピーして config.yaml だけ書き換える（train.py は触らない）。特徴量・エンコーダの kind は
+`uv run data blocks` / `uv run data encoders` の一覧から選ぶ。
+
+使い方：`python train.py --variant <config の variants キー> [--test] [--root <dir>] [--out <dir>]`
+- 変種は config.yaml の variants 節で持つ（実験＝1 仮説）。各変種は build_estimator の spec（features / encode）。
 - --test は小さな規模（config の test_mode）でスモークする。--root 未指定の --test は毎回新しい一時ディレクトリ。
-- 特徴量→モデルは 1 本の sklearn Pipeline。run_experiment が fold ごとに clone→train で fit（漏れ防止は構造）。
+- 特徴量→（エンコード）→モデルは 1 本の sklearn Pipeline を harness.ds.pipeline.build_estimator が config から組む。
+  run_experiment が fold ごとに clone→train で fit（漏れ防止は構造）。CV・保存・閾値は再実装しない（部品が正本）。
 - fold 表を split 層・OOF を processed 層に store 保存して再現をデータで担保する（核2）。学習器は全データで
   学習し直して丸ごと保存（前処理と本体がワンセット）。乱数は明示引数（seed）だけ・グローバル種は使わない。
 """
@@ -19,13 +24,12 @@ from pathlib import Path
 import polars as pl
 import yaml
 from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
 
 from harness.ds import data, store
 from harness.ds import eval as ev
 from harness.ds import models as model_store
 from harness.ds.experiment import run_experiment
-from harness.ds.features import Columns, FeaturePipeline, Interactions
+from harness.ds.pipeline import build_estimator
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE.parent / "config.yaml"
@@ -49,18 +53,6 @@ backend = "file:issues"
 [metadata]
 uri = "file:docs/data"
 """
-
-
-def build_estimator(feature_spec: list[str], seed: int) -> Pipeline:
-    """config の features 指定から、特徴量→モデルの 1 本の Pipeline を組む。"""
-    blocks: list[tuple[str, object]] = []
-    if "columns" in feature_spec:
-        blocks.append(("columns", Columns(["x1", "x2"])))
-    if "interaction" in feature_spec:
-        blocks.append(("interaction", Interactions([("x1", "x2")])))
-    return Pipeline(
-        [("features", FeaturePipeline(blocks)), ("model", LogisticRegression(random_state=seed, max_iter=1000))]
-    )
 
 
 def prepare_root(*, test: bool, root: Path | None) -> Path:
@@ -101,8 +93,9 @@ def save_folds(root: Path, folds: pl.DataFrame) -> str:
 
 
 def main() -> int:
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))  # --variant の選択肢は config の variants キーから導く
     parser = argparse.ArgumentParser()
-    parser.add_argument("--variant", default="baseline", choices=["baseline", "interaction"])
+    parser.add_argument("--variant", default=next(iter(cfg["variants"])), choices=list(cfg["variants"]))
     parser.add_argument("--test", action="store_true", help="小さな規模でスモークする")
     parser.add_argument(
         "--root", type=Path, default=None, help="store の置き場（既定＝リポ根／--test は一時ディレクトリ）"
@@ -110,11 +103,10 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None, help="results の書き出し先")
     args = parser.parse_args()
 
-    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     seed = int(cfg["seed"])
     n = int(cfg["test_mode"]["n"] if args.test else cfg["n"])
     n_folds = int(cfg["test_mode"]["n_folds"] if args.test else cfg["n_folds"])
-    feature_spec = cfg["variants"][args.variant]["features"]
+    variant_spec = cfg["variants"][args.variant]  # build_estimator の spec（features / encode）
     thresholds = cfg["thresholds"]
 
     root = prepare_root(test=args.test, root=args.root)
@@ -123,7 +115,7 @@ def main() -> int:
 
     df = data.generate_synthetic(n=n, seed=seed)
     y = df["y"].to_numpy().astype("float64")
-    estimator = build_estimator(feature_spec, seed)
+    estimator = build_estimator(variant_spec, LogisticRegression(random_state=seed, max_iter=1000), seed=seed)
     result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by="y")
 
     if not result.cv.oof_mask.all():
@@ -150,7 +142,7 @@ def main() -> int:
         name=args.variant,
         work=WORK_ID,
         data_fingerprint=folds_fp,
-        config={"variant": args.variant, "seed": seed, "n": n, "n_folds": n_folds, "features": feature_spec},
+        config={"variant": args.variant, "seed": seed, "n": n, "n_folds": n_folds, "spec": variant_spec},
         metrics=result.metrics,
     )
 
