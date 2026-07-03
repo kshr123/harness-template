@@ -171,6 +171,23 @@ def _data_list() -> None:
             typer.echo(f"  {s.layer.value}\t{s.role or '-'}\t{s.id}\t{s.description}")
 
 
+@data_app.command("models")
+def _data_models(work: Annotated[str | None, typer.Option(help="作業単位IDで絞る")] = None) -> None:
+    """保存済みモデルの一覧（manifest 走査の生成ビュー）。現 champion に ★ を付ける。"""
+    from harness.ds import models as model_store
+
+    records = model_store.list_models(_root(), work=work)
+    champs = {
+        (w, n): champ.version
+        for w, n in {(r.work, r.name) for r in records}
+        if (champ := model_store.champion(_root(), work=w, name=n)) is not None
+    }
+    for r in records:
+        mark = "★" if champs.get((r.work, r.name)) == r.version else " "
+        shown = "  ".join(f"{k}={v:.4f}" for k, v in sorted(r.metrics.items()))
+        typer.echo(f"{mark} {r.work}\t{r.name}\t{r.version}\t{shown}")
+
+
 def data_main() -> None:
     """`uv run data <サブコマンド>` の入口。"""
 
