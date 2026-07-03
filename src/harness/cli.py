@@ -214,7 +214,7 @@ def _data_models() -> None:
     typer.echo(
         "\nparams は本体へ素通し（目的関数も loss/criterion/objective で変える・各 docstring 参照）。"
         "\n[timeseries] は run_forecast 用（sklearn Pipeline には載らない）。未表示なら `uv sync --extra statsmodels`。"
-        "学習済みモデル（保存版）の一覧は `uv run data saved`。"
+        "\n学習済みモデル（保存版）の一覧は `uv run data saved`。"
     )
 
 

@@ -87,3 +87,16 @@ def test_feature_names_tracked_to_manifest(make_project: Callable[..., Any]) -> 
     proj = make_project()
     record = model_store.save_model(proj.root, est, name="m", work="E", feature_names=names)
     assert list(record.feature_names) == names  # 列名が manifest まで通る
+
+
+def test_tfidf_sparse_output_fits_through_numpy_boundary() -> None:
+    # tfidf は語彙が増えると scipy 疎行列を返す。model 直前の _to_numpy が密化しないと fit で落ちる（回帰防止）。
+    rng = np.random.default_rng(0)
+    vocab = [f"w{k}" for k in range(30)]  # 疎になる程度の語彙
+    rows = [" ".join(rng.choice(vocab, size=4)) for _ in range(200)]
+    df = pl.DataFrame({"txt": rows})
+    y = np.array([1.0 if "w0" in t else 0.0 for t in rows])  # w0 の有無で決まる
+    spec = {"features": [{"kind": "columns", "columns": ["txt"]}], "encode": [{"kind": "tfidf", "columns": "txt"}]}
+    est = build_estimator(spec, _model(), seed=0)
+    est.fit(df, y)  # 疎→密の境界が効いていれば落ちない
+    assert est.predict_proba(df).shape == (200, 2)

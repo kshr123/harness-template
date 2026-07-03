@@ -91,11 +91,14 @@ def _fill_text(s: pl.Series) -> pl.Series:  # モジュール関数（lambda は
     return s.fill_null("")
 
 
-def _to_numpy(x: Any) -> Any:  # noqa: ANN401  polars/pandas/numpy を受ける
+def _to_numpy(x: Any) -> Any:  # noqa: ANN401  polars/pandas/scipy 疎行列/numpy を受ける
     """特徴量段の出力を numpy 配列に揃える（model 直前の唯一の numpy⇔polars 境界・DESIGN の方針）。
 
     列名を落とすので、名前付き入力で feature_names_in_ を設定できないモデル（LightGBM 等）でも Pipeline が壊れない。
+    scipy 疎行列（tfidf 等の出力）は toarray で密化する（np.asarray だと 0 次元 object になり壊れる）。
     """
+    if hasattr(x, "toarray"):  # scipy 疎行列（.to_numpy は無い）
+        return x.toarray()
     return x.to_numpy() if hasattr(x, "to_numpy") else np.asarray(x)
 
 

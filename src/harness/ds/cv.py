@@ -81,6 +81,8 @@ def make_time_folds(
 
     shuffle しない・seed 不要（決定的）。fold 番号＝時間ブロック番号。既存 make_folds と同じ表形式なので
     split 層への保存・再現の担保はそのまま効く。`fold_indices(how="expanding")` と組で使う。
+    前提：等間隔・時刻はほぼ一意（同一時刻の行が fold 境界で train/valid に割れると軽い時間リークになりうる）。
+    同一時刻の行が多いデータは、時刻でまとめてから使う（複数系列・重複時刻の厳密な扱いは最初の時系列案件で足す）。
     """
     if n_folds < 2:
         raise ValueError("n_folds は 2 以上にすること")
