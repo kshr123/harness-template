@@ -12,7 +12,7 @@
 **捨てる自前抽象**：`TargetTransform`/`Identity`/`Log1p`/`StandardScale`（＝`TransformedTargetRegressor`＋`StandardScaler`／`FunctionTransformer(np.log1p, np.expm1)` の焼き直し。transforms.py 削除）。`Trainer`/`FoldOutcome`/`SklearnTrainer`（＝sklearn estimator＋`clone` の焼き直し。train.py は作らない）。
 
 **作る特徴量枠組み（BaseBlock の考え方・モデル非依存）**：`features.py`。
-- `FeatureBlock(BaseEstimator, TransformerMixin)`：特徴量作成の1単位の基底。polars 入→polars 出・名前付き出力列・`get_feature_names_out`・`describe`。sklearn 互換なので `clone` でき Pipeline に入る。**個別の標準変換のブロックは作らない**（StandardScaler 等は sklearn を直接 ColumnTransformer/Pipeline に入れる）。作るのは「モデルに依らない特徴量ロジック」（交互作用・集約など複数列から作る本物の特徴量）だけ。段階1の具体は `Interactions(pairs)`（`a_x_b` 列）1つ。
+- `FeatureBlock(BaseEstimator, TransformerMixin)`：特徴量作成の1単位の基底。polars 入→polars 出・`feature_names`（fit 後に確定していればよい・データ依存は fit 前 NotFittedError）・`get_feature_names_out`・`describe`。sklearn 互換なので `clone` でき Pipeline に入る。**「作る/使う」の基準は sklearn が十分うまくやっているか**（データ依存かどうかではない・DEC-0008）。sklearn が良くやるもの（OneHot/Ordinal/TargetEncoder/KBins/PCA/Tfidf）は作らず ColumnTransformer 直挿し。sklearn に無い隙間はデータ依存でも作る。具体＝Interactions/Ratios/Differences/Columns（無状態）・GroupAggregate/CountEncode/MultiHot/TargetAggregate（有状態）・CombineKeys。`FeaturePipeline.fit_transform` が各ブロックの fit_transform を通す（OOF 型の cross-fitting 経路を生かす）。
 - `FeaturePipeline`：ブロック（と必要なら sklearn transformer）を横に束ねる薄い sklearn 互換 transformer。`fit/transform/get_feature_names_out/describe`。検査＝行数不変・出力列名の重複禁止（人にもエージェントにも「どの特徴量がどこから来たか」を describe で示す）。これを estimator Pipeline の `"features"` 段に入れる。
 
 **一気通貫の薄い接着**：`experiment.py`。`build_estimator(spec, model)`（config の特徴量指定＋モデルから Pipeline を組む）と `run_experiment(...)`（load→make_folds→store.save(split)→run_cv→eval.passes→store.save(OOF)→save_model→results）。実験の `code/train.py` はこれを呼ぶだけ（＝二重実装を避けつつ端から端まで1関数で追える）。

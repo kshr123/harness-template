@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 import pytest
 from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
+from sklearn.model_selection import KFold
 
 from harness.ds.features import (
     Columns,
+    CombineKeys,
     CountEncode,
     Differences,
     FeaturePipeline,
     GroupAggregate,
     Interactions,
+    MultiHot,
     Ratios,
+    TargetAggregate,
 )
 
 pytestmark = pytest.mark.unit
@@ -139,3 +144,69 @@ def test_stateful_unfitted_and_clone_lose_state() -> None:
     fitted.transform(x)  # ok
     with pytest.raises(NotFittedError):
         clone(fitted).transform(x)  # clone は状態を落とす（fold 独立性の前提）
+
+
+def test_combine_keys_joins_with_null_marker() -> None:
+    x = pl.DataFrame({"a": ["x", None], "b": ["p", "q"]})
+    out = CombineKeys([["a", "b"]]).fit(x).transform(x)
+    assert out.columns == ["a__b"]
+    assert out["a__b"].to_list() == ["x__p", "<null>__q"]  # null は <null> で区別
+
+
+def test_multihot_min_count_unknown_and_null() -> None:
+    x = pl.DataFrame({"t": [["a", "b"], ["a"], ["a"], ["c"]]})  # a:3行, b:1, c:1
+    block = MultiHot("t", min_count=2).fit(x)
+    assert block.feature_names() == ["t_a"]  # b・c は min_count 未満で落ちる
+    out = block.transform(pl.DataFrame({"t": [["a", "z"], None]}))  # z は未知・null list
+    assert out["t_a"].to_list() == [1, 0]  # 未知は無視・null は 0
+
+
+def test_multihot_feature_names_before_fit_raises() -> None:
+    with pytest.raises(NotFittedError):
+        MultiHot("t").feature_names()  # データ依存：fit 前は確定しない
+
+
+def test_target_aggregate_std_and_unknown_group() -> None:
+    x = pl.DataFrame({"g": ["A", "A", "B", "B"]})
+    y = np.array([0.0, 2.0, 5.0, 5.0])
+    block = TargetAggregate(["g"], ["std"]).fit(x, y)
+    out = block.transform(x)
+    assert out["target_std_by_g"].to_list() == pytest.approx([2**0.5, 2**0.5, 0.0, 0.0])  # A: std[0,2], B: 0
+    unknown = block.transform(pl.DataFrame({"g": ["C"]}))["target_std_by_g"].to_list()
+    assert unknown == pytest.approx([float(np.std([0, 2, 5, 5], ddof=1))])  # 未知は全体 std
+
+
+def test_target_aggregate_rejects_mean_and_missing_y() -> None:
+    x = pl.DataFrame({"g": ["A"]})
+    with pytest.raises(ValueError, match="mean"):
+        TargetAggregate(["g"], ["mean"]).fit(x, np.array([1.0]))  # mean は sklearn TargetEncoder へ
+    with pytest.raises(ValueError, match="target"):
+        TargetAggregate(["g"], ["std"]).fit(x, None)  # y 必須
+
+
+def test_target_aggregate_fit_transform_is_out_of_fold() -> None:
+    # OOF：各行は反対 fold の y だけの統計で埋まる（単一グループなら反対 fold の std）。期待値は分割から導出。
+    x = pl.DataFrame({"g": ["A"] * 4})
+    y = np.array([0.0, 2.0, 10.0, 12.0])
+    oof = TargetAggregate(["g"], ["std"], cv=2, seed=0).fit_transform(x, y)["target_std_by_g"].to_numpy()
+    expected = np.empty(4)
+    for train_idx, valid_idx in KFold(n_splits=2, shuffle=True, random_state=0).split(np.arange(4)):
+        expected[valid_idx] = np.std(y[train_idx], ddof=1)
+    np.testing.assert_allclose(oof, expected)
+    # fit_transform（OOF）と fit→transform（全 train）は一致しない（内部 CV が生きている証拠）。
+    full = TargetAggregate(["g"], ["std"], cv=2, seed=0).fit(x, y).transform(x)["target_std_by_g"].to_numpy()
+    assert not np.allclose(oof, full)
+
+
+def test_describe_marks_data_dependent_before_fit() -> None:
+    pipe = FeaturePipeline([("m", MultiHot("t"))])
+    assert pipe.describe()[0]["output_columns"] == "fit 後に確定（データ依存）"
+
+
+def test_feature_pipeline_fit_transform_delegates_oof() -> None:
+    # FeaturePipeline.fit_transform が各ブロックの fit_transform を呼ぶ（OOF 経路が生きる）ことの担保。
+    x = pl.DataFrame({"g": ["A"] * 4})
+    y = np.array([0.0, 2.0, 10.0, 12.0])
+    oof = FeaturePipeline([("ta", TargetAggregate(["g"], ["std"], cv=2, seed=0))]).fit_transform(x, y)
+    full = FeaturePipeline([("ta", TargetAggregate(["g"], ["std"], cv=2, seed=0))]).fit(x, y).transform(x)
+    assert not np.allclose(oof["target_std_by_g"].to_numpy(), full["target_std_by_g"].to_numpy())

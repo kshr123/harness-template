@@ -14,7 +14,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
 from harness.ds import cv, data
-from harness.ds.features import Columns, CountEncode, FeaturePipeline, GroupAggregate, Interactions
+from harness.ds.features import Columns, CountEncode, FeaturePipeline, GroupAggregate, Interactions, TargetAggregate
 
 pytestmark = pytest.mark.integration
 
@@ -67,3 +67,22 @@ def test_count_encode_fits_on_train_fold_only() -> None:
     counts = cnt.counts_["c"]
     # train fold（0:4）は A2・B2。漏れていれば A は 6 になる。
     assert counts.filter(pl.col("c") == "A")["c_count"].to_list() == [2]
+
+
+def test_target_aggregate_fits_on_train_fold_only() -> None:
+    # target 系の外側の漏れ検知：run_cv の clone-per-fold で統計が fold の train でだけ学習される。
+    # train fold（0:4・y=[0,1,0,1]）と全データ（y に 10 が混ざる）で group 統計が変わる設計。
+    g = pl.DataFrame({"g": ["A"] * 8})
+    y = np.array([0.0, 1.0, 0.0, 1.0, 10.0, 10.0, 10.0, 10.0])
+    est = Pipeline(
+        [
+            ("features", FeaturePipeline([("ta", TargetAggregate(["g"], ["std"], cv=2, seed=0))])),
+            ("m", DummyClassifier(strategy="prior")),
+        ]
+    )
+    result = cv.run_cv(est, g, y, cv.holdout_indices(4, 4), predict="proba")
+    ta = result.estimators[0].named_steps["features"].blocks[0][1]  # type: ignore[attr-defined]
+    # train fold の y[0:4]=[0,1,0,1] だけで学習 → std は約 0.577（valid の 10 が混ざれば大きくなる）。
+    assert ta.stats_.filter(pl.col("g") == "A")["target_std_by_g"].to_list() == pytest.approx(
+        [float(np.std([0, 1, 0, 1], ddof=1))]
+    )
