@@ -108,6 +108,7 @@ def main() -> int:
     variant_spec = cfg["variants"][args.variant]  # build_estimator の spec（features / encode）
     thresholds = cfg["thresholds"]
     target = cfg.get("target", "y")  # 目的変数の列名（config で選ぶ）
+    task = cfg.get("task", "classification")  # classification / regression（モデル種との整合を検査）
     data_spec = cfg.get("data", {"kind": "synthetic"})  # 入力源（synthetic / table）
     # モデルは variant 優先→experiment 既定→logreg（モデル比較実験は variant に model を書く）。
     model_spec = variant_spec.get("model") or cfg.get("model") or {"kind": "logreg"}
@@ -118,7 +119,7 @@ def main() -> int:
 
     df = data.load_dataset(root, data_spec, n=n, seed=seed)
     y = df[target].to_numpy().astype("float64")
-    estimator = build_estimator(variant_spec, build_model(model_spec, seed=seed), seed=seed)
+    estimator = build_estimator(variant_spec, build_model(model_spec, seed=seed, task=task), seed=seed)
     result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by=target)
 
     if not result.cv.oof_mask.all():

@@ -70,3 +70,13 @@ def test_build_model_unknown() -> None:
     assert "logreg" in MODELS  # レジストリに既定モデルが載る
     with pytest.raises(ValueError, match="未知のモデル"):
         build_model({"kind": "nope"}, seed=0)
+
+
+def test_build_model_task_mismatch() -> None:
+    # 回帰モデルを分類 task に使うと config 段階で止まる（ModelEntry.task で検査）。
+    assert MODELS["ridge"].task == "regression"
+    with pytest.raises(ValueError, match="regression 用"):
+        build_model({"kind": "ridge"}, seed=0, task="classification")
+    # task 一致・task=None は通る（互換）。
+    assert build_model({"kind": "ridge"}, seed=0, task="regression") is not None
+    assert build_model({"kind": "ridge"}, seed=0) is not None

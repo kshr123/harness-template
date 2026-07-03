@@ -27,9 +27,10 @@ def test_encoders_have_docstrings() -> None:
         assert factory.__doc__, f"ENCODERS['{kind}'] に docstring が無い（カタログに載れない）"
 
 
-def test_models_have_docstrings() -> None:
-    for kind, factory in MODELS.items():
-        assert factory.__doc__, f"MODELS['{kind}'] に docstring が無い（カタログに載れない）"
+def test_models_have_docstrings_and_task() -> None:
+    for kind, entry in MODELS.items():
+        assert entry.factory.__doc__, f"MODELS['{kind}'] の factory に docstring が無い（カタログに載れない）"
+        assert entry.task in ("classification", "regression"), f"MODELS['{kind}'] の task が不正"
 
 
 def test_metrics_have_descriptions() -> None:

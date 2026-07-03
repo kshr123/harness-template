@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import polars as pl
 from sklearn.compose import ColumnTransformer
@@ -126,24 +127,44 @@ def _ridge(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn �
     return model
 
 
-# config の kind → モデルの工場（seed 配線・安全既定つき）。LightGBM 等を足すときはここに 1 行（DEC-0006）。
-MODELS: dict[str, ModelFactory] = {
-    "logreg": _logreg,
-    "ridge": _ridge,
+ModelTask = Literal["classification", "regression"]
+
+
+@dataclass(frozen=True)
+class ModelEntry:
+    """モデル種 1 つの登録情報。factory は sklearn/LightGBM クラスの薄い包み（再発明しない）。
+
+    task：このモデルが解ける課題。build_model が config の task と突き合わせて検査する（回帰モデル×分類 task を
+    実行前に止める）。説明文は factory の docstring 1 行目（`uv run data models` に載る・test_catalog が必須検査）。
+    """
+
+    factory: ModelFactory
+    task: ModelTask
+
+
+# config の kind → モデルの登録（工場＋task）。sklearn を足すときはここに 1 行（DEC-0006）。
+# optional 依存（lightgbm 等）のモデルはファイル末尾で「入っていれば登録」する（§5 条件登録）。
+MODELS: dict[str, ModelEntry] = {
+    "logreg": ModelEntry(_logreg, "classification"),
+    "ridge": ModelEntry(_ridge, "regression"),
 }
 
 
-def build_model(spec: Mapping[str, Any], *, seed: int) -> SklearnLike:
+def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = None) -> SklearnLike:
     """config の model 節（{kind, ...params}）から 1 つのモデル（推定器）を作る。
 
-    kind は `uv run data models` の一覧から。params はそのまま sklearn クラスへ渡す（写経しない）。
+    kind は `uv run data models` の一覧から。params はそのまま sklearn クラスへ渡す（写経しない・目的関数も
+    loss/criterion/objective の文字列 params で変える）。task を渡すとモデル種との整合を検査する（task=None は互換）。
     build_estimator に model として渡すと features→encode→model の 1 本の Pipeline になる。
     """
     kind = spec.get("kind")
     if kind not in MODELS:
         raise ValueError(f"未知のモデル '{kind}'（{sorted(MODELS)} のいずれか）")
+    entry = MODELS[kind]
+    if task is not None and entry.task != task:
+        raise ValueError(f"モデル '{kind}' は {entry.task} 用（この実験は task: {task}）")
     params = {k: v for k, v in spec.items() if k != "kind"}
-    return MODELS[kind](seed, **params)
+    return entry.factory(seed, **params)
 
 
 def _build_block(spec: Mapping[str, Any], seed: int) -> FeatureBlock:

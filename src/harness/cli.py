@@ -201,13 +201,16 @@ def _data_encoders() -> None:
 
 @data_app.command("models")
 def _data_models() -> None:
-    """モデル種の一覧（MODELS レジストリから生成）。config の model 節に書ける kind。"""
+    """モデル種の一覧（MODELS レジストリから生成）。config の model 節に書ける kind と task。"""
     from harness.ds.pipeline import MODELS
 
-    for kind, factory in sorted(MODELS.items()):
-        doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
-        typer.echo(f"{kind}\t{doc}")
-    typer.echo("\nparams は sklearn 本体へ素通し。学習済みモデル（保存版）の一覧は `uv run data saved`。")
+    for kind, entry in sorted(MODELS.items()):
+        doc = entry.factory.__doc__.strip().splitlines()[0] if entry.factory.__doc__ else ""
+        typer.echo(f"{kind}\t{entry.task}\t{doc}")
+    typer.echo(
+        "\nparams は sklearn 本体へ素通し（目的関数も loss/criterion/objective で変える・各 docstring 参照）。"
+        "学習済みモデル（保存版）の一覧は `uv run data saved`。"
+    )
 
 
 @data_app.command("profile")
