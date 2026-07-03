@@ -24,7 +24,8 @@ B を採る。
   （特徴量を CV の前に作る・有状態ブロックで漏れる）が消える。
 - **捨てる**：`TargetTransform`/`Identity`/`Log1p`/`StandardScale`（transforms.py 削除。回帰時は
   `TransformedTargetRegressor(func=np.log1p, inverse_func=…)` の 1 行）。`Trainer`/`FoldOutcome`/
-  `SklearnTrainer`（sklearn estimator＋clone で足りる。train.py は作らない）。T-0013/T-0015 廃止。
+  `SklearnTrainer`（sklearn estimator＋clone で足りる。train.py は作らない＝**T-0015 廃止**）。
+  **T-0013 は残す**（下記の features.py＝BaseBlock の考え方を sklearn 互換で作る。利用者の指示）。
 - **作る特徴量枠組み（BaseBlock の考え方・モデル非依存）**：`features.py` の `FeatureBlock`
   （BaseEstimator+TransformerMixin・polars 入出力・名前付き出力・describe）と `FeaturePipeline`
   （ブロックを束ねる薄い sklearn 互換 transformer）。個別の標準変換のブロックは作らず、複数列から作る

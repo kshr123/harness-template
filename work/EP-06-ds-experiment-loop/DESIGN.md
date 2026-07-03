@@ -21,7 +21,7 @@
 
 **モジュール構成（適切な粒度・エージェントファースト。参考リポの過剰分割はしない）**：`src/harness/ds/` を平らな8ファイルに——`data.py`／`schema.py`／`store.py`／`features.py`／`cv.py`／`eval.py`／`models.py`／`experiment.py`。各ファイル＝1責務・名前で引ける。blocks/ サブパッケージや training/ の細分化はしない。
 
-**着手順（改訂・全体→詳細）**：T-0017（済）→ ①transforms.py 削除 → ②cv.py 作り直し（`run_cv(estimator,…)`・clone-per-fold・`Trainer` 削除）→ ③features.py（FeatureBlock/FeaturePipeline/Interactions）→ ④experiment.py＋E-0001 骨組み（baseline を `--test` で一気通貫・e2e を verify に接続）→ ⑤eval 閾値選択 → ⑥models.py → ⑦E-0001 完了。T-0013/T-0015 は「sklearn Pipeline/estimator で代替」として廃止（ID 再利用しない）。
+**着手順（改訂・全体→詳細）**：T-0017（済）→ ①transforms.py 削除 → ②cv.py 作り直し（`run_cv(estimator,…)`・clone-per-fold・`Trainer` 削除）→ ③features.py（FeatureBlock/FeaturePipeline/Interactions）→ ④experiment.py＋E-0001 骨組み（baseline を `--test` で一気通貫・e2e を verify に接続）→ ⑤eval 閾値選択 → ⑥models.py → ⑦E-0001 完了。T-0013 は features.py（BaseBlock の考え方・sklearn 互換）として作る。T-0015 は sklearn estimator＋clone で代替のため廃止（ID 再利用しない）。
 
 **run_cv の署名（改訂）**：
 ```python
