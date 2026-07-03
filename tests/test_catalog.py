@@ -40,6 +40,13 @@ def test_ts_models_have_docstrings() -> None:
         assert factory.__doc__, f"TS_MODELS['{kind}'] に docstring が無い（カタログに載れない）"
 
 
+def test_clusterers_have_docstrings() -> None:
+    from harness.ds.unsupervised import CLUSTERERS
+
+    for kind, factory in CLUSTERERS.items():
+        assert factory.__doc__, f"CLUSTERERS['{kind}'] に docstring が無い（カタログに載れない）"
+
+
 def test_metrics_have_descriptions() -> None:
     # 指標も config の語彙（thresholds）＝カタログ対象。説明文が無いと一覧に載れない。
     for name, metric in METRICS.items():

@@ -273,6 +273,34 @@ def _data_compare(
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
+@data_app.command("unsupervised")
+def _data_unsupervised() -> None:
+    """教師なし（次元圧縮・クラスタリング・異常検知）のカタログ（レジストリから生成・data cluster 等で使う）。"""
+    from harness.ds.unsupervised import CLUSTERERS
+
+    for kind, factory in sorted(CLUSTERERS.items()):
+        doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
+        typer.echo(f"cluster\t{kind}\t{doc}")
+    typer.echo("\ncluster は `uv run data cluster <表> --k N [--method kmeans]`。次元圧縮・異常検知は後続で追加。")
+
+
+@data_app.command("cluster")
+def _data_cluster(
+    table_id: str,
+    k: Annotated[int, typer.Option("--k", help="クラスタ数（n_clusters）")],
+    method: Annotated[str, typer.Option(help="kmeans")] = "kmeans",
+    seed: Annotated[int, typer.Option(help="乱数種")] = 0,
+) -> None:
+    """テーブルをクラスタリングし、構造化レポート（大きさ・シルエット・クラスタ別の数表）を YAML で出す。"""
+    import yaml
+
+    from harness.ds import store, unsupervised
+
+    df = store.load(_root(), table_id)
+    report = unsupervised.cluster_summary(df, method=method, seed=seed, n_clusters=k)
+    typer.echo(yaml.safe_dump(report.to_dict(), allow_unicode=True, sort_keys=False))
+
+
 @data_app.command("metrics")
 def _data_metrics() -> None:
     """評価指標の一覧（METRICS レジストリから生成）。config の thresholds に書ける指標名。"""
