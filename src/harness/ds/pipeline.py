@@ -87,6 +87,49 @@ def _pca(seed: int, *, n_components: int, **params: Any) -> object:  # noqa: ANN
     )
 
 
+def _cluster(seed: int, *, n_clusters: int, output: str = "distance", **params: Any) -> object:  # noqa: ANN401
+    """KMeans をエンコーダに（(B) 特徴量）。中央値埋め＋標準化を前置（距離ベース＝尺度を揃える）。
+
+    output="distance"（既定）＝各中心への距離 n_clusters 列（KMeans.transform 素通し・情報量が多い）。
+    output="label"＝クラスタ番号 1 列（ClusterLabel の薄い包み）。fit-on-train は run_cv の clone-per-fold で担保。
+    n_clusters 必須（既定 8 を黙って使わせない）。決定的：random_state=seed。
+    """
+    from sklearn.cluster import KMeans
+
+    from harness.ds.unsupervised import ClusterLabel
+
+    steps: list[tuple[str, object]] = [
+        ("impute", SimpleImputer(strategy="median")),
+        ("scale", StandardScaler()),
+    ]
+    km = KMeans(n_clusters=n_clusters, random_state=seed, **params)
+    if output == "distance":
+        steps.append(("cluster", km))
+    elif output == "label":
+        steps.append(("cluster", ClusterLabel(km)))
+    else:
+        raise ValueError(f"未知の cluster output '{output}'（distance か label）")
+    return Pipeline(steps)
+
+
+def _anomaly_score(seed: int, **params: Any) -> object:  # noqa: ANN401
+    """IsolationForest の異常スコアを 1 列出すエンコーダ（(B) 特徴量・大きいほど異常）。
+
+    木なので標準化は不要・中央値埋めだけ前置（NaN で落ちない）。多変量の外れ（各列は普通でも組み合わせが変な行）
+    を拾う。1 列ずつの Tukey 柵（eda.profile の n_outliers）とは役割が違う。決定的：random_state=seed。
+    """
+    from sklearn.ensemble import IsolationForest
+
+    from harness.ds.unsupervised import AnomalyScore
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("anomaly", AnomalyScore(IsolationForest(random_state=seed, **params))),
+        ]
+    )
+
+
 def _fill_text(s: pl.Series) -> pl.Series:  # モジュール関数（lambda は pickle 不可）
     return s.fill_null("")
 
@@ -121,6 +164,8 @@ ENCODERS: dict[str, EncoderFactory] = {
     "bins": _bins,
     "pca": _pca,
     "tfidf": _tfidf,
+    "cluster": _cluster,  # (B) クラスタとの距離/番号を特徴に（教師なし・DESIGN §4）
+    "anomaly_score": _anomaly_score,  # (B) 多変量の異常スコアを特徴に（教師なし・DESIGN §5）
 }
 
 

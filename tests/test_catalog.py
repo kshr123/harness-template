@@ -63,6 +63,7 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert "columns" in out
     assert "onehot" in out
     assert "target" in out
+    assert "anomaly_score" in out  # (B) 教師なしのエンコーダが自動で載る
     assert "logreg" in out
     assert "roc_auc" in out  # 指標カタログ
     assert "timeseries" in out  # 古典時系列（statsmodels 導入環境・all-extras）

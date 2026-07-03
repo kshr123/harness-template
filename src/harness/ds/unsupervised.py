@@ -17,8 +17,59 @@ from typing import Any
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+from numpy.typing import NDArray
+from sklearn.base import BaseEstimator, TransformerMixin
 
 ClustererFactory = Callable[..., Any]
+
+
+# --- (B) 特徴量用途の薄い包み（sklearn に無い隙間だけ・DEC-0008 の「作る」側） ---
+# 工場（_cluster/_anomaly_score）は他のエンコーダと同じく pipeline.py に置き、この 2 クラスだけを import する。
+# fit-on-train は run_cv の clone-per-fold が構造で担保する（この包みは漏れ対策の分岐を持たない）。
+
+
+class ClusterLabel(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+    """クラスタ番号を 1 列で出す薄い包み（predict を transform として出す口が sklearn に無い隙間だけ埋める）。
+
+    KMeans.transform（各中心への距離・素通し）の方が情報量は多い。番号そのものを木モデルに渡したいとき用。
+    出力は整数 1 列。カテゴリ扱いにしたければ後段に OneHot を載せず木モデルへ直接渡すのが既定。
+    """
+
+    def __init__(self, estimator: Any) -> None:  # noqa: ANN401  KMeans 等の推定器
+        self.estimator = estimator
+
+    def fit(self, x: Any, y: object = None) -> ClusterLabel:  # noqa: ANN401
+        self.estimator.fit(x)
+        self.fitted_ = True  # 末尾 _ の学習済みマーカー（Pipeline の check_is_fitted が見る）
+        return self
+
+    def transform(self, x: Any) -> NDArray[Any]:  # noqa: ANN401
+        return np.asarray(self.estimator.predict(x)).reshape(-1, 1)
+
+    def get_feature_names_out(self, input_features: object = None) -> NDArray[np.object_]:
+        return np.asarray(["cluster_label"], dtype=object)
+
+
+class AnomalyScore(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+    """異常スコアを 1 列で出す薄い包み（score_samples を「大きいほど異常」に符号反転して transform で出す）。
+
+    sklearn の score_samples は「大きいほど正常」なので符号を反転するだけ（閾値・等級化はしない＝事実の報告）。
+    IsolationForest 等の score_samples を持つ推定器を包む。出力はスコア 1 列。
+    """
+
+    def __init__(self, estimator: Any) -> None:  # noqa: ANN401  IsolationForest 等の推定器
+        self.estimator = estimator
+
+    def fit(self, x: Any, y: object = None) -> AnomalyScore:  # noqa: ANN401
+        self.estimator.fit(x)
+        self.fitted_ = True  # 末尾 _ の学習済みマーカー（Pipeline の check_is_fitted が見る）
+        return self
+
+    def transform(self, x: Any) -> NDArray[Any]:  # noqa: ANN401
+        return (-np.asarray(self.estimator.score_samples(x))).reshape(-1, 1)
+
+    def get_feature_names_out(self, input_features: object = None) -> NDArray[np.object_]:
+        return np.asarray(["anomaly_score"], dtype=object)
 
 
 def _kmeans(seed: int, *, n_clusters: int, **params: Any) -> Any:  # noqa: ANN401  sklearn へ素通し
