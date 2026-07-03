@@ -19,10 +19,10 @@ def _model() -> LogisticRegression:
 
 def test_build_estimator_assembles_three_and_two_stages() -> None:
     est = build_estimator({"features": [_COLS], "encode": [{"kind": "onehot", "columns": ["c"]}]}, _model(), seed=0)
-    assert [n for n, _ in est.steps] == ["features", "encode", "model"]
+    assert [n for n, _ in est.steps] == ["features", "encode", "to_numpy", "model"]
     assert isinstance(est.named_steps["encode"], ColumnTransformer)
-    two = build_estimator({"features": [_COLS]}, _model(), seed=0)  # encode 無し → 2 段
-    assert [n for n, _ in two.steps] == ["features", "model"]
+    two = build_estimator({"features": [_COLS]}, _model(), seed=0)  # encode 無し → features→to_numpy→model
+    assert [n for n, _ in two.steps] == ["features", "to_numpy", "model"]
 
 
 def test_build_estimator_validates() -> None:

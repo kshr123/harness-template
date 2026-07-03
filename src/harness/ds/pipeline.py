@@ -15,11 +15,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import numpy as np
 import polars as pl
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
@@ -87,6 +89,14 @@ def _pca(seed: int, *, n_components: int, **params: Any) -> object:  # noqa: ANN
 
 def _fill_text(s: pl.Series) -> pl.Series:  # モジュール関数（lambda は pickle 不可）
     return s.fill_null("")
+
+
+def _to_numpy(x: Any) -> Any:  # noqa: ANN401  polars/pandas/numpy を受ける
+    """特徴量段の出力を numpy 配列に揃える（model 直前の唯一の numpy⇔polars 境界・DESIGN の方針）。
+
+    列名を落とすので、名前付き入力で feature_names_in_ を設定できないモデル（LightGBM 等）でも Pipeline が壊れない。
+    """
+    return x.to_numpy() if hasattr(x, "to_numpy") else np.asarray(x)
 
 
 def _tfidf(seed: int, **params: Any) -> object:  # noqa: ANN401
@@ -225,6 +235,31 @@ def _hist_gb_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
     return model
 
 
+# --- LightGBM（optional extra `lightgbm`・末尾で条件登録） ---
+def _lightgbm(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """LightGBM 分類（大規模・カテゴリ多めで hist_gb より速く強いことが多い）。task: classification。
+
+    主なハイパラ：n_estimators・num_leaves・learning_rate・scale_pos_weight（不均衡）。
+    目的関数：objective="binary"（既定）等の文字列。導入は `uv sync --extra lightgbm`。verbosity=-1 を既定に焼く。
+    """
+    from lightgbm import LGBMClassifier  # 遅延 import（未導入でもモジュールは壊れない）
+
+    model: SklearnLike = LGBMClassifier(**{"random_state": seed, "verbosity": -1, **params})
+    return model
+
+
+def _lightgbm_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """LightGBM 回帰（表形式の大規模データで強い）。task: regression。
+
+    主なハイパラ：n_estimators・num_leaves・learning_rate。目的関数：objective="regression"（既定）/
+    "regression_l1"（MAE）/"huber"/"quantile"（alpha=）/"poisson"/"tweedie"。導入は `uv sync --extra lightgbm`。
+    """
+    from lightgbm import LGBMRegressor
+
+    model: SklearnLike = LGBMRegressor(**{"random_state": seed, "verbosity": -1, **params})
+    return model
+
+
 ModelTask = Literal["classification", "regression"]
 
 
@@ -257,6 +292,15 @@ MODELS: dict[str, ModelEntry] = {
     "hist_gb_reg": ModelEntry(_hist_gb_reg, "regression"),
 }
 
+# optional 依存の kind → 導入すべき extra 名（未導入で使われたときのヒント）。
+OPTIONAL_MODEL_EXTRAS: dict[str, str] = {"lightgbm": "lightgbm", "lightgbm_reg": "lightgbm"}
+
+# 条件登録：ライブラリが入っている環境でだけ MODELS に足す（`data models` は使える語彙だけを見せる）。
+# import コストゼロの存在確認（find_spec）で登録を切り替える。工場本体は関数内 import なので未導入でも壊れない。
+if importlib.util.find_spec("lightgbm") is not None:
+    MODELS["lightgbm"] = ModelEntry(_lightgbm, "classification")
+    MODELS["lightgbm_reg"] = ModelEntry(_lightgbm_reg, "regression")
+
 
 def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = None) -> SklearnLike:
     """config の model 節（{kind, ...params}）から 1 つのモデル（推定器）を作る。
@@ -267,7 +311,9 @@ def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = 
     """
     kind = spec.get("kind")
     if kind not in MODELS:
-        raise ValueError(f"未知のモデル '{kind}'（{sorted(MODELS)} のいずれか）")
+        extra = OPTIONAL_MODEL_EXTRAS.get(kind) if isinstance(kind, str) else None
+        hint = f"。'{kind}' は `uv sync --extra {extra}` で使えるようになる" if extra else ""
+        raise ValueError(f"未知のモデル '{kind}'（{sorted(MODELS)} のいずれか）{hint}")
     entry = MODELS[kind]
     if task is not None and entry.task != task:
         raise ValueError(f"モデル '{kind}' は {entry.task} 用（この実験は task: {task}）")
@@ -317,5 +363,7 @@ def build_estimator(spec: Mapping[str, Any], model: SklearnLike, *, seed: int) -
             ("encode", ColumnTransformer(transformers, remainder="passthrough", verbose_feature_names_out=False))
         )
 
+    # model 直前で numpy に揃える（名前付き入力を扱えないモデルでも壊れない・境界を 1 点に固定）。
+    steps.append(("to_numpy", FunctionTransformer(_to_numpy, feature_names_out="one-to-one")))
     steps.append(("model", model))
     return Pipeline(steps)

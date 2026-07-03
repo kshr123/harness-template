@@ -23,6 +23,9 @@ ds = [
     # 業界標準を再発明しない：メトリクス・交差検証の分割・スケーリングは scikit-learn を使う。
     "scikit-learn>=1.6",
 ]
+# 追加モデルの optional 依存（ライブラリ名＝extra 名）。入れれば `data models` に増える（条件登録）。
+# 入れなくても ds は全機能動く（sklearn の hist_gb で勾配ブースティングは賄える）。導入例: uv sync --extra ds --extra lightgbm
+lightgbm = ["lightgbm>=4.5"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -71,8 +74,8 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-# 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn）。
-module = ["frontmatter", "yaml", "sklearn.*"]
+# 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
