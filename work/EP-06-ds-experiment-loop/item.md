@@ -16,7 +16,7 @@ created: 2026-07-03
 ## 進め方（テスト先行＋先コミット。各タスクは「スタブ＋赤テスト→実装→verify緑」を1タスク内で）
 **詳細設計は `DESIGN.md`（正本）**。全体像・各モジュールの型シグネチャ・テストピラミッド・横断的判断（sklearn は ds extra・核は import しない／numpy⇔polars 境界は1点／fold 種は SeedSequence）はそちらを見る。
 
-**着手順は「歩く骨組み（walking skeleton）を先に1本通す」**（DESIGN.md E の結論）。E2E・統合の欠落が主眼なので、結線の不確実性を最初に潰し、以降は常に緑の e2e を保ったまま各部品を差し替える。ID は据え置き・順序だけ変える：
+**着手順は「歩く骨組み（walking skeleton）を先に1本通す」**（DESIGN.md E の結論。基盤の標準の進め方＝`docs/method.md`）。E2E・統合の欠落が主眼なので、結線の不確実性を最初に潰し、以降は常に緑の e2e を保ったまま各部品を差し替える。**骨組みを通したあとの差し替えの順番は自由**（全体→詳細であればよい）。ID は据え置き：
 1. **T-0010 テストの土台**（済）：conftest 工場・マーカー・pm.lint 強化・AGENTS 規約。
 2. **T-0011 transforms.py**（済）：TargetTransform＋Identity/Log1p/StandardScale。
 3. **T-0017 検証の仕組み**（骨組みの前の土台）：checks.toml の段階×テストの目印を対応づけ（fast=unit / standard=integration / full=e2e・いずれも not slow）、既存テストに目印付与、未マーク失敗ガードを conftest に。段階＝検証の深さ、目印＝テストの重さ・範囲。門番(full)は slow を外せる。詳細は DESIGN.md C。
