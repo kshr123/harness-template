@@ -126,6 +126,8 @@ def main() -> int:
     estimator = build_estimator(feature_spec, seed)
     result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by="y")
 
+    if not result.cv.oof_mask.all():
+        raise SystemExit("OOF が全行を覆っていない（この実験は全行 CV 前提。分割を見直すこと）")
     folds_fp = save_folds(root, result.folds)
     oof_table = (
         df.select("id", "y")

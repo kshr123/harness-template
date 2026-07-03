@@ -26,7 +26,7 @@ closed: 2026-07-03
 6. **experiment.py＋E-0001 骨組み**：`build_estimator(spec, model)`＋`run_experiment(...)`。`code/train.py` は呼ぶだけ。baseline を `--test` で一気通貫・`tests/test_e2e_experiment.py::test_e0001_smoke`（subprocess）で verify に e2e を載せる。
 7. **T-0012 eval 閾値選択**：select_threshold_*（sklearn.metrics・OOF/valid で選ぶ）。train.py に接続。
 8. **T-0016 models.py**：Pipeline 丸ごと保存・版・指紋・台帳・昇格関門（前半 save/load→後半 registry/promote）。
-9. **E-0001 完了**：interaction 変種（`PolynomialFeatures`）・本規模（slow）・results 確定・結論記録で done（棄却でも記録で完了）。
+9. **E-0001 完了**（済）：interaction 変種（自前 `Interactions` ブロック x1*x2）・本規模実行・results 確定・結論記録で done。**棄却**（交互作用は効かず＝負の結果も記録で完了）。**EP-06 は 7/7 で done**。
 - ~~T-0015 train.py~~（**廃止**：DEC-0007。sklearn estimator＋clone で代替）。
 
 ## 引き継ぐ4つの核（参考リポより。詳細は本セッションの整理）

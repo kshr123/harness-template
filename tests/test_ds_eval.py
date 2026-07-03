@@ -61,6 +61,13 @@ def test_select_threshold_at_precision() -> None:
     assert ev.select_threshold_at_precision(y, s, target=1.0) == 0.6  # 適合率 1 を満たす最小の閾値
 
 
+def test_select_threshold_at_precision_unreachable() -> None:
+    # どの閾値でも適合率 1 に届かない → max(y_score) より上（全部陰性）を返す。
+    y = np.array([1, 0], dtype="int64")
+    s = np.array([0.3, 0.8], dtype="float64")
+    assert ev.select_threshold_at_precision(y, s, target=1.0) > 0.8
+
+
 def test_select_threshold_single_class_is_error() -> None:
     with pytest.raises(ValueError, match="両方"):
         ev.select_threshold_max_f1(np.array([1, 1, 1], dtype="int64"), np.array([0.2, 0.5, 0.9], dtype="float64"))

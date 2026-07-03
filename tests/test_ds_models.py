@@ -145,3 +145,18 @@ def test_promotion_gate(make_project: Callable[..., Any], monkeypatch: pytest.Mo
     )
     champ2 = model_store.champion(proj.root, work="E-0001", name="m")
     assert champ2 is not None and champ2.version == _V2
+
+
+def test_promotion_relative_reject(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    # 先に強い版（0.90）を champion に、後から劣る版（0.85）を昇格しようとすると相対関門で棄却。
+    _clock(monkeypatch, [_T1, _T2])
+    proj = make_project()
+    model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.90})
+    model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.85})
+    model_store.promote_model(
+        proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.80}, primary="roc_auc"
+    )
+    with pytest.raises(ValueError, match="相対関門"):
+        model_store.promote_model(
+            proj.root, work="E-0001", name="m", version=_V2, thresholds={"roc_auc": 0.80}, primary="roc_auc"
+        )
