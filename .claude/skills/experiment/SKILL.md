@@ -13,6 +13,11 @@ description: DS の実験（仮説検証・モデル比較・特徴量の効果�
 5. `python code/train.py --variant <名> --test` でスモーク → e2e テスト 1 本（subprocess で train.py を叩く）を足し、item の verified_by に明記して verify に接続。
 6. 本規模を実行し、SPEC の判定基準どおり結論を results/summary.yaml に記録（負の結果も記録で done）。気づきは `docs/learnings.md` へ。
 
+## モデルの選び方（目安・一覧は `uv run data models`）
+- まず**線形でベースライン**（分類 logreg／回帰 ridge・lasso・elasticnet）→ 非線形の余地があれば **random_forest / hist_gb(_reg)**（表形式の第一候補・NaN もそのまま）→ 規模・カテゴリが大きければ **lightgbm**（`uv sync --extra lightgbm`）。knn/tree は素直なベースライン。
+- **ハイパラ・目的関数は config の params で変える**（`model: {kind: hist_gb_reg, loss: absolute_error}`＝外れ値に強い／`loss: quantile, quantile: 0.9`＝上振れ分位／`criterion: entropy`）。どの引数で変えられるかは各 kind の docstring（`data models`）。
+- モデル比較は variants にモデルを持つ（`variants: {a: {model: {kind: ridge}}, b: {model: {kind: hist_gb_reg}}}`）。回帰は `task: regression`。
+
 ## 結果の深掘り（すべて OOF/valid の予測で・`analysis`／`eval`）
 どこで・どんな行で・どの列で外しているかを構造化レポートで掴み、特徴量の仮説（features スキルへ）に変える。
 - **どの層で外すか**：`analysis.segment_metrics(セグメント列, y_true, oof, task=)`（セグメント別指標・回帰は residual_mean 付き）。

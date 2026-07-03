@@ -127,6 +127,104 @@ def _ridge(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn �
     return model
 
 
+# --- 分類（追加） ---
+def _knn(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  seed は受けて捨てる（距離ベース＝乱数なし）
+    """k 近傍分類（距離ベース・非線形の素直なベースライン）。task: classification。
+
+    主なハイパラ：n_neighbors・weights（uniform/distance）・metric。目的関数は無し（距離を metric で変える）。
+    ※スケールの違う数値列は encode 段で標準化してから使う（距離が歪むため）。
+    """
+    from sklearn.neighbors import KNeighborsClassifier
+
+    model: SklearnLike = KNeighborsClassifier(**params)
+    return model
+
+
+def _tree(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """決定木分類（説明しやすい非線形・過学習しやすい）。task: classification。
+
+    主なハイパラ：max_depth・min_samples_leaf・class_weight（不均衡は "balanced"）。
+    目的関数：criterion="gini"（既定）/"entropy"/"log_loss"。params はそのまま sklearn へ。
+    """
+    from sklearn.tree import DecisionTreeClassifier
+
+    model: SklearnLike = DecisionTreeClassifier(**{"random_state": seed, **params})
+    return model
+
+
+def _random_forest(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """ランダムフォレスト分類（非線形・交互作用に強い定番）。task: classification。
+
+    主なハイパラ：n_estimators・max_depth・max_features・class_weight（不均衡は "balanced"）。
+    目的関数：criterion="gini"（既定）/"entropy"/"log_loss"。params はそのまま sklearn へ。
+    """
+    from sklearn.ensemble import RandomForestClassifier
+
+    model: SklearnLike = RandomForestClassifier(**{"random_state": seed, **params})
+    return model
+
+
+def _hist_gb(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """勾配ブースティング分類（sklearn HistGradientBoosting・表形式の第一候補）。task: classification。
+
+    主なハイパラ：learning_rate・max_iter・max_depth・l2_regularization・class_weight。NaN をそのまま扱える
+    （穴埋め前処理が不要）。目的関数は log_loss 固定（sklearn の仕様）。params はそのまま sklearn へ。
+    """
+    from sklearn.ensemble import HistGradientBoostingClassifier
+
+    model: SklearnLike = HistGradientBoostingClassifier(**{"random_state": seed, **params})
+    return model
+
+
+# --- 回帰（追加） ---
+def _lasso(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """Lasso 回帰（L1 正則化＝不要な係数を 0 にして特徴選択を兼ねる）。task: regression。
+
+    主なハイパラ：alpha（大きいほど係数が減る）・max_iter。目的関数は二乗誤差固定（正則化が L1）。
+    収束警告が出たら alpha か max_iter を動かす。params はそのまま sklearn へ。
+    """
+    from sklearn.linear_model import Lasso
+
+    model: SklearnLike = Lasso(**{"random_state": seed, **params})
+    return model
+
+
+def _elasticnet(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """ElasticNet 回帰（L1/L2 混合・相関の強い特徴群に強い）。task: regression。
+
+    主なハイパラ：alpha・l1_ratio（0=Ridge 寄り・1=Lasso 寄り）。目的関数は二乗誤差固定（L1/L2 混合）。
+    params はそのまま sklearn へ。
+    """
+    from sklearn.linear_model import ElasticNet
+
+    model: SklearnLike = ElasticNet(**{"random_state": seed, **params})
+    return model
+
+
+def _random_forest_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """ランダムフォレスト回帰（非線形・交互作用に強い定番）。task: regression。
+
+    主なハイパラ：n_estimators・max_depth・max_features。
+    目的関数：criterion="squared_error"（既定）/"absolute_error"（外れ値に強い）/"poisson"。
+    """
+    from sklearn.ensemble import RandomForestRegressor
+
+    model: SklearnLike = RandomForestRegressor(**{"random_state": seed, **params})
+    return model
+
+
+def _hist_gb_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """勾配ブースティング回帰（sklearn HistGradientBoosting・表形式の第一候補）。task: regression。
+
+    主なハイパラ：learning_rate・max_iter・max_depth・l2_regularization。NaN をそのまま扱える。
+    目的関数：loss="squared_error"（既定）/"absolute_error"/"poisson"/"gamma"/"quantile"（quantile=0.9 等を併記）。
+    """
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    model: SklearnLike = HistGradientBoostingRegressor(**{"random_state": seed, **params})
+    return model
+
+
 ModelTask = Literal["classification", "regression"]
 
 
@@ -145,8 +243,18 @@ class ModelEntry:
 # config の kind → モデルの登録（工場＋task）。sklearn を足すときはここに 1 行（DEC-0006）。
 # optional 依存（lightgbm 等）のモデルはファイル末尾で「入っていれば登録」する（§5 条件登録）。
 MODELS: dict[str, ModelEntry] = {
+    # 分類
     "logreg": ModelEntry(_logreg, "classification"),
+    "knn": ModelEntry(_knn, "classification"),
+    "tree": ModelEntry(_tree, "classification"),
+    "random_forest": ModelEntry(_random_forest, "classification"),
+    "hist_gb": ModelEntry(_hist_gb, "classification"),
+    # 回帰
     "ridge": ModelEntry(_ridge, "regression"),
+    "lasso": ModelEntry(_lasso, "regression"),
+    "elasticnet": ModelEntry(_elasticnet, "regression"),
+    "random_forest_reg": ModelEntry(_random_forest_reg, "regression"),
+    "hist_gb_reg": ModelEntry(_hist_gb_reg, "regression"),
 }
 
 
