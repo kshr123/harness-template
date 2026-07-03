@@ -268,13 +268,36 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 
 統合テスト用の **FakeTrainer は tests/ 内に置く**（src に置くと本番コードと紛れる）。`Trainer` Protocol を満たす約20行のクラスで、呼び出し記録（回数・受け取った seed・行数）を持つ。
 
-### e2e→verify の接続
+### 検証の仕組み：段階（level）×テストの目印（marker）— テンプレートに組み込む
 
-1. **接続点は pytest の e2e テストであって checks.toml の新コマンドではない**。checks.toml の `[full] pytest -q` はマーカー無指定＝全部実行なので、`tests/test_e2e_experiment.py` を追加した時点で `uv run verify` に e2e スモークが自動的に載る。checks.toml は変更不要（入口を増やさない）。
-2. e2e テストは実験スクリプト**そのもの**を subprocess で叩く（`sys.executable` ＋ `--test --root <tmp>`）。これにより「雛形から乖離した実験スクリプト」「テストだけ通る二重実装」が構造的に不可能になる——verify が落ちるのはスクリプト本体が壊れたとき。
-3. E-0001 の `verified_by: tests/test_e2e_experiment.py::test_e0001_smoke` とし、既存の pm.lint（`::名` の実在検査・done 実験の results/ 必須）にそのまま噛み合わせる。
-4. 重い方は `slow` マーカーで分離。当面 full は全実行のまま（LogisticRegression×n=2000 は数秒で予算内）。**full の所要が2分を超えたら** checks.toml の full を `pytest -q -m "not slow"` に変え、slow は CI の夜間または実験完了時の手動実行に移す——この切替条件を数値で決めておく。
-5. 追加の機械的ガード：pm.spec_lint に「`work/**/code/*.py` に `np.random.seed` / `random.seed` を含んだら error」を1項目足す。グローバル種の禁止をレビュー頼みにしない。
+これは土台（テンプレート）の一部として最初から作り込む。今のテスト数が少ないことは理由にしない。この repo を土台にする全案件が、初めから「速い内側ループ＋端まで確かめる門番＋切り離せる重い層」を得る。
+
+**2つの軸**：
+- **段階（level・`checks.toml`）＝その瞬間に見合う検査**：fast（編集中・hook 相当）→ standard（コミット前）→ full（完了判定・CI＝`uv run verify`）。段階は累積（full は fast・standard の中身も含む）。
+- **目印（marker・テスト1件ごと）＝テストの重さと範囲**：`unit` / `integration` / `e2e`（ピラミッド。**各テストにちょうど1つ**）＋ `slow`（重いものに追加で貼るフラグ）。
+
+**対応（門番の段階は slow を絶対に含めない）**：
+
+| 段階 | いつ | 走る検査 |
+|---|---|---|
+| fast | 保存・編集中 | ruff format/check ＋ `pytest -q -m "unit and not slow"` |
+| standard | コミット前 | ＋ mypy ＋ `pytest -q -m "integration and not slow"` |
+| **full**（＝verify・done 判定） | 完了・CI | ＋ `pytest -q -m "e2e and not slow"` |
+| （段階に載せない） | 実験完了・夜間 | `pytest -q -m slow`（明示的に叩く。門番ではない） |
+
+各段階の pytest は互いに素な目印を選ぶので二重実行にならず、**full まで通せばピラミッド全段（unit＋integration＋e2e スモーク）が走る**＝パイプラインが端から端まで動くことを毎回の done 判定で確かめる。除くのは slow（本規模の重複）だけ。
+
+**原則**：
+- 速い・高信号の検査ほど頻繁に（下の inner loop）。重い・全体の検査は門番（full）に。
+- **slow は「正しさ」でなく「本規模での確信」を足すだけ**。correctness は小さい `--test` の e2e スモークが門番で担保するので、slow は門番から外して別経路（夜間 CI か実験を done にする時）に回せる。どちらに回すかは運用の選択で、仕組み（門番から外せること）は今作り込む。
+- **どのテストも必ずピラミッドの目印を1つ持つ**。付け忘れ＝どの段階でも走らない“迷子テスト”を防ぐため、**未マークのテストは失敗**にする機械ガードを置く（`conftest.py` の `pytest_collection_modifyitems` で、unit/integration/e2e のいずれも無い item を collect エラーにする）。`--strict-markers`（未登録マーカーを弾く）と対で「無印」も塞ぐ。
+
+**e2e→verify の接続（この仕組みの帰結）**：
+- e2e テストは実験スクリプト**そのもの**を subprocess で叩く（`sys.executable` ＋ `--test --root <tmp>`）。「雛形から乖離した実験」「テストだけ通る二重実装」が構造的に不可能になる——full が落ちるのはスクリプト本体が壊れたとき。
+- E-0001 の `verified_by: tests/test_e2e_experiment.py::test_e0001_smoke`。既存 pm.lint（`::名` の実在検査・done 実験の results/ 必須）にそのまま噛み合う。
+- 追加の機械ガード：pm.spec_lint に「`work/**/code/*.py` に `np.random.seed` / `random.seed` を含んだら error」を足す。グローバル種の禁止をレビュー頼みにしない。
+
+**この仕組みを組み込む作業（T-0017 として先に入れる）**：(1) `checks.toml` の各段階 pytest を上表の marker 選択にする、(2) 既存テスト8ファイルに `pytestmark` でピラミッドの目印を付ける（分類は下のピラミッド表の「マーカー」列）、(3) 未マーク失敗ガードを conftest に置く。これは ML モジュールに依存しないので、歩く骨組み（T-0014）より前に置ける。
 
 ## D. 横断的な設計判断
 
@@ -298,6 +321,7 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 
 タスク列への割付（ID は既存のまま・順序だけ変える）：
 
+0. **T-0017 検証の仕組み**（骨組みの前に置く土台）：`checks.toml` の各段階 pytest を marker 選択（fast=unit / standard=integration / full=e2e、いずれも `not slow`）にし、既存テスト8ファイルにピラミッドの目印を付け、conftest に「未マークのテストは失敗」ガードを置く。ML モジュールに依存しない純粋な仕組みなので先に入れる。
 1. **T-0014 cv.py**（骨組みの背骨）：make_folds／fold_indices／holdout_indices／run_cv＋CVResult。tests に FakeTrainer。統合テスト＝結線・fold 表の store 往復。※ stratify は最初から入れる（後付けだと fold 表スキーマが揺れる）。
 2. **T-0015 train.py**：Trainer Protocol＋FoldOutcome＋SklearnTrainer。ここで sklearn を ds extra に追加。再現性・target_transform の統合テスト。
 3. **T-0016（前半）models.py**：save_model／load_model と manifest・上書き拒否だけ（list_models・CLI 表示は後半へ）。
@@ -313,5 +337,5 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 
 1. **合否の閾値の値**（config.yaml `thresholds:`）→ **決着：ここで値を決めない。案件ごとのパラメータ**。設計は値を埋めず config で外から受け `passes(metrics, thresholds)` で判定する（決められる設計を担保）。E-0001 の 0.80 は「合成データ構成上まず割らない下限」の仮置きにすぎない。
 2. **モデルの保存形式**→ **決着：pickle＋manifest を既定。形式は差し替え可能に**。`save_model(fmt="pickle")`＋`ModelRecord.format` で manifest に記録し、`load_model`/エクスポータが形式で分岐できる構造にする。可搬形式（ONNX 等）は「別システム・別言語へ引き渡す運用要件」が出た時に、呼び出し側を壊さず足す（今は pickle のみ実装・他形式は NotImplementedError）。
-3. **slow（本規模実行）を CI で回すか**→ **決着：今は分けない（本規模も verify に入れる。数秒）**。分岐は所要を引き金にする——full verify が約2分を超えたら default を `pytest -m "not slow"` にし、slow を別経路へ移す。**未確定は「別経路の意図」だけ**（夜間 CI で自動 か 実験を done にする時に手で1回か）。軽い `--test` e2e スモークは常に verify に残りパイプラインは常時守られる。
+3. **slow（本規模実行）の扱い**→ **決着：仕組み（段階×目印・門番から slow を外せる構造）は今作り込む**（C「検証の仕組み」・T-0017）。業務判断として残るのは「slow を実際に回す先＝夜間 CI で自動 か 実験を done にする時に手動か」の1点だけで、これは E-0001 まで保留でよい（仕組みはどちらでも受けられる）。
 4. **backend 切替（S3/DWH）の着手時期**→ **決着：まだ着手しない。ローカルのまま**。ただし models.py も store.py と同じく config URI 解決・`file:` 以外は NotImplementedError で書き、口だけ開けておく（見越して設計・実装はしない）。着手時期は共有が要る時点（チーム参加・データ量）で判断。
