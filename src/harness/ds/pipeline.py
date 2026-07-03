@@ -118,9 +118,18 @@ def _logreg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn �
     return model
 
 
+def _ridge(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn へ素通し
+    """リッジ回帰（線形・回帰の既定モデル）。config の model 節に kind: ridge・task: regression と併せて使う。"""
+    from sklearn.linear_model import Ridge
+
+    model: SklearnLike = Ridge(**{"random_state": seed, **params})  # sklearn は型なし＝Any を明示的に受ける
+    return model
+
+
 # config の kind → モデルの工場（seed 配線・安全既定つき）。LightGBM 等を足すときはここに 1 行（DEC-0006）。
 MODELS: dict[str, ModelFactory] = {
     "logreg": _logreg,
+    "ridge": _ridge,
 }
 
 

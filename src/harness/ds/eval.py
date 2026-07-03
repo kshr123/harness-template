@@ -156,12 +156,14 @@ def evaluate(
 
     threshold はスコアをラベルに変える決定境界（既定 0.5）。metrics=["roc_auc", ...] で選べる
     （回帰指標の名を渡すと ValueError）。返り値は追加のみで増えることがある（キーの部分集合で参照すること）。
+    y_true は分類ラベルとして int に揃える（run_cv が float の器で渡してきても安全に）。
     """
+    y_int = np.asarray(y_true).astype(np.int_)
     y_label = (y_score >= threshold).astype("int64")
     out: dict[str, float] = {}
     for name in _select("classification", metrics):
         m = METRICS[name]
-        out[name] = m.fn(y_true, y_label if m.input == "label" else y_score)
+        out[name] = m.fn(y_int, y_label if m.input == "label" else y_score)
     return out
 
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 import polars as pl
@@ -23,7 +23,7 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from harness.ds.eval import evaluate
 
 Splits = Sequence[tuple[NDArray[np.int64], NDArray[np.int64]]]
-MetricFn = Callable[[NDArray[np.int_], NDArray[np.float64]], dict[str, float]]
+MetricFn = Callable[[NDArray[Any], NDArray[np.float64]], dict[str, float]]
 
 
 @runtime_checkable
@@ -159,9 +159,11 @@ def run_cv(
         pred = _predict(fitted, x[valid_idx], predict)
         oof[valid_idx] = pred
         oof_mask[valid_idx] = True
-        fold_metrics.append(metric_fn(y[valid_idx].astype(np.int_), pred))
+        # y は元の dtype のまま metric_fn へ渡す（分類か回帰かで型の扱いが違う。分類の int 化は evaluate 側が担う。
+        # ここで int に丸めると回帰の目的変数（連続値）が壊れる）。
+        fold_metrics.append(metric_fn(y[valid_idx], pred))
         estimators.append(fitted)
-    oof_metrics = metric_fn(y[oof_mask].astype(np.int_), oof[oof_mask])
+    oof_metrics = metric_fn(y[oof_mask], oof[oof_mask])
     return CVResult(
         oof=oof, oof_mask=oof_mask, fold_metrics=fold_metrics, estimators=estimators, oof_metrics=oof_metrics
     )

@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -16,7 +16,9 @@ import polars as pl
 from numpy.typing import NDArray
 
 from harness.ds.cv import CVResult, SklearnLike, fold_indices, make_folds, run_cv
-from harness.ds.eval import passes
+from harness.ds.eval import metric_fn_for, passes
+
+Task = Literal["classification", "regression"]
 
 
 @dataclass(frozen=True)
@@ -42,14 +44,21 @@ def run_experiment(
     thresholds: Mapping[str, float],
     id_column: str = "id",
     stratify_by: str | None = None,
-    predict: Literal["proba", "value"] = "proba",
+    task: Task = "classification",
+    threshold: float = 0.5,
+    metrics: Sequence[str] | None = None,
+    predict: Literal["proba", "value"] | None = None,
 ) -> ExperimentResult:
     """fold を作り、estimator を交差検証し、OOF 指標が閾値を満たすか（passed）まで一気に返す。
 
     estimator は特徴量→モデルの 1 本の Pipeline。run_cv が fold ごとに clone→train で fit するので、
-    特徴量の学習も train でだけ起き、漏れは構造的に起きない。
+    特徴量の学習も train でだけ起き、漏れは構造的に起きない。task で分類/回帰を切り替える（指標と予測の種類が
+    task から決まる）。predict 未指定は task から導く（分類=proba・回帰=value）。
     """
+    if predict is None:
+        predict = "value" if task == "regression" else "proba"
+    metric_fn = metric_fn_for(task, threshold=threshold, metrics=metrics)
     folds = make_folds(df, n_folds=n_folds, seed=seed, id_column=id_column, stratify_by=stratify_by)
     splits = fold_indices(df, folds, id_column=id_column)
-    cv_result = run_cv(estimator, df, y, splits, predict=predict)
+    cv_result = run_cv(estimator, df, y, splits, predict=predict, metric_fn=metric_fn)
     return ExperimentResult(folds=folds, cv=cv_result, passed=passes(cv_result.oof_metrics, dict(thresholds)))
