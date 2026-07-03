@@ -143,9 +143,10 @@ def run_cv(
 
 参考リポの `runner.py` は `oof = np.zeros(len(y))` で未カバー行が黙って 0 になる。**oof_mask の追加**がこれへの修正で、固定分割（要素1）でも同じ関数が正しく使える。cv.py は store を import しない（保存は実験スクリプト側。テストで往復を結線）。
 
-### B-4. train.py（T-0015）— Trainer Protocol＋SklearnTrainer
+### B-4. train.py（T-0015）— SklearnTrainer（Trainer/FoldOutcome は cv.py に）
 
 参考リポとの差分：`train_fold` に seed が無く、乱数はモデルパラメータ任せ（暗黙）。**seed を train の明示引数**にする（核3）。また target_transform（T-0011 の成果）をここで結線する。
+**契約の置き場（実装で確定）**：`Trainer` Protocol と `FoldOutcome` は消費側の `cv.py` に置く（run_cv が使う・cv→train の循環を避ける）。train.py の `SklearnTrainer` は `from harness.ds.cv import Trainer, FoldOutcome` を実装する。
 
 ```python
 @dataclass(frozen=True)
