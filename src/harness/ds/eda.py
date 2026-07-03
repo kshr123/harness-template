@@ -27,9 +27,13 @@ class TableProfile:
     n_rows: int
     n_columns: int
     columns: pl.DataFrame  # column, dtype, null_count, null_ratio, n_unique（df の列順）
-    numeric: pl.DataFrame  # column, mean, std, min, q25, median, q75, max（数値列のみ）
+    numeric: (
+        pl.DataFrame
+    )  # column, mean/std/min/q25/median/q75/max, skew, kurtosis, iqr_lower/upper, n_outliers, outlier_ratio
     categorical: pl.DataFrame  # column, n_unique, top_value, top_count, top_ratio
     duplicate_rows: int  # 全列一致の重複行数（= n_rows − 相異なる行数）
+    datetime: pl.DataFrame  # column, min, max, n_unique（日時列のみ・無ければ 0 行）
+    flags: pl.DataFrame  # column, flag, detail（怪しい列の一覧・0 行なら異常なし）
 
     def to_dict(self) -> dict[str, Any]:
         """キー順を固定して dict にする（決定的な出力）。polars は行の list[dict] へ。"""
@@ -40,6 +44,8 @@ class TableProfile:
             "numeric": self.numeric.to_dicts(),
             "categorical": self.categorical.to_dicts(),
             "duplicate_rows": self.duplicate_rows,
+            "datetime": self.datetime.to_dicts(),
+            "flags": self.flags.to_dicts(),
         }
 
 
@@ -59,23 +65,74 @@ def _column_overview(df: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
+def _numeric_row(df: pl.DataFrame, c: str) -> dict[str, Any]:
+    s = df[c]
+    q25, q75 = _f(s.quantile(0.25)), _f(s.quantile(0.75))
+    lower = upper = n_out = ratio = None
+    if q25 is not None and q75 is not None:
+        iqr = q75 - q25
+        lower, upper = q25 - 1.5 * iqr, q75 + 1.5 * iqr  # Tukey の柵
+        non_null = s.drop_nulls()
+        n_out = int(((non_null < lower) | (non_null > upper)).sum())
+        ratio = (n_out / non_null.len()) if non_null.len() else 0.0
+    return {
+        "column": c,
+        "mean": _f(s.mean()),
+        "std": _f(s.std()),
+        "min": _f(s.min()),
+        "q25": q25,
+        "median": _f(s.median()),
+        "q75": q75,
+        "max": _f(s.max()),
+        "skew": _f(s.skew()),
+        "kurtosis": _f(s.kurtosis()),
+        "iqr_lower": lower,
+        "iqr_upper": upper,
+        "n_outliers": n_out,
+        "outlier_ratio": ratio,
+    }
+
+
 def _numeric_overview(df: pl.DataFrame) -> pl.DataFrame:
     cols = df.select(cs.numeric()).columns
+    rows = [_numeric_row(df, c) for c in cols]
+    floats = ["mean", "std", "min", "q25", "median", "q75", "max"]
+    floats += ["skew", "kurtosis", "iqr_lower", "iqr_upper", "outlier_ratio"]
+    schema: dict[str, Any] = {"column": pl.String} | {k: pl.Float64 for k in floats} | {"n_outliers": pl.Int64}
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def _datetime_overview(df: pl.DataFrame) -> pl.DataFrame:
     rows = [
-        {
-            "column": c,
-            "mean": _f(df[c].mean()),
-            "std": _f(df[c].std()),
-            "min": _f(df[c].min()),
-            "q25": _f(df[c].quantile(0.25)),
-            "median": _f(df[c].median()),
-            "q75": _f(df[c].quantile(0.75)),
-            "max": _f(df[c].max()),
-        }
-        for c in cols
+        {"column": c, "min": str(df[c].min()), "max": str(df[c].max()), "n_unique": int(df[c].n_unique())}
+        for c in df.columns
+        if df.schema[c].is_temporal()
     ]
-    schema = ["column", "mean", "std", "min", "q25", "median", "q75", "max"]
-    return pl.DataFrame(rows) if rows else pl.DataFrame(schema={k: pl.Float64 for k in schema} | {"column": pl.String})
+    schema: dict[str, Any] = {"column": pl.String, "min": pl.String, "max": pl.String, "n_unique": pl.Int64}
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def _flags_overview(df: pl.DataFrame, *, quasi_constant_ratio: float) -> pl.DataFrame:
+    n = df.height
+    rows: list[dict[str, Any]] = []
+    for c in df.columns:
+        s = df[c]
+        nu = s.n_unique()
+        null_ratio = (s.null_count() / n) if n else 0.0
+        if null_ratio == 1.0:
+            rows.append({"column": c, "flag": "all_null", "detail": "全行が欠損"})
+            continue
+        if nu == 1:
+            rows.append({"column": c, "flag": "constant", "detail": "一意数 1（学習に寄与しない）"})
+            continue
+        vc = s.drop_nulls().value_counts(sort=True)
+        top_ratio = (int(vc["count"][0]) / n) if (vc.height and n) else 0.0
+        if top_ratio >= quasi_constant_ratio:
+            rows.append({"column": c, "flag": "quasi_constant", "detail": f"最頻値の比率 {top_ratio:.3f}"})
+        if nu == n and (s.dtype.is_integer() or s.dtype == pl.String):
+            rows.append({"column": c, "flag": "id_like", "detail": "一意数=行数（識別子疑い・リークの温床）"})
+    schema: dict[str, Any] = {"column": pl.String, "flag": pl.String, "detail": pl.String}
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
 def _categorical_overview(df: pl.DataFrame, *, max_categories: int) -> pl.DataFrame:
@@ -98,10 +155,11 @@ def _categorical_overview(df: pl.DataFrame, *, max_categories: int) -> pl.DataFr
     return pl.DataFrame(rows) if rows else pl.DataFrame(schema={"column": pl.String, "n_unique": pl.Int64})
 
 
-def profile(df: pl.DataFrame, *, max_categories: int = 50) -> TableProfile:
-    """テーブルの基本レポート（列の欠損・型・一意数／数値の統計量／カテゴリの最頻／重複行数）。
+def profile(df: pl.DataFrame, *, max_categories: int = 50, quasi_constant_ratio: float = 0.99) -> TableProfile:
+    """テーブルの基本レポート（列の欠損・型・一意数／数値の統計量・外れ値／カテゴリの最頻／重複行数／日時／品質フラグ）。
 
     max_categories：これ以下の一意数の列はカテゴリ扱いでも要約する（String は常にカテゴリ扱い）。
+    quasi_constant_ratio：最頻値の比率がこれ以上なら準定数フラグ（既定 0.99）。
     """
     return TableProfile(
         n_rows=df.height,
@@ -110,6 +168,8 @@ def profile(df: pl.DataFrame, *, max_categories: int = 50) -> TableProfile:
         numeric=_numeric_overview(df),
         categorical=_categorical_overview(df, max_categories=max_categories),
         duplicate_rows=df.height - df.n_unique(),
+        datetime=_datetime_overview(df),
+        flags=_flags_overview(df, quasi_constant_ratio=quasi_constant_ratio),
     )
 
 
@@ -143,6 +203,92 @@ def target_summary(df: pl.DataFrame, *, target: str, task: Task = "classificatio
 def _f(value: Any) -> float | None:  # noqa: ANN401  polars 集計は数値 or None
     """polars 集計値を素の float（または None）にする（YAML 化と型の一貫のため）。"""
     return None if value is None else float(value)
+
+
+def missing_patterns(df: pl.DataFrame, *, top: int = 20) -> pl.DataFrame:
+    """欠損の同時発生パターン（列 = columns（欠損列名の list）, count, ratio・count 降順・上位 top）。
+
+    「どの列がまとまって欠けるか」（同一原因の欠損・結合漏れ）を行単位で見る。全列非欠損の行は columns=[]。
+    """
+    cols = df.columns
+    null_flags = df.select([pl.col(c).is_null() for c in cols])
+    patterns: dict[tuple[str, ...], int] = {}
+    for row in null_flags.iter_rows():
+        key = tuple(c for c, is_null in zip(cols, row, strict=True) if is_null)
+        patterns[key] = patterns.get(key, 0) + 1
+    n = df.height
+    ordered = sorted(patterns.items(), key=lambda kv: kv[1], reverse=True)[:top]
+    rows = [{"columns": list(k), "count": v, "ratio": (v / n if n else 0.0)} for k, v in ordered]
+    schema: dict[str, Any] = {"columns": pl.List(pl.String), "count": pl.Int64, "ratio": pl.Float64}
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def duplicate_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """内容が同一の列ペア（列 = column, duplicate_of（先に現れた列名））。0 行なら重複なし。
+
+    null 同士は等しいとみなす（eq_missing）。列内容のハッシュで候補を絞ってから全比較（総当たりを避ける）。
+    片方を落とす判断はエージェント/実験側（ここは事実の報告だけ）。
+    """
+    buckets: dict[int, list[str]] = {}
+    rows: list[dict[str, Any]] = []
+    for c in df.columns:
+        fingerprint = hash(tuple(df[c].hash().to_list()))  # 内容＋null 位置が同じなら同じ指紋
+        match = next((p for p in buckets.get(fingerprint, []) if bool(df[c].eq_missing(df[p]).all())), None)
+        if match is not None:
+            rows.append({"column": c, "duplicate_of": match})
+        else:
+            buckets.setdefault(fingerprint, []).append(c)
+    schema: dict[str, Any] = {"column": pl.String, "duplicate_of": pl.String}
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def category_target_summary(
+    df: pl.DataFrame,
+    *,
+    target: str,
+    columns: Sequence[str] | None = None,
+    max_categories: int = 50,
+    top: int = 20,
+) -> pl.DataFrame:
+    """カテゴリ×目的変数（列 = column, value, count, ratio, target_mean・各列 count 上位 top）。
+
+    分類なら target_mean＝そのカテゴリの陽性率・回帰なら平均。件数の多いカテゴリで target_mean が 0/1 に
+    張り付いていたらリーク疑い（目安・門番にはしない）。専用のリーク検出関数は作らない（correlations でも読める）。
+    """
+    if target not in df.columns:
+        raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
+
+    def _is_cat(c: str) -> bool:
+        return c != target and (df.schema[c] == pl.String or df[c].n_unique() <= max_categories)
+
+    cat_cols = list(columns) if columns is not None else [c for c in df.columns if _is_cat(c)]
+    n = df.height
+    rows: list[dict[str, Any]] = []
+    for c in cat_cols:
+        agg = (
+            df.group_by(c)
+            .agg(pl.len().alias("count"), pl.col(target).mean().alias("target_mean"))
+            .sort("count", descending=True)
+            .head(top)
+        )
+        for row in agg.iter_rows(named=True):
+            rows.append(
+                {
+                    "column": c,
+                    "value": str(row[c]),
+                    "count": int(row["count"]),
+                    "ratio": (int(row["count"]) / n) if n else 0.0,
+                    "target_mean": _f(row["target_mean"]),
+                }
+            )
+    schema: dict[str, Any] = {
+        "column": pl.String,
+        "value": pl.String,
+        "count": pl.Int64,
+        "ratio": pl.Float64,
+        "target_mean": pl.Float64,
+    }
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
 def _corr(x: np.ndarray, y: np.ndarray) -> float:

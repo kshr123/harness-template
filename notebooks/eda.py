@@ -70,7 +70,7 @@ def _(mo, prof):
 
 @app.cell
 def _(prof):
-    prof.numeric
+    prof.numeric  # 統計量＋歪度/尖度＋IQR 外れ値
     return
 
 
@@ -82,11 +82,54 @@ def _(prof):
 
 
 @app.cell
+def _(mo, prof):
+    mo.md("## 品質フラグ（全欠損・定数・準定数・ID 疑い）")
+    return
+
+
+@app.cell
+def _(prof):
+    prof.flags  # 0 行なら異常なし
+    return
+
+
+@app.cell
+def _(prof):
+    prof.datetime  # 日時列の期間（無ければ 0 行）
+    return
+
+
+@app.cell
+def _(eda, mo, train):
+    mo.md("## 欠損の同時発生パターン")
+    return
+
+
+@app.cell
+def _(eda, train):
+    eda.missing_patterns(train)
+    return
+
+
+@app.cell
+def _(eda, train):
+    eda.duplicate_columns(train)  # 内容が同一の列ペア（0 行なら重複なし）
+    return
+
+
+@app.cell
 def _(eda, mo, target, train):
     # 目的変数の要約（HARNESS_EDA_TARGET を指定したときだけ）。分類はクラス比率・回帰は統計量。
     if target:
         summary = eda.target_summary(train, target=target)
         mo.md(f"## 目的変数 `{target}` の要約\n\n```\n{summary}\n```")
+    return
+
+
+@app.cell
+def _(eda, target, train):
+    # カテゴリ別の目的率/平均（張り付き＝リーク疑いの読み口）。target 指定時だけ。
+    eda.category_target_summary(train, target=target) if target else None
     return
 
 

@@ -114,7 +114,16 @@ def test_profile_to_dict_is_serializable() -> None:
     import yaml  # to_dict は YAML にそのまま落ちる（正本→ビュー/保存の写像）。
 
     d = eda.profile(_frame()).to_dict()
-    assert list(d) == ["n_rows", "n_columns", "columns", "numeric", "categorical", "duplicate_rows"]
+    assert list(d) == [
+        "n_rows",
+        "n_columns",
+        "columns",
+        "numeric",
+        "categorical",
+        "duplicate_rows",
+        "datetime",
+        "flags",
+    ]
     text = yaml.safe_dump(d, allow_unicode=True)  # 例外なく文字列化できる（polars 値が素の Python になっている）
     assert "n_rows" in text
 
@@ -139,6 +148,82 @@ def test_target_summary_regression_stats() -> None:
 def test_target_summary_missing_column_errors() -> None:
     with pytest.raises(ValueError, match="目的変数|列"):
         eda.target_summary(pl.DataFrame({"a": [1]}), target="nope")
+
+
+def test_profile_numeric_skew_and_iqr_outliers() -> None:
+    # 対称な構成 → skew==0。[1..8]＋100 → 100 だけが Tukey の柵の外（n_outliers==1・比率 1/9）。
+    df = pl.DataFrame({"v": [1.0, 2, 3, 4, 5, 6, 7, 8, 100]})
+    num = {r["column"]: r for r in eda.profile(df).numeric.to_dicts()}
+    sym = {r["column"]: r for r in eda.profile(pl.DataFrame({"s": [1.0, 2, 3]})).numeric.to_dicts()}
+    assert sym["s"]["skew"] == pytest.approx(0.0)
+    assert num["v"]["n_outliers"] == 1
+    assert num["v"]["outlier_ratio"] == pytest.approx(1 / 9)
+
+
+def test_profile_flags() -> None:
+    df = pl.DataFrame(
+        {
+            "const": [5] * 100,  # constant
+            "quasi": [1] + [0] * 99,  # 最頻値 0.99 → quasi_constant
+            "idcol": list(range(100)),  # 一意数=行数の Int → id_like
+            "allnull": [None] * 100,  # all_null
+            "ok": list(range(50)) * 2,  # 健全（フラグなし）
+        }
+    )
+    flags = {(r["column"], r["flag"]) for r in eda.profile(df).flags.to_dicts()}
+    assert ("const", "constant") in flags
+    assert ("quasi", "quasi_constant") in flags
+    assert ("idcol", "id_like") in flags
+    assert ("allnull", "all_null") in flags
+    assert not any(c == "ok" for c, _ in flags)  # 健全な列はフラグに出ない
+
+
+def test_profile_datetime() -> None:
+    import datetime as dt
+
+    df = pl.DataFrame({"d": [dt.date(2020, 1, 1), dt.date(2020, 1, 3)], "n": [1, 2]})
+    dts = {r["column"]: r for r in eda.profile(df).datetime.to_dicts()}
+    assert "d" in dts and dts["d"]["n_unique"] == 2
+    assert "2020-01-01" in dts["d"]["min"] and "2020-01-03" in dts["d"]["max"]
+    # 日時列なし → 0 行（落ちない）。
+    assert eda.profile(pl.DataFrame({"n": [1, 2]})).datetime.height == 0
+
+
+def test_missing_patterns() -> None:
+    # {x,y} 同時欠損 3 行・z 単独欠損 2 行・欠損なし 5 行。
+    df = pl.DataFrame(
+        {
+            "x": [None, None, None, 1, 1, 1, 1, 1, 1, 1],
+            "y": [None, None, None, 2, 2, 2, 2, 2, 2, 2],
+            "z": [1, 1, 1, None, None, 3, 3, 3, 3, 3],
+        }
+    )
+    pats = eda.missing_patterns(df)
+    by_cols = {tuple(r["columns"]): r["count"] for r in pats.to_dicts()}
+    assert by_cols[()] == 5  # 欠損なしが最多
+    assert by_cols[("x", "y")] == 3
+    assert by_cols[("z",)] == 2
+
+
+def test_duplicate_columns() -> None:
+    df = pl.DataFrame(
+        {
+            "a": [1, 2, None, 4],
+            "b": [1, 2, None, 4],  # a と完全一致（null 位置も同じ）
+            "c": [1, 2, 3, None],  # null 位置が違う
+        }
+    )
+    dups = [(r["column"], r["duplicate_of"]) for r in eda.duplicate_columns(df).to_dicts()]
+    assert dups == [("b", "a")]  # c は重複でない
+
+
+def test_category_target_summary() -> None:
+    # A は目的が全 1・B は全 0 → target_mean が 1.0 / 0.0。
+    df = pl.DataFrame({"cat": ["A", "A", "A", "B", "B"], "y": [1, 1, 1, 0, 0]})
+    rows = {r["value"]: r for r in eda.category_target_summary(df, target="y").to_dicts()}
+    assert rows["A"]["target_mean"] == pytest.approx(1.0)
+    assert rows["B"]["target_mean"] == pytest.approx(0.0)
+    assert rows["A"]["count"] == 3
 
 
 def test_notebook_is_thin_view() -> None:

@@ -222,12 +222,18 @@ def _data_profile(
     from harness.ds import eda, store
 
     df = store.load(_root(), table_id)
-    report: dict[str, object] = {"table": table_id, "profile": eda.profile(df).to_dict()}
+    report: dict[str, object] = {
+        "table": table_id,
+        "profile": eda.profile(df).to_dict(),
+        "missing_patterns": eda.missing_patterns(df).to_dicts(),
+        "duplicate_columns": eda.duplicate_columns(df).to_dicts(),
+    }
     if target is not None:
         if task not in ("classification", "regression"):
             typer.echo("task は classification / regression のいずれか")
             raise typer.Exit(1)
         report["target"] = eda.target_summary(df, target=target, task=task)  # type: ignore[arg-type]
+        report["category_target"] = eda.category_target_summary(df, target=target).to_dicts()
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
