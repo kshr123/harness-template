@@ -47,12 +47,16 @@ def _fitted(*, interaction: bool = False) -> Pipeline:
     blocks: list[tuple[str, Any]] = [("columns", Columns(["x1", "x2"]))]
     if interaction:
         blocks.append(("inter", Interactions([("x1", "x2")])))
-    est = Pipeline([("features", FeaturePipeline(blocks)), ("model", LogisticRegression(random_state=0, max_iter=1000))])
+    est = Pipeline(
+        [("features", FeaturePipeline(blocks)), ("model", LogisticRegression(random_state=0, max_iter=1000))]
+    )
     est.fit(df, y)
     return est
 
 
-def test_save_load_roundtrip_and_feature_names(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_load_roundtrip_and_feature_names(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     _clock(monkeypatch, [_T1])
     proj = make_project()
     est = _fitted(interaction=True)
@@ -62,7 +66,8 @@ def test_save_load_roundtrip_and_feature_names(make_project: Callable[..., Any],
     assert record.feature_names == ("x1", "x2", "x1_x_x2")  # get_feature_names_out から自動導出
     loaded, loaded_record = model_store.load_model(proj.root, name="baseline", work="E-0001")
     df = data.generate_synthetic(n=8, seed=1)
-    np.testing.assert_array_equal(loaded.predict_proba(df), est.predict_proba(df))  # 同一オブジェクトの復元
+    # 同一オブジェクトの復元（load は object を返すので予測呼び出しは型無視）。
+    np.testing.assert_array_equal(loaded.predict_proba(df), est.predict_proba(df))  # type: ignore[attr-defined]
     assert loaded_record.fingerprint == record.fingerprint
 
 
@@ -98,7 +103,9 @@ def test_rejects_missing_manifest_tampered_and_bad_format(
         model_store.load_model(proj.root, name="baseline", work="E-0001")
     # 形式が pickle でない。
     manifest = record.path / "manifest.yaml"
-    manifest.write_text(manifest.read_text(encoding="utf-8").replace("format: pickle", "format: onnx"), encoding="utf-8")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace("format: pickle", "format: onnx"), encoding="utf-8"
+    )
     with pytest.raises(NotImplementedError, match="onnx"):
         model_store.load_model(proj.root, name="baseline", work="E-0001")
     # manifest 無し。
@@ -123,10 +130,18 @@ def test_promotion_gate(make_project: Callable[..., Any], monkeypatch: pytest.Mo
 
     # 絶対関門で不合格（閾値 0.95 に届かない）。
     with pytest.raises(ValueError, match="絶対関門"):
-        model_store.promote_model(proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.95}, primary="roc_auc")
+        model_store.promote_model(
+            proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.95}, primary="roc_auc"
+        )
     # 初回昇格は無条件（0.85 で champion に）。
-    model_store.promote_model(proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.80}, primary="roc_auc")
-    assert model_store.champion(proj.root, work="E-0001", name="m").version == _V1
+    model_store.promote_model(
+        proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.80}, primary="roc_auc"
+    )
+    champ1 = model_store.champion(proj.root, work="E-0001", name="m")
+    assert champ1 is not None and champ1.version == _V1
     # 勝つ 2 件目（0.90>0.85）で champion 移動。
-    model_store.promote_model(proj.root, work="E-0001", name="m", version=_V2, thresholds={"roc_auc": 0.80}, primary="roc_auc")
-    assert model_store.champion(proj.root, work="E-0001", name="m").version == _V2
+    model_store.promote_model(
+        proj.root, work="E-0001", name="m", version=_V2, thresholds={"roc_auc": 0.80}, primary="roc_auc"
+    )
+    champ2 = model_store.champion(proj.root, work="E-0001", name="m")
+    assert champ2 is not None and champ2.version == _V2
