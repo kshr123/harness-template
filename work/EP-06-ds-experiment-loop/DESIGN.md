@@ -19,7 +19,7 @@
 
 **残すハーネス固有**（sklearn の外・自作が正当）：`data.py`（合成・id ハッシュ固定分割）／`schema.py`＋`store.py`（テーブル定義・config URI 保存・指紋・manifest・split 再保存拒否）／`cv.py`（fold 表＋`run_cv` の clone-per-fold 約40行。sklearn に「1回で OOF＋mask＋fold 別 estimator＋指標」を返す口が無い）／`eval.py`（sklearn.metrics＋passes＋閾値選択）／`models.py`（Pipeline 丸ごと保存・版・指紋・台帳・昇格）／実験構造（SPEC・--test・verify）。
 
-**モジュール構成（適切な粒度・エージェントファースト。参考リポの過剰分割はしない）**：`src/harness/ds/` を平らな8ファイルに——`data.py`／`schema.py`／`store.py`／`features.py`／`cv.py`／`eval.py`／`models.py`／`experiment.py`。各ファイル＝1責務・名前で引ける。blocks/ サブパッケージや training/ の細分化はしない。
+**モジュール構成（適切な粒度・エージェントファースト。参考リポの過剰分割はしない）**：`src/harness/ds/` を平らな9ファイルに——`data.py`／`schema.py`／`store.py`／`features.py`（FeatureBlock・BLOCKS）／`pipeline.py`（config→3段Pipelineの組み立て・ENCODERS＝sklearnエンコーダの安全既定つき）／`cv.py`／`eval.py`／`models.py`／`experiment.py`。各ファイル＝1責務・名前で引ける。blocks/ サブパッケージや training/ の細分化はしない。
 
 **着手順（改訂・全体→詳細）**：T-0017（済）→ ①transforms.py 削除 → ②cv.py 作り直し（`run_cv(estimator,…)`・clone-per-fold・`Trainer` 削除）→ ③features.py（FeatureBlock/FeaturePipeline/Interactions）→ ④experiment.py＋E-0001 骨組み（baseline を `--test` で一気通貫・e2e を verify に接続）→ ⑤eval 閾値選択 → ⑥models.py → ⑦E-0001 完了。T-0013 は features.py（BaseBlock の考え方・sklearn 互換）として作る。T-0015 は sklearn estimator＋clone で代替のため廃止（ID 再利用しない）。
 
