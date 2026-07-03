@@ -133,3 +133,43 @@ def test_evaluate_single_class_edges_absorbed() -> None:
     m = ev.evaluate(y_true, y_score)
     assert np.isfinite(m["log_loss"])
     assert m["pr_auc"] == 0.0
+
+
+def test_confusion_from_construction() -> None:
+    # y=[0,0,1,1], score=[0.9,0.1,0.8,0.2], 閾値 0.5 → pred=[1,0,1,0] → tn=fp=fn=tp==1。
+    y = np.array([0, 0, 1, 1], dtype="int64")
+    s = np.array([0.9, 0.1, 0.8, 0.2], dtype="float64")
+    assert ev.confusion(y, s) == {"tn": 1, "fp": 1, "fn": 1, "tp": 1}
+
+
+def test_class_metrics_both_classes() -> None:
+    y = np.array([0, 0, 1, 1], dtype="int64")
+    s = np.array([0.9, 0.1, 0.8, 0.2], dtype="float64")  # pred=[1,0,1,0]
+    rows = {r["class"]: r for r in ev.class_metrics(y, s).to_dicts()}
+    assert set(rows) == {0, 1}  # 両クラスが出る
+    assert rows[0]["precision"] == pytest.approx(0.5)  # pred=0 は 2 件・うち正しく 0 は 1 件
+    assert rows[1]["recall"] == pytest.approx(0.5)  # 実際の 1 は 2 件・拾えたのは 1 件
+    assert rows[0]["count"] == 2  # support
+
+
+def test_calibration_table_single_bin() -> None:
+    # score 全行 0.3・y は 4 行中 1 正例 → 1 ビン：count 4・fraction 0.25・mean_predicted 0.3。
+    y = np.array([1, 0, 0, 0], dtype="int64")
+    s = np.array([0.3, 0.3, 0.3, 0.3], dtype="float64")
+    tbl = ev.calibration_table(y, s).to_dicts()
+    assert len(tbl) == 1
+    assert tbl[0]["count"] == 4
+    assert tbl[0]["fraction_positive"] == pytest.approx(0.25)
+    assert tbl[0]["mean_predicted"] == pytest.approx(0.3)
+
+
+def test_threshold_table_matches_confusion_and_selector() -> None:
+    y = np.array([0, 0, 1, 1], dtype="int64")
+    s = np.array([0.1, 0.4, 0.6, 0.9], dtype="float64")
+    tbl = ev.threshold_table(y, s)
+    for r in tbl.to_dicts():  # 各行の tp/fp/fn/tn は confusion と一致（土台の共有）
+        c = ev.confusion(y, s, threshold=r["threshold"])
+        assert (r["tp"], r["fp"], r["fn"], r["tn"]) == (c["tp"], c["fp"], c["fn"], c["tn"])
+    best_t, _ = ev.select_threshold_max_f1(y, s)  # f1 最大の行の閾値が選択器と一致
+    max_row = max(tbl.to_dicts(), key=lambda r: r["f1"])
+    assert max_row["threshold"] == pytest.approx(best_t)

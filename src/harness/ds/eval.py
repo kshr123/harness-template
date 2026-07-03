@@ -16,15 +16,18 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
+import polars as pl
 from numpy.typing import NDArray
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
+    confusion_matrix,
     f1_score,
     log_loss,
     mean_absolute_error,
     mean_absolute_percentage_error,
     precision_recall_curve,
+    precision_recall_fscore_support,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -260,3 +263,94 @@ def select_threshold_at_precision(y_true: NDArray[np.int_], y_score: NDArray[np.
     if ok.size == 0:
         return float(np.nextafter(np.max(y_score), np.inf))
     return float(thresholds[int(ok.min())])
+
+
+def confusion(y_true: NDArray[np.int_], y_score: NDArray[np.float64], *, threshold: float = 0.5) -> dict[str, int]:
+    """混同行列の要約 {tn, fp, fn, tp}。confusion_matrix(labels=[0,1]) の dict 化のみ（単一クラスでも 4 キー揃う）。
+
+    率（tpr 等）は evaluate/class_metrics が持つ＝二重に返さない。OOF/valid の予測で呼ぶこと。
+    """
+    y_pred = (y_score >= threshold).astype("int64")
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    return {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)}
+
+
+def class_metrics(y_true: NDArray[np.int_], y_score: NDArray[np.float64], *, threshold: float = 0.5) -> pl.DataFrame:
+    """クラス別指標（classification_report の機械可読版）。列 = class, count, precision, recall, f1。
+
+    precision_recall_fscore_support(labels=[0,1], zero_division=0) 素通し。文字列レポートは作らない（表が正本）。
+    evaluate との違い：evaluate は陽性クラスの値だけ・こちらは両クラス。
+    """
+    y_pred = (y_score >= threshold).astype("int64")
+    precision, recall, f1, support = precision_recall_fscore_support(y_true, y_pred, labels=[0, 1], zero_division=0.0)
+    rows = [
+        {
+            "class": k,
+            "count": int(support[k]),
+            "precision": float(precision[k]),
+            "recall": float(recall[k]),
+            "f1": float(f1[k]),
+        }
+        for k in (0, 1)
+    ]
+    return pl.DataFrame(rows)
+
+
+def calibration_table(
+    y_true: NDArray[np.int_],
+    y_score: NDArray[np.float64],
+    *,
+    bins: int = 10,
+    strategy: Literal["uniform", "quantile"] = "uniform",
+) -> pl.DataFrame:
+    """確率の較正（reliability）の表。列 = bin, mean_predicted, fraction_positive, count（空ビンは出さない）。
+
+    calibration_curve と同じビン分けに件数を足したもの（件数が無いとビンの信頼度を読めない）。
+    mean_predicted ≒ fraction_positive なら較正されている。strategy="quantile" はスコア分位で切る＝デシル表を兼ねる。
+    """
+    if strategy == "quantile":
+        edges = np.unique(np.quantile(y_score, np.linspace(0.0, 1.0, bins + 1)))
+    else:
+        edges = np.linspace(0.0, 1.0, bins + 1)
+    idx = np.clip(np.searchsorted(edges, y_score, side="right") - 1, 0, len(edges) - 2)
+    rows = []
+    for b in range(len(edges) - 1):
+        mask = idx == b
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        rows.append(
+            {
+                "bin": b,
+                "mean_predicted": float(y_score[mask].mean()),
+                "fraction_positive": float(y_true[mask].mean()),
+                "count": count,
+            }
+        )
+    schema: dict[str, Any] = {
+        "bin": pl.Int64,
+        "mean_predicted": pl.Float64,
+        "fraction_positive": pl.Float64,
+        "count": pl.Int64,
+    }
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def threshold_table(
+    y_true: NDArray[np.int_], y_score: NDArray[np.float64], *, thresholds: Sequence[float] | None = None
+) -> pl.DataFrame:
+    """閾値スイープ表。列 = threshold, precision, recall, f1, tp, fp, fn, tn。
+
+    省略時の閾値は _curve（precision_recall_curve）のもの＝select_threshold_* と同じ土台（前後を見比べる用）。
+    各行の中身は confusion の再利用（式の二重実装なし）。閾値の「選択」は select_threshold_* が持つ（重複させない）。
+    """
+    ts = list(thresholds) if thresholds is not None else [float(t) for t in _curve(y_true, y_score)[2]]
+    rows = []
+    for t in ts:
+        c = confusion(y_true, y_score, threshold=t)
+        tp, fp, fn = c["tp"], c["fp"], c["fn"]
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+        rows.append({"threshold": float(t), "precision": precision, "recall": recall, "f1": f1, **c})
+    return pl.DataFrame(rows)
