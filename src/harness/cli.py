@@ -231,6 +231,31 @@ def _data_profile(
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
+@data_app.command("compare")
+def _data_compare(
+    train_id: str,
+    test_id: str,
+    auc: Annotated[bool, typer.Option("--auc", help="分布差 AUC（adversarial validation）も出す")] = False,
+    seed: Annotated[int, typer.Option(help="--auc の乱数種")] = 0,
+) -> None:
+    """train/test の分布比較を YAML で出す（統計・カテゴリ差・PSI。--auc で分布差 AUC も）。store 経由。"""
+    import yaml
+
+    from harness.ds import eda, store
+
+    train = store.load(_root(), train_id)
+    test = store.load(_root(), test_id)
+    report: dict[str, object] = {"train": train_id, "test": test_id, "compare": eda.compare(train, test).to_dict()}
+    if auc:
+        # 数値の共通列だけで見分ける（既定 spec は数値向け・カテゴリは spec を書いて呼ぶ）。
+        import polars.selectors as cs
+
+        num = [c for c in train.select(cs.numeric()).columns if c in test.columns]
+        drift = eda.drift_auc(train, test, columns=num, seed=seed)
+        report["drift"] = {"auc": drift.auc, "fold_aucs": drift.fold_aucs, "columns": num}
+    typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
+
+
 @data_app.command("metrics")
 def _data_metrics() -> None:
     """評価指標の一覧（METRICS レジストリから生成）。config の thresholds に書ける指標名。"""

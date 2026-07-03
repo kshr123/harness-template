@@ -6,12 +6,68 @@
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 import pytest
 
 from harness.ds import eda
 
 pytestmark = pytest.mark.unit
+
+
+def test_correlations_and_constant_column() -> None:
+    df = pl.DataFrame(
+        {"x1": [1.0, 2, 3, 4, 5], "x2": [5.0, 4, 3, 2, 1], "c": [1.0, 1, 1, 1, 1], "y": [1.0, 2, 3, 4, 5]}
+    )
+    corr = eda.correlations(df, target="y")
+    d = {r["feature"]: r["correlation"] for r in corr.to_dicts()}
+    assert d["x1"] == pytest.approx(1.0)  # y と完全一致
+    assert d["x2"] == pytest.approx(-1.0)  # 逆相関
+    assert d["c"] == 0.0  # 定数列は NaN でなく 0.0
+    assert corr["feature"].to_list()[-1] == "c"  # |r| 降順＝定数が末尾
+
+
+def test_high_correlation_pairs() -> None:
+    df = pl.DataFrame({"a": [1.0, 2, 3, 4], "b": [2.0, 4, 6, 8], "c": [1.0, 0, 1, 0]})  # b=2a（r=1）
+    pairs = [(r["a"], r["b"]) for r in eda.high_correlation_pairs(df, threshold=0.99).to_dicts()]
+    assert ("a", "b") in pairs
+    assert ("a", "c") not in pairs and ("b", "c") not in pairs
+
+
+def test_psi_identical_is_zero() -> None:
+    s = pl.Series("v", [float(i) for i in range(100)])
+    assert eda.psi(s, s) == pytest.approx(0.0, abs=1e-9)  # 同一分布 → 0
+
+
+def test_psi_categorical_known_value() -> None:
+    train = pl.Series("c", ["a"] * 50 + ["b"] * 50)  # a:0.5 b:0.5
+    test = pl.Series("c", ["a"] * 75 + ["b"] * 25)  # a:0.75 b:0.25
+    # PSI = (0.75-0.5)ln(0.75/0.5) + (0.25-0.5)ln(0.25/0.5)（その他ビンは両側 0 で寄与なし）
+    expected = 0.25 * np.log(1.5) - 0.25 * np.log(0.5)
+    assert eda.psi(train, test) == pytest.approx(expected)
+
+
+def test_compare_numeric_and_categorical() -> None:
+    train = pl.DataFrame({"n": [0.0, 1, 2, 3, 4], "cat": ["a", "a", "b", "b", "c"]})
+    test = pl.DataFrame({"n": [10.0, 11, 12, 13, 14], "cat": ["b", "c", "d", "d", "d"]})
+    rep = eda.compare(train, test)
+    assert rep.n_train == 5 and rep.n_test == 5
+    num = {r["column"]: r for r in rep.numeric.to_dicts()}
+    assert num["n"]["train_mean"] == pytest.approx(2.0)
+    assert num["n"]["test_mean"] == pytest.approx(12.0)
+    cat = {r["column"]: r for r in rep.categorical.to_dicts()}
+    assert cat["cat"]["n_train_only"] == 1  # a
+    assert cat["cat"]["n_test_only"] == 1  # d
+    assert cat["cat"]["test_coverage"] == pytest.approx(0.4)  # test の b,c は train にある＝2/5
+
+
+def test_compare_report_to_dict_serializable() -> None:
+    import yaml
+
+    train = pl.DataFrame({"n": [0.0, 1, 2], "cat": ["a", "b", "b"]})
+    d = eda.compare(train, train).to_dict()
+    assert list(d) == ["n_train", "n_test", "numeric", "categorical"]
+    assert "n_train" in yaml.safe_dump(d, allow_unicode=True)
 
 
 def _frame() -> pl.DataFrame:

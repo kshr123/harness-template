@@ -37,8 +37,14 @@ _SCHEMA = {
 }
 
 
-def _run(root: Path, *, target: str) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PYTHONUTF8": "1", "HARNESS_EDA_TRAIN": "synthetic", "HARNESS_EDA_TARGET": target}
+def _run(root: Path, *, target: str, test: str = "") -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "PYTHONUTF8": "1",
+        "HARNESS_EDA_TRAIN": "synthetic",
+        "HARNESS_EDA_TARGET": target,
+        "HARNESS_EDA_TEST": test,
+    }
     return subprocess.run([sys.executable, str(_NOTEBOOK)], capture_output=True, text=True, env=env, cwd=str(root))
 
 
@@ -46,10 +52,15 @@ def test_eda_notebook_runs_headless(make_project: Callable[..., object]) -> None
     project = make_project()
     root: Path = project.root  # type: ignore[attr-defined]
     project.add_schema(_SCHEMA)  # type: ignore[attr-defined]
+    # 比較用の 2 表目（同じ定義で別 ID）。
+    project.add_schema({**_SCHEMA, "id": "synthetic_test"})  # type: ignore[attr-defined]
     store.save(root, data.generate_synthetic(n=60, seed=0), "synthetic")
+    store.save(root, data.generate_synthetic(n=40, seed=1), "synthetic_test")
 
     # 目的変数あり（分類の要約セルも通る）。
     done = _run(root, target="y")
     assert done.returncode == 0, done.stderr
     # 目的変数なし（要約セルを飛ばす経路も落ちない）。
     assert _run(root, target="").returncode == 0
+    # test 指定（train/test 比較セルも通る）。
+    assert _run(root, target="y", test="synthetic_test").returncode == 0

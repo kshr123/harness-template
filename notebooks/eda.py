@@ -91,12 +91,26 @@ def _(eda, mo, target, train):
 
 
 @app.cell
-def _(mo, test_id):
-    # 比較（train/test）は T-0026 で追加予定。ここでは test 指定の有無だけ示す（1表でも落ちない）。
+def _(eda, mo, root, store, test_id, train):
+    # 比較（train/test）は HARNESS_EDA_TEST を指定したときだけ。統計量・カテゴリ差・PSI を同じ関数で。
     if test_id:
-        mo.md(f"## train/test 比較\nテスト表 `{test_id}` の比較（compare/PSI/drift）は T-0026 で追加。")
+        comparison = eda.compare(train, store.load(root, test_id))
+        mo.md(f"## train/test 比較（test=`{test_id}`）\nPSI 目安：0.1 未満=安定・0.25 以上=大きな変化。")
     else:
+        comparison = None
         mo.md("_test 表は未指定（HARNESS_EDA_TEST が空）。1 表だけの要約です。_")
+    return (comparison,)
+
+
+@app.cell
+def _(comparison):
+    comparison.numeric if comparison is not None else None  # 数値列の train/test 統計と PSI
+    return
+
+
+@app.cell
+def _(comparison):
+    comparison.categorical if comparison is not None else None  # カテゴリの共通/固有と被覆率
     return
 
 

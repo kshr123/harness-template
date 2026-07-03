@@ -4,14 +4,16 @@
   この同じ関数を呼んで表と図にする（正本はここ・ビューは薄い）。DESIGN §4 判断1。
 - 集計は polars（describe/null_count/n_unique/value_counts）に委譲し、束ねるだけ（再発明しない）。
 - train/test の比較（compare/psi/drift_auc）は別関数で、2 つの DataFrame を別々に集計する
-  （結合してから集計する経路をこのモジュールに置かない＝リーク禁止を API の形で守る）。※ T-0026 で追加。
+  （結合してから集計する経路をこのモジュールに置かない＝リーク禁止を API の形で守る）。
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import numpy as np
 import polars as pl
 import polars.selectors as cs
 
@@ -141,3 +143,229 @@ def target_summary(df: pl.DataFrame, *, target: str, task: Task = "classificatio
 def _f(value: Any) -> float | None:  # noqa: ANN401  polars 集計は数値 or None
     """polars 集計値を素の float（または None）にする（YAML 化と型の一貫のため）。"""
     return None if value is None else float(value)
+
+
+def _corr(x: np.ndarray, y: np.ndarray) -> float:
+    """ピアソン相関。どちらかが定数（分散 0）なら 0.0（NaN を黙って混ぜない）。"""
+    if np.std(x) == 0 or np.std(y) == 0:
+        return 0.0
+    return float(np.corrcoef(x, y)[0, 1])
+
+
+def correlations(df: pl.DataFrame, *, target: str, columns: Sequence[str] | None = None) -> pl.DataFrame:
+    """数値列と目的変数の相関（列 = feature, correlation・|r| 降順）。定数列は 0.0。
+
+    リーク疑い・効きそうな特徴の当たりを付ける読み口（門番にはしない・値は事実）。
+    """
+    if target not in df.columns:
+        raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
+    cols = list(columns) if columns is not None else [c for c in df.select(cs.numeric()).columns if c != target]
+    t = df[target].to_numpy().astype(np.float64)
+    rows = [{"feature": c, "correlation": _corr(df[c].to_numpy().astype(np.float64), t)} for c in cols]
+    schema: dict[str, Any] = {"feature": pl.String, "correlation": pl.Float64}
+    out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    return out.sort(pl.col("correlation").abs(), descending=True)
+
+
+def high_correlation_pairs(
+    df: pl.DataFrame, *, threshold: float = 0.99, columns: Sequence[str] | None = None
+) -> pl.DataFrame:
+    """相関の高い列ペア（列 = a, b, correlation・|r| 降順）。既定 0.99＝リーク/重複疑い。
+
+    0.8 に下げれば多重共線性の点検にも使える（引数で外から）。定数列は相関が定義できないので除く。
+    """
+    cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
+    vals = {c: df[c].to_numpy().astype(np.float64) for c in cols}
+    rows = []
+    for i, a in enumerate(cols):
+        for b in cols[i + 1 :]:
+            r = _corr(vals[a], vals[b])
+            if abs(r) >= threshold:
+                rows.append({"a": a, "b": b, "correlation": r})
+    schema: dict[str, Any] = {"a": pl.String, "b": pl.String, "correlation": pl.Float64}
+    out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    return out.sort(pl.col("correlation").abs(), descending=True)
+
+
+def psi(train: pl.Series, test: pl.Series, *, bins: int = 10) -> float:
+    """PSI（母集団安定性指標）。数値＝ビン境界は train の分位点だけから作る（test を見ない＝リーク無し）。
+
+    カテゴリ＝train に現れたカテゴリ＋「その他」1 束。空ビンは小さい床値（1e-6）で 0 割を防ぐ。
+    目安：0.1 未満=安定・0.1〜0.25=要注意・0.25 以上=大きな変化（門番にはしない）。
+    """
+    floor = 1e-6
+    if train.dtype.is_numeric():
+        edges = np.unique(np.quantile(train.drop_nulls().to_numpy(), np.linspace(0.0, 1.0, bins + 1)))
+        e_counts, _ = np.histogram(train.drop_nulls().to_numpy(), bins=edges)
+        a_counts, _ = np.histogram(test.drop_nulls().to_numpy(), bins=edges)
+        e = np.maximum(e_counts / max(e_counts.sum(), 1), floor)
+        a = np.maximum(a_counts / max(a_counts.sum(), 1), floor)
+    else:
+        cats = train.drop_nulls().unique().to_list()
+
+        def _props(s: pl.Series) -> np.ndarray:
+            n = max(s.len(), 1)
+            counts = dict.fromkeys(cats, 0)
+            other = 0
+            for row in s.value_counts().iter_rows(named=True):
+                value, cnt = row[s.name], row["count"]
+                if value in counts:
+                    counts[value] = cnt
+                elif value is not None:
+                    other += cnt
+            props = [counts[k] / n for k in cats] + [other / n]
+            floored: np.ndarray = np.maximum(np.array(props), floor)
+            return floored
+
+        e, a = _props(train), _props(test)
+    return float(np.sum((a - e) * np.log(a / e)))
+
+
+@dataclass(frozen=True)
+class CompareReport:
+    """train/test 比較の構造化レポート。統計は各側で別々に計算済み（結合統計は存在しない＝リーク無し）。"""
+
+    n_train: int
+    n_test: int
+    numeric: pl.DataFrame  # column, train_mean, test_mean, train_std, test_std, mean_gap, psi
+    categorical: pl.DataFrame  # column, n_train_only, n_test_only, train_only_top, test_only_top, test_coverage, psi
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n_train": self.n_train,
+            "n_test": self.n_test,
+            "numeric": self.numeric.to_dicts(),
+            "categorical": self.categorical.to_dicts(),
+        }
+
+
+def compare(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    *,
+    columns: Sequence[str] | None = None,
+    max_categories: int = 50,
+    psi_bins: int = 10,
+) -> CompareReport:
+    """train/test の列ごとの分布比較（統計量・カテゴリの共通/固有・PSI）。
+
+    リーク禁止は API の形で守る：2 つの DataFrame を受け、各側で独立に集計する（結合してから集計しない）。
+    """
+    common = [c for c in train.columns if c in test.columns]
+    if columns is not None:
+        common = [c for c in columns if c in common]
+    num_cols = [c for c in common if train.schema[c].is_numeric() and test.schema[c].is_numeric()]
+    cat_cols = [
+        c
+        for c in common
+        if c not in num_cols and (train.schema[c] == pl.String or train[c].n_unique() <= max_categories)
+    ]
+
+    num_rows = []
+    for c in num_cols:
+        tm, um, ts, us = _f(train[c].mean()), _f(test[c].mean()), _f(train[c].std()), _f(test[c].std())
+        gap = None if (ts is None or ts == 0 or tm is None or um is None) else abs(tm - um) / ts
+        num_rows.append(
+            {
+                "column": c,
+                "train_mean": tm,
+                "test_mean": um,
+                "train_std": ts,
+                "test_std": us,
+                "mean_gap": gap,
+                "psi": psi(train[c], test[c], bins=psi_bins),
+            }
+        )
+
+    cat_rows = []
+    for c in cat_cols:
+        tr_set = set(train[c].drop_nulls().unique().to_list())
+        te_set = set(test[c].drop_nulls().unique().to_list())
+        train_only, test_only = tr_set - te_set, te_set - tr_set
+        covered = int(test[c].is_in(list(tr_set)).sum()) if tr_set else 0
+        cat_rows.append(
+            {
+                "column": c,
+                "n_train_only": len(train_only),
+                "n_test_only": len(test_only),
+                "train_only_top": [str(x) for x in sorted(train_only, key=str)[:5]],
+                "test_only_top": [str(x) for x in sorted(test_only, key=str)[:5]],
+                "test_coverage": (covered / test.height) if test.height else 0.0,
+                "psi": psi(train[c], test[c], bins=psi_bins),
+            }
+        )
+
+    num_schema: dict[str, Any] = {
+        "column": pl.String,
+        "train_mean": pl.Float64,
+        "test_mean": pl.Float64,
+        "train_std": pl.Float64,
+        "test_std": pl.Float64,
+        "mean_gap": pl.Float64,
+        "psi": pl.Float64,
+    }
+    cat_schema: dict[str, Any] = {
+        "column": pl.String,
+        "n_train_only": pl.Int64,
+        "n_test_only": pl.Int64,
+        "train_only_top": pl.List(pl.String),
+        "test_only_top": pl.List(pl.String),
+        "test_coverage": pl.Float64,
+        "psi": pl.Float64,
+    }
+    return CompareReport(
+        n_train=train.height,
+        n_test=test.height,
+        numeric=pl.DataFrame(num_rows, schema=num_schema) if num_rows else pl.DataFrame(schema=num_schema),
+        categorical=pl.DataFrame(cat_rows, schema=cat_schema) if cat_rows else pl.DataFrame(schema=cat_schema),
+    )
+
+
+@dataclass(frozen=True)
+class DriftResult:
+    """train/test を見分ける分類器の成績。auc=0.5 は見分けられない（分布が近い）。"""
+
+    auc: float
+    fold_aucs: list[float]
+    n_train: int
+    n_test: int
+    estimators: list[object]  # fold 別の学習済み Pipeline（原因列は analysis.cv_permutation_importance で）
+
+
+def drift_auc(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    *,
+    columns: Sequence[str],
+    seed: int,
+    n_folds: int = 5,
+    spec: Mapping[str, Any] | None = None,
+    model: Mapping[str, Any] | None = None,
+) -> DriftResult:
+    """train/test を見分ける分類器を交差検証し OOF AUC を返す（adversarial validation）。
+
+    実装は既存部品の合成だけ：特徴量列だけを縦に結合し、所属（train=0/test=1）を y にして
+    build_estimator → make_folds(stratify_by=所属) → run_cv。目的変数は一切使わない（リーク無し）。
+    既定の spec は columns 素通し＝数値列向け（カテゴリは spec に onehot を渡す）。AUC が高い（目安 0.7 以上）ときは
+    効く列を analysis.cv_permutation_importance で特定して原因を調べる。
+    """
+    from harness.ds import cv
+    from harness.ds.pipeline import build_estimator, build_model
+
+    cols = list(columns)
+    combined = pl.concat([train.select(cols), test.select(cols)], how="vertical")
+    y = np.array([0] * train.height + [1] * test.height, dtype=np.int64)
+    labelled = combined.with_columns(__membership__=pl.Series(y)).with_row_index("__id__")
+
+    est_spec = spec if spec is not None else {"features": [{"kind": "columns", "columns": cols}]}
+    estimator = build_estimator(est_spec, build_model(model or {"kind": "logreg"}, seed=seed), seed=seed)
+    folds = cv.make_folds(labelled, n_folds=n_folds, seed=seed, id_column="__id__", stratify_by="__membership__")
+    splits = cv.fold_indices(labelled, folds, id_column="__id__")
+    result = cv.run_cv(estimator, combined, y.astype(np.float64), splits, predict="proba")
+    return DriftResult(
+        auc=result.oof_metrics["roc_auc"],
+        fold_aucs=[m["roc_auc"] for m in result.fold_metrics],
+        n_train=train.height,
+        n_test=test.height,
+        estimators=result.estimators,
+    )
