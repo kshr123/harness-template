@@ -7,12 +7,14 @@ OOF が全行埋まり、学習可能な合成データで妥当な AUC が出�
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
 import pytest
+from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
 from harness.ds import cv, data
-from harness.ds.features import Columns, FeaturePipeline, Interactions
+from harness.ds.features import Columns, CountEncode, FeaturePipeline, GroupAggregate, Interactions
 
 pytestmark = pytest.mark.integration
 
@@ -40,3 +42,28 @@ def test_feature_pipeline_runs_through_cv() -> None:
     # 合成データは 1.5*x1 - 2*x2 + 雑音(std 0.5) の符号でラベルが決まる（信号:雑音が大きい）。
     # 線形モデルなら OOF の AUC は 0.8 を下回らない（データ構成から言える下限）。
     assert result.oof_metrics["roc_auc"] > 0.8
+
+
+def test_group_aggregate_fits_on_train_fold_only() -> None:
+    # train fold（行 0:4・v=0）と valid fold（行 4:8・v=100）で分布をずらす。
+    x = pl.DataFrame({"g": ["A"] * 8, "v": [0.0] * 4 + [100.0] * 4})
+    y = np.array([0, 1] * 4, dtype=np.float64)
+    est = Pipeline(
+        [("features", FeaturePipeline([("agg", GroupAggregate("g", ["v"], ["mean"]))])), ("m", DummyClassifier())]
+    )
+    result = cv.run_cv(est, x, y, cv.holdout_indices(4, 4), predict="proba")
+    agg = result.estimators[0].named_steps["features"].blocks[0][1]  # type: ignore[attr-defined]
+    # train fold だけで学習 → group A の mean は 0（valid の 100 が混ざれば 50 になる）。
+    assert agg.stats_.filter(pl.col("g") == "A")["v_mean_by_g"].to_list() == [0.0]
+
+
+def test_count_encode_fits_on_train_fold_only() -> None:
+    # train fold（行 0:4＝A2,B2）と全データ（A6,B2）で度数が変わるよう設計。
+    x = pl.DataFrame({"c": ["A", "A", "B", "B", "A", "A", "A", "A"]})
+    y = np.array([0, 1] * 4, dtype=np.float64)
+    est = Pipeline([("features", FeaturePipeline([("cnt", CountEncode(["c"]))])), ("m", DummyClassifier())])
+    result = cv.run_cv(est, x, y, cv.holdout_indices(4, 4), predict="proba")
+    cnt = result.estimators[0].named_steps["features"].blocks[0][1]  # type: ignore[attr-defined]
+    counts = cnt.counts_["c"]
+    # train fold（0:4）は A2・B2。漏れていれば A は 6 になる。
+    assert counts.filter(pl.col("c") == "A")["c_count"].to_list() == [2]
