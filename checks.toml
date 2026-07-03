@@ -1,19 +1,23 @@
 # 検証の登録先。共通の検証コマンド（uv run check / verify）がこれを読む。
-# レベル：fast（速い・コミット前の一部）→ standard（コミット前）→ full（CI・完了判定）。
-# プロジェクト管理の検査（参照チェック・STATUS 一致）はコードに内蔵（どのレベルでも走る）。
+# 段階（level）＝検証の深さ。fast（編集中）→ standard（コミット前）→ full（CI・完了判定）。累積で走る。
+# 各段階の pytest はテストの目印（marker）で範囲を絞る：fast=unit / standard=integration / full=e2e。
+# いずれも slow は外す（重い本規模実行は門番に載せない。詳細は docs/method.md C・DESIGN.md C）。
+# プロジェクト管理の検査（参照・完了↔検証・課題・テーブル定義）はコードに内蔵（どの段階でも走る）。
 
 [fast]
 commands = [
     ["ruff", "format", "--check", "."],
     ["ruff", "check", "."],
+    ["pytest", "-q", "-m", "unit and not slow"],
 ]
 
 [standard]
 commands = [
     ["mypy"],
+    ["pytest", "-q", "-m", "integration and not slow"],
 ]
 
 [full]
 commands = [
-    ["pytest", "-q"],
+    ["pytest", "-q", "-m", "e2e and not slow"],
 ]

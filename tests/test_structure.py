@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 
 def test_new_structure_layout() -> None:
     # 案件レベルの文書は docs/、課題は issues/、置き場切り替えは .harness/config.toml。

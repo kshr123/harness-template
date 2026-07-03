@@ -9,6 +9,8 @@ import pytest
 
 from harness.ds import data, schema, store
 
+pytestmark = pytest.mark.unit
+
 SYNTHETIC = """id: synthetic
 description: 合成データ
 layer: raw

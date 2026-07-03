@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import polars as pl
+import pytest
 
 from harness.ds import data
+
+pytestmark = pytest.mark.unit
 
 
 def test_generate_is_reproducible() -> None:

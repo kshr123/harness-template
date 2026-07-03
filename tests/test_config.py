@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from harness import config
 
+pytestmark = pytest.mark.unit
+
 
 def test_defaults_when_no_file(tmp_path: Path) -> None:
     c = config.load_config(tmp_path)

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from harness.ds import eval as ev
+
+pytestmark = pytest.mark.unit
 
 
 def test_perfect_predictions_score_top() -> None:

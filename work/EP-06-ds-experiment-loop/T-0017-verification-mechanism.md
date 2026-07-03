@@ -1,11 +1,16 @@
 ---
 id: T-0017
 kind: task
-status: todo
+status: done
 title: 検証の仕組み（段階×テストの目印の対応・未マーク失敗ガード）
 requirements: [REQ-004]
 depends_on: [T-0010]
+verified_by:
+  - tests/test_verification_mechanism.py::test_unmarked_detects_only_pyramid_missing
+  - tests/test_verification_mechanism.py::test_load_commands_scopes_pytest_by_level
+  - tests/test_verification_mechanism.py::test_checks_toml_uses_only_registered_markers
 created: 2026-07-03
+closed: 2026-07-03
 owner: sakurada
 ---
 # T-0017 検証の仕組み（段階×テストの目印）

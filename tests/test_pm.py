@@ -10,8 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import frontmatter
+import pytest
 
 from harness import pm
+
+pytestmark = pytest.mark.unit
 
 
 def _write(path: Path, meta: dict[str, object], body: str = "") -> None:

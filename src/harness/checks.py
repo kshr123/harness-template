@@ -65,6 +65,12 @@ def run_check(root: Path, level: str = "full") -> int:
         print(f"  → {' '.join(cmd)}")
         result = subprocess.run(cmd, cwd=root)
         if result.returncode != 0:
+            # pytest は「選んだ目印に該当するテストが 1 件も無い」を終了コード 5 で表す。
+            # 段階×目印の設計上、その層のテストがまだ無いのは失敗ではない（付け忘れは conftest の
+            # 目印ガードが別途止める）。5 だけは成功として扱い、それ以外の非 0 は失敗にする。
+            if result.returncode == 5 and cmd[:1] == ["pytest"]:
+                print("    （この目印に該当するテストは無し＝合格）")
+                continue
             ok = False
 
     print("成功（すべて通過）" if ok else "失敗（未通過あり）")

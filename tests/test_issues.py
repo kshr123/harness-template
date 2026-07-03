@@ -5,8 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import frontmatter
+import pytest
 
 from harness import issues
+
+pytestmark = pytest.mark.unit
 
 
 def _work(root: Path, unit_id: str, kind: str, status: str) -> None:

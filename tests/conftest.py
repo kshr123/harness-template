@@ -15,6 +15,20 @@ import frontmatter
 import pytest
 import yaml
 
+from harness.testing import unmarked
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """ピラミッドの目印（unit/integration/e2e）が無いテストは collect でエラーにする（迷子テストを塞ぐ）。
+
+    -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れを止める。
+    """
+    bad = unmarked((item.nodeid, {m.name for m in item.iter_markers()}) for item in items)
+    if bad:
+        raise pytest.UsageError("ピラミッドの目印(unit/integration/e2e)が無いテスト: " + ", ".join(bad))
+
+
 # 既定の置き場設定（ローカルのみ）。config.py の既定と同じ形にしておく。
 DEFAULT_CONFIG = """\
 [data]
