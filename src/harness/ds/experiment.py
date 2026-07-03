@@ -15,7 +15,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
-from harness.ds.cv import CVResult, SklearnLike, fold_indices, make_folds, run_cv
+from harness.ds.cv import CVResult, SklearnLike, fold_indices, make_folds, make_time_folds, run_cv
 from harness.ds.eval import metric_fn_for, passes
 
 Task = Literal["classification", "regression"]
@@ -44,6 +44,7 @@ def run_experiment(
     thresholds: Mapping[str, float],
     id_column: str = "id",
     stratify_by: str | None = None,
+    order_by: str | None = None,
     task: Task = "classification",
     threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
@@ -54,11 +55,19 @@ def run_experiment(
     estimator は特徴量→モデルの 1 本の Pipeline。run_cv が fold ごとに clone→train で fit するので、
     特徴量の学習も train でだけ起き、漏れは構造的に起きない。task で分類/回帰を切り替える（指標と予測の種類が
     task から決まる）。predict 未指定は task から導く（分類=proba・回帰=value）。
+    order_by を渡すと時間順分割（過去→未来の拡大窓）になる＝時間の順序があるデータで shuffle CV の誤用を防ぐ
+    （stratify_by との同時指定はエラー）。fold 0 は学習専用で OOF に入らない。
     """
+    if order_by is not None and stratify_by is not None:
+        raise ValueError("order_by（時間順）と stratify_by（層化）は同時に使えない")
     if predict is None:
         predict = "value" if task == "regression" else "proba"
     metric_fn = metric_fn_for(task, threshold=threshold, metrics=metrics)
-    folds = make_folds(df, n_folds=n_folds, seed=seed, id_column=id_column, stratify_by=stratify_by)
-    splits = fold_indices(df, folds, id_column=id_column)
+    if order_by is not None:
+        folds = make_time_folds(df, n_folds=n_folds, order_by=order_by, id_column=id_column)
+        splits = fold_indices(df, folds, id_column=id_column, how="expanding")
+    else:
+        folds = make_folds(df, n_folds=n_folds, seed=seed, id_column=id_column, stratify_by=stratify_by)
+        splits = fold_indices(df, folds, id_column=id_column)
     cv_result = run_cv(estimator, df, y, splits, predict=predict, metric_fn=metric_fn)
     return ExperimentResult(folds=folds, cv=cv_result, passed=passes(cv_result.oof_metrics, dict(thresholds)))

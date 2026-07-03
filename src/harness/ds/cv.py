@@ -70,15 +70,41 @@ def make_folds(
     return df.select(id_column).with_columns(pl.Series("fold", fold))
 
 
+def make_time_folds(
+    df: pl.DataFrame,
+    *,
+    n_folds: int,
+    order_by: str,
+    id_column: str = "id",
+) -> pl.DataFrame:
+    """時間順の fold 割当表 (id_column, fold)。order_by で並べ、時間の連続ブロックに等分する（fold 0 が最古）。
+
+    shuffle しない・seed 不要（決定的）。fold 番号＝時間ブロック番号。既存 make_folds と同じ表形式なので
+    split 層への保存・再現の担保はそのまま効く。`fold_indices(how="expanding")` と組で使う。
+    """
+    if n_folds < 2:
+        raise ValueError("n_folds は 2 以上にすること")
+    n = df.height
+    if n < n_folds:
+        raise ValueError(f"行数 {n} が n_folds {n_folds} より少ない")
+    ordered = df.select(id_column, order_by).sort(order_by)
+    fold = (np.arange(n) * n_folds // n).astype(np.int64)  # 先頭から連続ブロックに 0..n_folds-1
+    return ordered.select(id_column).with_columns(pl.Series("fold", fold))
+
+
 def fold_indices(
     df: pl.DataFrame,
     folds: pl.DataFrame,
     *,
     id_column: str = "id",
+    how: Literal["cv", "expanding"] = "cv",
 ) -> list[tuple[NDArray[np.int64], NDArray[np.int64]]]:
     """fold 表を df の行番号の対 [(train_idx, valid_idx)] × k に引き直す。
 
     df の id と fold 表の id が一致しないと失敗する（部分適用の黙認をしない）。
+    how="cv"（既定）：fold k を valid・残り全部を train（通常の交差検証）。
+    how="expanding"：fold k(>=1) を valid・fold < k 全部を train（過去→未来の拡大窓・時間順分割）。fold 0 は valid に
+    ならない（最初の学習材料）＝その行は oof_mask が False のまま（CVResult は部分カバーを黙認しない設計）。
     """
     df_ids = df[id_column].to_list()
     fold_map = dict(zip(folds[id_column].to_list(), folds["fold"].to_list(), strict=True))
@@ -87,11 +113,17 @@ def fold_indices(
         only_table = sorted(set(fold_map) - set(df_ids), key=str)[:3]
         raise ValueError(f"fold 表と df の id が一致しない（df のみ {only_df} / 表のみ {only_table}）")
     assigned = np.array([fold_map[i] for i in df_ids], dtype=np.int64)
+    ks = sorted(set(assigned.tolist()))
     out: list[tuple[NDArray[np.int64], NDArray[np.int64]]] = []
     # 実際に存在する fold 値だけを回す（欠番があっても valid が空の fold を作らない＝空で指標が nan になるのを防ぐ）。
-    for k in sorted(set(assigned.tolist())):
+    for k in ks:
         valid = np.nonzero(assigned == k)[0].astype(np.int64)
-        train = np.nonzero(assigned != k)[0].astype(np.int64)
+        if how == "expanding":
+            if k == ks[0]:
+                continue  # 最古の fold は valid にしない（過去が無い＝学習専用）
+            train = np.nonzero(assigned < k)[0].astype(np.int64)  # 過去 fold だけ（未来を見ない）
+        else:
+            train = np.nonzero(assigned != k)[0].astype(np.int64)
         out.append((train, valid))
     return out
 
