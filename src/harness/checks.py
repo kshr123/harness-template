@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 from harness import issues, pm
@@ -16,6 +17,17 @@ from harness.ds import schema as ds_schema
 
 # レベル：fast（フック相当）→ standard（pre-commit 相当）→ full（CI・done）。
 LEVELS = ("fast", "standard", "full")
+
+# プロジェクト管理の検査（どの段階でも走る・順不同で全件集める）。中核の検査＋プロファイルの検査。
+# data_lint は DS プロファイル（テーブル定義）の検査。非 DS の案件に複製するときはこの 1 行を外す
+# （プロファイル境界・DEC-0004。将来プロファイルが 2 つ目になったら登録機構へ昇格＝構造レビュー低⑩）。
+PmCheck = Callable[[Path], list[pm.Problem]]
+PM_CHECKS: list[PmCheck] = [
+    pm.lint,
+    pm.spec_lint,
+    issues.run_checks,
+    ds_schema.data_lint,  # ← DS プロファイル。非 DS ではこの行を外す。
+]
 
 
 def _load_commands(root: Path, level: str) -> list[list[str]]:
@@ -40,7 +52,9 @@ def _pm_checks(root: Path) -> bool:
     """
 
     ok = True
-    problems = pm.lint(root) + pm.spec_lint(root) + issues.run_checks(root) + ds_schema.data_lint(root)
+    problems: list[pm.Problem] = []
+    for check in PM_CHECKS:
+        problems += check(root)
     for p in problems:
         mark = "✗" if p.level == "error" else "・"
         print(f"  {mark} {p.message}")

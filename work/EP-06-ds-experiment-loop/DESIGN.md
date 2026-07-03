@@ -1,7 +1,13 @@
-<!-- EP-06（実験ループ）の詳細設計。全体像→各モジュール→テスト戦略→着手順。
+<!-- EP-06（実験ループ）の詳細設計＝完了エピックの設計記録。
      移植元：draft/reference/ml-competition-template-main（MIT）。裏取り済み。
-     この文書は正本。着手順は item.md と一致させること。 -->
+     正本は R 節。A〜F は初版の記録（R・実装・各 DEC で置換済み・歴史）。 -->
 # 段階1（EP-06）実験ループ設計書 — 特徴量→学習→評価→記録→登録
+
+> **この文書は EP-06（完了）の設計記録。正本は次の順で見る：① 実装（`src/harness/ds/`）② 各 DEC ③ 下の R 節。**
+> A〜F は初版の設計で、多くが R・実装・DEC-0006/0007/0008 で置換済み（設計の根拠を追う時だけ読む）。
+> 特に **Serializer/Trainer 注入（B-4・B-5）は実装しなかった**（models.py は丸ごと pickle＋manifest の
+> `format` 文字列で分岐に簡素化・DEC-0006）。CLI 名・API は実装が正（`data saved`＝保存済み一覧・`data models`＝
+> モデル種の一覧）。
 
 ## R. 改訂：ゼロベース再設計（2026-07-03・DEC-0006/0007）
 
@@ -214,6 +220,11 @@ class SklearnTrainer:
 
 ### B-5. models.py（T-0016）— 永続化と登録簿（`harness/ds/models.py`）
 
+> **実装との差（正本は実装）**：下の Serializer / PickleSerializer / SerializerProvider / ModelRegistry / FileRegistry の
+> Protocol 層は**実装しなかった**（過剰分割）。実装は models.py が直接 pickle し、manifest の `format` 文字列で load が
+> 分岐する（可搬形式が要る時に枝を足す差し替え口）。台帳も Protocol でなく manifest 走査の関数（list_models）。
+> 封筒の規律（URI 解決・版採番・原子的書き込み・上書き拒否・sha256・依存版記録・昇格の関門）は下記どおり実装済み。
+
 **設計の芯**：pickle を「形式の既定」から「native 形式を持たないオブジェクトのための最後の受け皿」に格下げする。直列化そのものは呼び出し側が注入する `Serializer`（Protocol）に追い出し、核（models.py）には**封筒だけ**を残す——URI 解決・版採番・原子的書き込み・上書き拒否・指紋・依存版の記録と照合・manifest・台帳（生成ビュー）・昇格の関門。これで核は sklearn/LightGBM/onnx を一切 import しないまま、形式が何であっても store.py と同じ規律で保存・読込・登録できる。保存は常に許し（実験の記録）、**昇格だけ**をベースライン比較の関門にする（登録と合格を分ける＝「負の結果も記録で完了」と両立）。参考リポ2本の実務（本体は native/ONNX・pickle は限定・依存版を記録・レジストリは (model,version) キー・登録＝関門）を我々の流儀へ翻訳したもの。
 
 `harness/models.py`（PM の Item 型）と同名なので import は `from harness.ds import models as model_store` の別名規約で混同を防ぐ。
@@ -285,7 +296,7 @@ class ModelRegistry(Protocol):        # file: 以外（S3+DynamoDB 等）はこ�
 class FileRegistry:  # file: backend。manifest 群の走査＝台帳（1本の JSON 台帳は作らない＝正本を2重化しない）
     def __init__(self, root: Path) -> None: ...  # latest は版文字列の降順1件（辞書順＝時刻順）
 
-def list_models(root, *, work=None) -> list[ModelRecord]:  # FileRegistry を包む薄い関数。CLI `uv run data models`（champion に印）
+def list_models(root, *, work=None) -> list[ModelRecord]:  # 実装は manifest 走査の関数。CLI `uv run data saved`（champion に印）
 ```
 backend は `config.data.uri_for("models")`（層の上書き口をそのまま使う・既定 `file:data`＝設定変更ゼロで動く）。`file:` 以外は NotImplementedError（store.py と同一作法）。
 
@@ -418,7 +429,7 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 4. **E-0001（骨組み）**：フォルダ・SPEC・config.yaml・code/train.py を作り、**baseline 変種だけ**で `--test` を端から端まで通す。`tests/test_e2e_experiment.py::test_e0001_smoke` を追加＝この瞬間から verify に e2e が載る。item は in-progress のまま。
 5. **T-0013 features.py**：FeatureBlock／FeaturePipeline／3ブロック／漏れ検知の統合テスト。train.py の特徴量部を素書きからパイプラインに差し替え（e2e 緑のまま）。
 6. **T-0012 eval 閾値選択**：select_threshold_*。train.py に「OOF で閾値を選んで results に記録」を接続。
-7. **T-0016（後半）**：`ModelRegistry` Protocol＋`FileRegistry`（list/latest/get）・`list_models`＋CLI `uv run data models`・`promote_model`＋昇格記録＋champion 表示。
+7. **T-0016（後半）**：`list_models`（実装は manifest 走査の関数・Protocol/FileRegistry は不採用）＋CLI `uv run data saved`・`promote_model`＋昇格記録＋champion 表示。
 8. **E-0001（完了）**：interaction 変種・本規模実行（slow）・results/ 確定・SPEC の判定に従い結論を記録して done。仮説が棄却（合成データは線形なので交互作用は効かない見込み）でも done——「負の結果も記録で完了」の実地確認まで含めて完了条件。
 
 各ステップは「スタブ＋赤テスト→実装→verify 緑」の1タスク内完結（EP-06 の進め方）を維持。4 以降は常に e2e が守っている。
