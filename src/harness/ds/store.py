@@ -76,3 +76,16 @@ def load(root: Path, table_id: str) -> Any:  # noqa: ANN401  polars.DataFrame �
     if not path.is_file():
         raise FileNotFoundError(f"{table_id} の実体が無い（先に save する）: {path}")
     return pl.read_parquet(path)
+
+
+def fingerprint_of(root: Path, table_id: str) -> str | None:
+    """保存済みテーブルの指紋（manifest の値）。未保存なら None。
+
+    split 層の「再保存拒否」と実験スクリプトの再実行を両立させるための照会口
+    （在れば load して同一性を確かめ、指紋は再保存せずにこれで引く）。
+    """
+    s = _schema_for(root, table_id)
+    manifest = _resolve(root, s).parent / f"{s.id}.manifest.yaml"
+    if not manifest.is_file():
+        return None
+    return str(yaml.safe_load(manifest.read_text(encoding="utf-8"))["fingerprint"])

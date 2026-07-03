@@ -1,0 +1,14 @@
+id: e0001_folds
+description: E-0001 の CV fold 割当（id ごとの fold 番号）。分割の正はこの表（切り直さない）。
+layer: split
+scope: E-0001
+role: split
+primary_key: [id]
+lineage:
+  inputs: [] # 入力は seed から生成する合成データ（テーブルとしては保存しない）
+  code: work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py
+  work: E-0001
+  method: StratifiedKFold(shuffle, random_state=config.seed) の割当を (id, fold) 表に固定
+columns:
+  - { name: id, dtype: Int64, nullable: false, unique: true, description: 行の識別子 }
+  - { name: fold, dtype: Int64, nullable: false, range: { min: 0 }, description: fold 番号（0 始まり） }

@@ -30,5 +30,8 @@ data/**/*.parquet
 data/**/*.manifest.yaml
 data/**/*.tmp
 data/cache/
+# 保存したモデル（学習済み Pipeline の pickle と manifest・昇格記録）は実体なのでコミットしない。
+# 再現の材料（seed・指紋・設定）は results/ に記録して結ぶ。
+data/**/models/
 mlruns/
 mlflow.db

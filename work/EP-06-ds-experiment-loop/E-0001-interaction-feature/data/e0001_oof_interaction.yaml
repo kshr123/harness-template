@@ -1,0 +1,15 @@
+id: e0001_oof_interaction
+description: E-0001 interaction 変種の OOF 予測（fold 外スコアと正解。閾値選択の入力）
+layer: processed
+scope: E-0001
+role: prediction
+primary_key: [id]
+lineage:
+  inputs: [e0001_folds]
+  code: work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py
+  work: E-0001
+columns:
+  - { name: id, dtype: Int64, nullable: false, unique: true }
+  - { name: fold, dtype: Int64, nullable: false, description: この行が valid だった fold }
+  - { name: y, dtype: Int64, nullable: false, allowed_values: [0, 1] }
+  - { name: oof_score, dtype: Float64, nullable: false, range: { min: 0.0, max: 1.0 } }
