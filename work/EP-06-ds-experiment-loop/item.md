@@ -14,15 +14,19 @@ created: 2026-07-03
 参考リポ（`draft/reference/ml-competition-template-main`）の考え方を私たちの流儀に合わせて取り込む。
 
 ## 進め方（テスト先行＋先コミット。各タスクは「スタブ＋赤テスト→実装→verify緑」を1タスク内で）
-着手順（近い順に detailed、遠いものは着手時に分解）：
-1. **T-0010 テストの土台**：`tests/conftest.py` に一時プロジェクトのフィクスチャ工場、pytest マーカー（unit/integration/e2e/slow）を pyproject に登録、**穴埋め**＝(a) pm.lint に「done の実験は結果記録が必須」を追加（調査の結論検査と同型）、(b) verified_by の `::名` がファイルに在ることの確認、規約を AGENTS に明記（テスト数値は構成由来のみ・実験は `--test` 必須・skip は課題参照必須・乱数は明示引数）。
-2. **T-0011 transforms.py**：Log1p/Identity/StandardScale＋`TargetTransform` Protocol（numpy のみ・純粋）。参考リポ `domain/transforms.py` の移植。出典ヘッダ（リポ名・MIT）を付ける。往復（transform→inverse）の性質テスト。
-3. **T-0012 eval に閾値選択**：`select_threshold_*`（valid/OOF で選ぶ・train/test で選ばない）。参考リポ `domain/threshold.py`。既知ケースでテスト。
-4. **T-0013 features.py**：`FeatureBlock`(Protocol, `fit_transform` 第一級)＋`FeaturePipeline`（登録・行数検証・`describe`）。漏れ検査（分布をずらしたデータで valid 統計の混入を検知）。
-5. **T-0014 cv.py**：`make_folds(df,*,n_folds,seed,stratify_by)→(id,fold)表`／`fold_indices(df,folds)→[(train_idx,valid_idx)]`／`run_cv(X,y,splits,trainer,*,seed,metrics)→CVResult(oof,fold_metrics,models)`。fold 割当は split 層に保存。Fake Trainer で結線テスト（OOF が全行埋まる・呼び出し回数）。
-6. **T-0015 train.py**：`Trainer`(Protocol, `train(...,*,seed)→FoldOutcome`)＋`SklearnTrainer(model_factory=lambda seed: ...)`＋`target_transform`。同じ seed・データで同一予測（再現性・結合）。
-7. **T-0016 models.py**：`save_model`（pickle＋manifest・データ指紋と結ぶ・上書き拒否）／`load_model`（manifest 無しは拒否）／`list_models`（台帳ビュー・status に載る）。
-8. **E-0001 実験**：仮説「交互作用特徴量 x1*x2 を足すと予測が改善するか」。`SPEC.md`／`config.yaml`（baseline と +interaction・`test_mode:` 節）／`code/train.py`（`--test` スモーク＝`store.load→make/load folds→FeaturePipeline.fit_transform→run_cv→eval.passes→store.save(OOF・予測)→save_model`）／`results/`。合成データは線形なので棄却の見込み＝「負の結果も記録で完了」の実地確認。E2E スモークを verify に接続。
+**詳細設計は `DESIGN.md`（正本）**。全体像・各モジュールの型シグネチャ・テストピラミッド・横断的判断（sklearn は ds extra・核は import しない／numpy⇔polars 境界は1点／fold 種は SeedSequence）はそちらを見る。
+
+**着手順は「歩く骨組み（walking skeleton）を先に1本通す」**（DESIGN.md E の結論）。E2E・統合の欠落が主眼なので、結線の不確実性を最初に潰し、以降は常に緑の e2e を保ったまま各部品を差し替える。ID は据え置き・順序だけ変える：
+1. **T-0010 テストの土台**（済）：conftest 工場・マーカー・pm.lint 強化・AGENTS 規約。
+2. **T-0011 transforms.py**（済）：TargetTransform＋Identity/Log1p/StandardScale。
+3. **T-0014 cv.py**（骨組みの背骨）：make_folds／fold_indices／holdout_indices／run_cv＋CVResult（oof_mask で未カバー黙認を修正）。tests に FakeTrainer。統合テスト＝結線・fold 表の store 往復。
+4. **T-0015 train.py**：Trainer Protocol＋FoldOutcome＋SklearnTrainer（model_factory 注入・src は sklearn 非 import）。ここで sklearn を ds extra に追加。
+5. **T-0016（前半）models.py**：save_model／load_model＋manifest・指紋・上書き拒否。
+6. **E-0001（骨組み）**：フォルダ・SPEC・config.yaml・code/train.py を作り baseline だけで `--test` を端まで通す。`tests/test_e2e_experiment.py::test_e0001_smoke`（実験スクリプトを subprocess で叩く）を追加＝この瞬間から verify に e2e が載る。
+7. **T-0013 features.py**：FeatureBlock／FeaturePipeline／3ブロック（Columns/Interaction/StandardScale）／漏れ検知の統合テスト。train.py をパイプラインに差し替え。
+8. **T-0012 eval 閾値選択**：select_threshold_*（OOF/valid で選ぶ）。train.py に接続。
+9. **T-0016（後半）**：list_models 台帳・`uv run data models`・load 時の指紋照合。
+10. **E-0001（完了）**：interaction 変種・本規模（slow）・results 確定・SPEC の判定で結論を記録して done（棄却でも「負の結果も記録で完了」）。
 
 ## 引き継ぐ4つの核（参考リポより。詳細は本セッションの整理）
 - fit_transform を第一級にしたデータ漏れ防止の契約（OOF 型では fit_transform(train)≠transform(train)）。
