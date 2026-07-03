@@ -42,23 +42,27 @@ EncoderFactory = Callable[..., object]
 
 
 def _onehot(seed: int, **params: Any) -> object:  # noqa: ANN401  sklearn へ素通し
+    """OneHotEncoder。未知カテゴリで落ちない既定。encode 項目の columns はリスト。"""
     # 落ちない：未知カテゴリでエラーにしない（min_frequency 設定時は稀束ね先へ・無ければ全 0）。
     defaults: dict[str, Any] = {"handle_unknown": "infrequent_if_exist", "sparse_output": False}
     return OneHotEncoder(**{**defaults, **params})
 
 
 def _ordinal(seed: int, **params: Any) -> object:  # noqa: ANN401
+    """OrdinalEncoder。未知・欠損を -1 にする既定。columns はリスト。順序のあるカテゴリ向け。"""
     # 落ちない：未知も欠損も -1（カテゴリは 0..n-1 なので重ならない）。
     defaults: dict[str, Any] = {"handle_unknown": "use_encoded_value", "unknown_value": -1, "encoded_missing_value": -1}
     return OrdinalEncoder(**{**defaults, **params})
 
 
 def _target(seed: int, *, cv: int = 5, **params: Any) -> object:  # noqa: ANN401
+    """TargetEncoder（平滑化平均）。内部 cross-fitting(OOF) を cv=KFold(seed) で決定化。高カーディナリティ向け。"""
     # 漏れない＋決定的：内部 cross-fitting(OOF) を KFold(seed) で固定（shuffle/random_state は 1.9 非推奨）。
     return TargetEncoder(cv=KFold(n_splits=cv, shuffle=True, random_state=seed), **params)
 
 
 def _bins(seed: int, **params: Any) -> object:  # noqa: ANN401
+    """KBinsDiscretizer（分位ビン化・順序値）。NaN で落ちないよう中央値埋めを前置。columns はリスト。"""
     # 落ちない：KBins は NaN で ValueError → train で学習する中央値埋めを前置。決定的：subsample の random_state。
     defaults: dict[str, Any] = {"encode": "ordinal", "random_state": seed}
     return Pipeline(
@@ -67,6 +71,7 @@ def _bins(seed: int, **params: Any) -> object:  # noqa: ANN401
 
 
 def _pca(seed: int, *, n_components: int, **params: Any) -> object:  # noqa: ANN401  n_components は必須
+    """PCA（次元削減）。標準化と中央値埋めを前置。n_components 必須。columns は数値列のリスト。"""
     # 落ちない：PCA は NaN で ValueError → 中央値埋め。統計的必須：標準化を前置。
     return Pipeline(
         [
@@ -82,6 +87,7 @@ def _fill_text(s: pl.Series) -> pl.Series:  # モジュール関数（lambda は
 
 
 def _tfidf(seed: int, **params: Any) -> object:  # noqa: ANN401
+    """TfidfVectorizer（テキスト特徴量）。null を空文字に埋めて前置。columns は文字列 1 本（リストにしない）。"""
     # 落ちない：null テキストで TfidfVectorizer は落ちる → 空文字埋めを前置。
     return Pipeline(
         [

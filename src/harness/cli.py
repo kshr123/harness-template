@@ -171,6 +171,35 @@ def _data_list() -> None:
             typer.echo(f"  {s.layer.value}\t{s.role or '-'}\t{s.id}\t{s.description}")
 
 
+@data_app.command("blocks")
+def _data_blocks() -> None:
+    """特徴量ブロックの一覧（BLOCKS レジストリから生成）。config の features 節に書ける kind。"""
+    import inspect
+
+    from harness.ds.features import BLOCKS
+
+    for kind, cls in sorted(BLOCKS.items()):
+        doc = (inspect.getdoc(cls) or "").splitlines()[0] if inspect.getdoc(cls) else ""
+        params = [p for p in inspect.signature(cls.__init__).parameters if p != "self"]
+        typer.echo(f"{kind}\t({', '.join(params)})\t{doc}")
+    typer.echo(
+        "\n使い方は experiment / features スキル。無いものは DEC-0008（sklearn が十分なら data encoders を見る）。"
+    )
+
+
+@data_app.command("encoders")
+def _data_encoders() -> None:
+    """sklearn エンコーダの一覧（ENCODERS レジストリから生成）。config の encode 節に書ける kind。"""
+    import inspect
+
+    from harness.ds.pipeline import ENCODERS
+
+    for kind, factory in sorted(ENCODERS.items()):
+        doc = (inspect.getdoc(factory) or "").splitlines()[0] if inspect.getdoc(factory) else ""
+        typer.echo(f"{kind}\t{doc}")
+    typer.echo("\nparams は sklearn 本体へ素通し（安全既定だけ焼き込み済み）。対象列は encode 項目の columns で指定。")
+
+
 @data_app.command("models")
 def _data_models(work: Annotated[str | None, typer.Option(help="作業単位IDで絞る")] = None) -> None:
     """保存済みモデルの一覧（manifest 走査の生成ビュー）。現 champion に ★ を付ける。"""
