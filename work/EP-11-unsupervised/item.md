@@ -1,7 +1,7 @@
 ---
 id: EP-11
 kind: epic
-status: in-progress
+status: done
 title: 次元圧縮と教師なし学習（テーブル向け・探索と特徴）
 plan: detailed
 requirements: [REQ-004]

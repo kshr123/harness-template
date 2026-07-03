@@ -25,6 +25,12 @@ description: データを見る（探索的データ分析・EDA）際に自動�
    `uv run marimo edit <コピー>`（対話探索）か `uv run marimo run <コピー>`（閲覧）。テーブルは環境変数で指定：
    `HARNESS_EDA_TRAIN`（表ID）／`HARNESS_EDA_TEST`（比較用・空可）／`HARNESS_EDA_TARGET`（目的変数・空可）。
    ビューは `harness.ds.eda` の**同じ関数**を呼ぶだけ（正本とズレない）。
+6. **目的変数なしで構造を掴む**（クラスタ・2D 埋め込み・浮いている行）＝`uv run data unsupervised` で手法一覧、
+   `uv run data cluster <表> --k N`（クラスタの大きさ・シルエット・`--scan lo:hi` で k の目安表）／
+   `uv run data embed <表>`（PCA/t-SNE の 2D・寄与率）／`uv run data anomaly <表>`（多変量の外れ行・大きいほど異常）。
+   既定は数値列から id を除く（目的変数を持つ表は `--columns` で特徴だけに絞る）。人が見るのは `notebooks/unsupervised.py`
+   （環境変数 `HARNESS_UNSUP_TABLE`／`_COLUMNS`／`_COLOR`）。**ここで決めた k・除外行を学習へ戻すのは通常の EDA と
+   同じ扱いだが、fit 済みの物（クラスタ中心・異常スコア）を特徴にするのは encode 節を通す**（下の features スキル）。
 
 ## してはいけないこと
 - train/test を結合して統計量を計算しない（リーク。compare/psi は2表を別々に集計する API になっている）。

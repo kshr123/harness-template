@@ -73,6 +73,7 @@ def test_pca_embed_first_component_captures_variance() -> None:
     assert result.explained_variance_ratio is not None
     assert result.explained_variance_ratio[0] > 0.9  # 相関が強い＝第1成分が分散の大半
     assert result.sampled is False
+    assert result.sample_rows is None  # 非抽出時は coords と df が 1:1（整列口は不要）
 
 
 def test_tsne_embed_shape_small_n() -> None:
@@ -88,6 +89,11 @@ def test_tsne_embed_samples_when_over_max_rows() -> None:
     assert result.sampled is True
     assert result.coords.shape == (100, 2)  # max_rows に間引かれる
     assert result.n_rows == 100
+    # sample_rows は元 df の行位置（昇順・max_rows 個・範囲内）＝marimo が色分け列を coords に揃える受け口。
+    assert result.sample_rows is not None
+    assert len(result.sample_rows) == 100
+    assert result.sample_rows == sorted(result.sample_rows)
+    assert max(result.sample_rows) < 400 and min(result.sample_rows) >= 0
 
 
 def test_embed_2d_unknown_method() -> None:
