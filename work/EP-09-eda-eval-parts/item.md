@@ -1,11 +1,12 @@
 ---
 id: EP-09
 kind: epic
-status: in-progress
+status: done
 title: EDA と評価の部品（構造化レポート・指標レジストリ・分布差・重要度）
 plan: detailed
 requirements: [REQ-004]
 created: 2026-07-03
+closed: 2026-07-03
 ---
 # EP-09 EDA・評価の部品（エージェントファースト・テスト先行）
 

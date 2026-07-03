@@ -342,6 +342,8 @@ def psi(train: pl.Series, test: pl.Series, *, bins: int = 10) -> float:
     floor = 1e-6
     if train.dtype.is_numeric():
         edges = np.unique(np.quantile(train.drop_nulls().to_numpy(), np.linspace(0.0, 1.0, bins + 1)))
+        if len(edges) < 2:
+            return 0.0  # train が定数（分位点が 1 点）＝ビンを切れない。分布差は測れないので 0 とする
         e_counts, _ = np.histogram(train.drop_nulls().to_numpy(), bins=edges)
         a_counts, _ = np.histogram(test.drop_nulls().to_numpy(), bins=edges)
         e = np.maximum(e_counts / max(e_counts.sum(), 1), floor)

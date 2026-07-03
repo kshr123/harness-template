@@ -118,6 +118,19 @@ def _(eda, train):
 
 
 @app.cell
+def _(eda, train):
+    eda.high_correlation_pairs(train)  # 相関の高い列ペア（リーク/多重共線の疑い）
+    return
+
+
+@app.cell
+def _(eda, target, train):
+    # 目的変数との相関（|r| 降順）。target 指定時だけ。
+    eda.correlations(train, target=target) if target else None
+    return
+
+
+@app.cell
 def _(eda, mo, target, train):
     # 目的変数の要約（HARNESS_EDA_TARGET を指定したときだけ）。分類はクラス比率・回帰は統計量。
     if target:

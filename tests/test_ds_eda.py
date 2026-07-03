@@ -39,6 +39,13 @@ def test_psi_identical_is_zero() -> None:
     assert eda.psi(s, s) == pytest.approx(0.0, abs=1e-9)  # 同一分布 → 0
 
 
+def test_psi_constant_numeric_does_not_crash() -> None:
+    # train が定数（分位点が 1 点）だとビンを切れない → 0.0 を返す（histogram の例外を避ける）。
+    const = pl.Series("v", [5.0] * 20)
+    assert eda.psi(const, pl.Series("v", [5.0] * 10)) == 0.0
+    assert eda.psi(const, pl.Series("v", [7.0] * 10)) == 0.0  # test が違っても落ちない
+
+
 def test_psi_categorical_known_value() -> None:
     train = pl.Series("c", ["a"] * 50 + ["b"] * 50)  # a:0.5 b:0.5
     test = pl.Series("c", ["a"] * 75 + ["b"] * 25)  # a:0.75 b:0.25

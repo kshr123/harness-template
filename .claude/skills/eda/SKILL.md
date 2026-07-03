@@ -14,8 +14,9 @@ description: データを見る（探索的データ分析・EDA）際に自動�
 2. `uv run data list` でテーブルを選び、`uv run data profile <table_id> [--target <列> --task classification|regression]`。
    出力の YAML（列の欠損・型・一意数／数値統計・歪度・IQR 外れ値／カテゴリ最頻／重複行数／日時／品質フラグ／
    欠損の同時発生／重複列／目的変数の分布）を読む。**目的変数を確認せずに学習へ進まない**。
-   `flags`（定数・準定数・ID 疑い・全欠損）や `duplicate_columns` が空でなければ、扱い（除外・修正）を決めてから先へ。
-   `--target` 時は `category_target` で、件数の多いカテゴリの目的率が 0/1 に張り付いていないか（リーク疑い）を見る。
+   `flags`（定数・準定数・ID 疑い・全欠損）や `duplicate_columns`・`high_correlation_pairs` が空でなければ、
+   扱い（除外・修正）を決めてから先へ。`--target` 時は `correlations`（目的変数との相関・|r| 降順）と
+   `category_target`（件数の多いカテゴリの目的率が 0/1 に張り付いていないか＝リーク疑い）を見る。
 3. train/test があれば `uv run data compare <train_id> <test_id> [--auc]`（統計量差・カテゴリの共通/固有・PSI／
    `--auc` で分布差 AUC＝adversarial validation）。PSI 目安：0.1 未満=安定・0.25 以上=大きな変化（門番でなく目安）。
 4. `--auc` が目安 0.7 以上なら分布シフトの疑い。原因列を `analysis.cv_permutation_importance` で特定し、

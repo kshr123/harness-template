@@ -227,6 +227,7 @@ def _data_profile(
         "profile": eda.profile(df).to_dict(),
         "missing_patterns": eda.missing_patterns(df).to_dicts(),
         "duplicate_columns": eda.duplicate_columns(df).to_dicts(),
+        "high_correlation_pairs": eda.high_correlation_pairs(df).to_dicts(),  # リーク/多重共線の疑い
     }
     if target is not None:
         if task not in ("classification", "regression"):
@@ -234,6 +235,7 @@ def _data_profile(
             raise typer.Exit(1)
         report["target"] = eda.target_summary(df, target=target, task=task)  # type: ignore[arg-type]
         report["category_target"] = eda.category_target_summary(df, target=target).to_dicts()
+        report["correlations"] = eda.correlations(df, target=target).to_dicts()  # 目的変数との相関（|r| 降順）
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
@@ -254,9 +256,10 @@ def _data_compare(
     report: dict[str, object] = {"train": train_id, "test": test_id, "compare": eda.compare(train, test).to_dict()}
     if auc:
         # 数値の共通列だけで見分ける（既定 spec は数値向け・カテゴリは spec を書いて呼ぶ）。
+        # id（行の鍵）は分布差の特徴に入れない：train/test で id 域が分かれると擬似的な完全分離器になり AUC を誤らせる。
         import polars.selectors as cs
 
-        num = [c for c in train.select(cs.numeric()).columns if c in test.columns]
+        num = [c for c in train.select(cs.numeric()).columns if c in test.columns and c != "id"]
         drift = eda.drift_auc(train, test, columns=num, seed=seed)
         report["drift"] = {"auc": drift.auc, "fold_aucs": drift.fold_aucs, "columns": num}
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
