@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -273,22 +273,42 @@ def _data_compare(
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
+def _feature_columns(df: Any, columns: str | None) -> list[str]:  # noqa: ANN401  polars.DataFrame
+    """教師なしに渡す数値列を決める。--columns 指定があればそれ、無ければ数値列から id を除く。
+
+    id（行の鍵・単調増加）は特徴でなく識別子なので既定で外す（data compare と同じ扱い・リークの温床）。
+    目的変数を持つ表では --columns で特徴だけに絞る（どの列が目的変数かは表からは分からないため既定では残す）。
+    """
+    import polars.selectors as cs
+
+    if columns:
+        return columns.split(",")
+    return [c for c in df.select(cs.numeric()).columns if c != "id"]
+
+
 @data_app.command("unsupervised")
 def _data_unsupervised() -> None:
-    """教師なし（次元圧縮・クラスタリング・異常検知）のカタログ（レジストリから生成・data cluster 等で使う）。"""
-    from harness.ds.unsupervised import CLUSTERERS
+    """教師なし（次元圧縮・クラスタ・異常検知）のカタログ。3 レジストリから生成し data embed/cluster/anomaly で使う。"""
+    from harness.ds.unsupervised import ANOMALY, CLUSTERERS, DIMRED
 
-    for kind, factory in sorted(CLUSTERERS.items()):
-        doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
-        typer.echo(f"cluster\t{kind}\t{doc}")
-    typer.echo("\ncluster は `uv run data cluster <表> --k N [--method kmeans]`。次元圧縮・異常検知は後続で追加。")
+    for group, registry in (("dimred", DIMRED), ("cluster", CLUSTERERS), ("anomaly", ANOMALY)):
+        for kind, factory in sorted(registry.items()):
+            doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
+            typer.echo(f"{group}\t{kind}\t{doc}")
+    typer.echo("\n埋め込み＝`data embed <表>`／クラスタ＝`data cluster <表> --k N`／異常＝`data anomaly <表>`。")
 
 
 @data_app.command("cluster")
 def _data_cluster(
     table_id: str,
-    k: Annotated[int, typer.Option("--k", help="クラスタ数（n_clusters）")],
-    method: Annotated[str, typer.Option(help="kmeans")] = "kmeans",
+    k: Annotated[
+        int | None, typer.Option("--k", help="クラスタ数（kmeans=n_clusters・gmm=n_components。hdbscan は不要）")
+    ] = None,
+    method: Annotated[str, typer.Option(help="kmeans / gmm / hdbscan")] = "kmeans",
+    columns: Annotated[str | None, typer.Option(help="対象列（カンマ区切り。省略時は数値列から id を除く）")] = None,
+    scan: Annotated[
+        str | None, typer.Option(help="k を振る範囲 lo:hi（例 2:10）。目安の表を併記（kmeans/gmm のみ）")
+    ] = None,
     seed: Annotated[int, typer.Option(help="乱数種")] = 0,
 ) -> None:
     """テーブルをクラスタリングし、構造化レポート（大きさ・シルエット・クラスタ別の数表）を YAML で出す。"""
@@ -297,8 +317,61 @@ def _data_cluster(
     from harness.ds import store, unsupervised
 
     df = store.load(_root(), table_id)
-    report = unsupervised.cluster_summary(df, method=method, seed=seed, n_clusters=k)
-    typer.echo(yaml.safe_dump(report.to_dict(), allow_unicode=True, sort_keys=False))
+    cols = _feature_columns(df, columns)
+    params: dict[str, Any] = {}
+    if method in unsupervised.PARAM_FOR_K:
+        if k is None:
+            raise typer.BadParameter(f"method '{method}' は --k が必要")
+        params[unsupervised.PARAM_FOR_K[method]] = k
+    report = unsupervised.cluster_summary(df, columns=cols, method=method, seed=seed, **params)
+    out: dict[str, object] = {"table": table_id, "method": method, "columns": cols, "cluster": report.to_dict()}
+    if scan is not None:
+        lo_s, hi_s = scan.split(":")
+        table = unsupervised.k_scan(
+            df, columns=cols, method=method, k_values=range(int(lo_s), int(hi_s) + 1), seed=seed
+        )
+        out["scan"] = table.to_dicts()
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("embed")
+def _data_embed(
+    table_id: str,
+    method: Annotated[str, typer.Option(help="pca / tsne")] = "pca",
+    columns: Annotated[str | None, typer.Option(help="対象列（カンマ区切り。省略時は数値列から id を除く）")] = None,
+    seed: Annotated[int, typer.Option(help="乱数種")] = 0,
+) -> None:
+    """テーブルを 2D に埋め込み、要約（寄与率・行数・抽出の有無）を YAML で出す（座標は marimo で見る）。"""
+    import yaml
+
+    from harness.ds import store, unsupervised
+
+    df = store.load(_root(), table_id)
+    cols = _feature_columns(df, columns)
+    result = unsupervised.embed_2d(df, columns=cols, method=method, seed=seed)
+    out = {"table": table_id, "columns": cols, "embed": result.to_dict()}
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("anomaly")
+def _data_anomaly(
+    table_id: str,
+    method: Annotated[str, typer.Option(help="iforest / lof")] = "iforest",
+    columns: Annotated[str | None, typer.Option(help="対象列（カンマ区切り。省略時は数値列から id を除く）")] = None,
+    top: Annotated[int, typer.Option(help="上位何行を出すか（浮いている行）")] = 20,
+    seed: Annotated[int, typer.Option(help="乱数種")] = 0,
+) -> None:
+    """多変量の異常スコア（大きいほど異常）の分位要約と、浮いている行の上位 n を YAML で出す。"""
+    import yaml
+
+    from harness.ds import store, unsupervised
+
+    df = store.load(_root(), table_id)
+    cols = _feature_columns(df, columns)
+    report = unsupervised.anomaly_scores(df, columns=cols, method=method, seed=seed)
+    rows = unsupervised.anomaly_rows(df, report.scores, n=top)
+    out = {"table": table_id, "columns": cols, "anomaly": report.to_dict(), "top_rows": rows.to_dicts()}
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
 
 
 @data_app.command("metrics")

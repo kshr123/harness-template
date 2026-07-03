@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from harness.cli import _data_blocks, _data_encoders, _data_metrics, _data_models
+from harness.cli import _data_blocks, _data_encoders, _data_metrics, _data_models, _data_unsupervised
 from harness.ds.eval import METRICS
 from harness.ds.features import BLOCKS
 from harness.ds.pipeline import ENCODERS, MODELS
@@ -47,6 +47,14 @@ def test_clusterers_have_docstrings() -> None:
         assert factory.__doc__, f"CLUSTERERS['{kind}'] に docstring が無い（カタログに載れない）"
 
 
+def test_dimred_and_anomaly_have_docstrings() -> None:
+    from harness.ds.unsupervised import ANOMALY, DIMRED
+
+    for name, registry in (("DIMRED", DIMRED), ("ANOMALY", ANOMALY)):
+        for kind, factory in registry.items():
+            assert factory.__doc__, f"{name}['{kind}'] に docstring が無い（カタログに載れない）"
+
+
 def test_metrics_have_descriptions() -> None:
     # 指標も config の語彙（thresholds）＝カタログ対象。説明文が無いと一覧に載れない。
     for name, metric in METRICS.items():
@@ -58,6 +66,7 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     _data_encoders()
     _data_models()
     _data_metrics()
+    _data_unsupervised()
     out = capsys.readouterr().out
     # レジストリの項目が一覧に出る（エージェントが1コマンドで発見できる）。
     assert "columns" in out
@@ -67,3 +76,6 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert "logreg" in out
     assert "roc_auc" in out  # 指標カタログ
     assert "timeseries" in out  # 古典時系列（statsmodels 導入環境・all-extras）
+    # (A) 教師なしカタログ（3 レジストリ）が data unsupervised に載る。
+    for kind in ("pca", "tsne", "kmeans", "gmm", "hdbscan", "iforest", "lof"):
+        assert kind in out, f"data unsupervised に {kind} が載っていない"

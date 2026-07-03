@@ -4,8 +4,8 @@
 - モデルは sklearn を「使う」（自作ゼロ・DEC-0008）。工場は seed 配線と前処理前置（中央値埋め＋標準化）だけ焼く。
 - 特徴量用途 (B)（クラスタ番号・異常スコア・圧縮成分を下流モデルの入力にする）は ENCODERS 側（fit-on-train は
   run_cv の clone-per-fold で担保）。ここ (A) は記述的で全データに当てる（結論を学習に戻さないこと）。
-- CLUSTERERS/DIMRED/ANOMARY は config の種ではなく関数の method 引数＋CLI（`data cluster/embed/anomaly`）で選ぶ。
-  ※ T-a では kmeans と cluster_summary のみ。gmm/hdbscan・embed_2d・anomaly は後続タスクで足す。
+- CLUSTERERS/DIMRED/ANOMALY は config の種ではなく関数の method 引数＋CLI（`data cluster/embed/anomaly`）で選ぶ。
+  transform 不可の手法（t-SNE・HDBSCAN）は ENCODERS に登録しない＝(B) に構造上載らない（(A) 専用）。
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from numpy.typing import NDArray
 from sklearn.base import BaseEstimator, TransformerMixin
 
 ClustererFactory = Callable[..., Any]
+DimredFactory = Callable[..., Any]
+AnomalyFactory = Callable[..., Any]
 
 
 # --- (B) 特徴量用途の薄い包み（sklearn に無い隙間だけ・DEC-0008 の「作る」側） ---
@@ -91,10 +93,53 @@ def _kmeans(seed: int, *, n_clusters: int, **params: Any) -> Any:  # noqa: ANN40
     )
 
 
-# method 名 → クラスタリングの工場（前処理前置＋seed）。gmm/hdbscan は T-c で足す。
+def _gmm(seed: int, *, n_components: int, **params: Any) -> Any:  # noqa: ANN401  sklearn へ素通し
+    """混合ガウス（軟らかい所属・BIC で k を測れる・(A) 探索専用）。n_components 必須。
+
+    中央値埋め＋標準化を前置。random_state=seed で決定的。predict は最尤クラスタ番号（fit_predict で使える）。
+    """
+    from sklearn.impute import SimpleImputer
+    from sklearn.mixture import GaussianMixture
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("cluster", GaussianMixture(n_components=n_components, random_state=seed, **params)),
+        ]
+    )
+
+
+def _hdbscan(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受けて捨てる（密度ベース＝乱数なし）
+    """HDBSCAN（密度クラスタ・k 不要・雑音を -1 に落とす・(A) 探索専用）。新規行に predict できず (B) 不可。
+
+    中央値埋め＋標準化を前置。主なパラメタ：min_cluster_size（塊の最小行数）・min_samples。決定的（乱数なし）。
+    """
+    from sklearn.cluster import HDBSCAN
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("cluster", HDBSCAN(**params)),
+        ]
+    )
+
+
+# method 名 → クラスタリングの工場（前処理前置＋seed）。t-SNE/HDBSCAN は transform 不可＝ENCODERS に載せない。
 CLUSTERERS: dict[str, ClustererFactory] = {
     "kmeans": _kmeans,
+    "gmm": _gmm,
+    "hdbscan": _hdbscan,
 }
+
+# クラスタ数を指定する手法だけの「--k → sklearn の引数名」対応（hdbscan は k 不要＝載せない）。
+PARAM_FOR_K: dict[str, str] = {"kmeans": "n_clusters", "gmm": "n_components"}
 
 
 @dataclass(frozen=True)
@@ -139,12 +184,13 @@ def cluster_summary(
     sizes = vc.with_columns(ratio=pl.col("count") / n).sort("cluster")
 
     transformed = model[:-1].transform(x)  # 前処理後の空間でシルエットを測る
-    uniq = set(labels.tolist()) - {-1}  # hdbscan の雑音 -1 は除く
+    keep = labels != -1  # hdbscan の雑音 -1 はクラスタでないのでシルエット計算から外す（採点を歪めない）
+    uniq = set(labels[keep].tolist())
     silhouette = None
-    if len(uniq) >= 2 and len(uniq) < n:
+    if len(uniq) >= 2 and int(keep.sum()) > len(uniq):
         from sklearn.metrics import silhouette_score
 
-        silhouette = float(silhouette_score(transformed, labels))
+        silhouette = float(silhouette_score(transformed[keep], labels[keep]))
 
     profile = (
         df.select(cols)
@@ -159,3 +205,230 @@ def cluster_summary(
     return ClusterReport(
         labels=pl.Series("cluster", labels), sizes=sizes, silhouette=silhouette, profile_by_cluster=profile
     )
+
+
+def k_scan(
+    df: pl.DataFrame,
+    *,
+    columns: Sequence[str] | None = None,
+    method: str = "kmeans",
+    k_values: Sequence[int] = range(2, 11),
+    seed: int,
+) -> pl.DataFrame:
+    """k を振って目安の指標表（k・silhouette＋kmeans は inertia・gmm は bic）を返す。**門番にしない**。
+
+    最良 k を自動選択して返す関数は作らない（選ぶのは実験側の判断）。k を要する kmeans/gmm 専用
+    （hdbscan は k 不要）。silhouette は大きいほど・inertia/bic は小さいほど良い（向きは呼ぶ側が知る）。
+    """
+    if method not in PARAM_FOR_K:
+        raise ValueError(f"k_scan は kmeans か gmm のみ（method '{method}' は k を取らない）")
+    from sklearn.metrics import silhouette_score
+
+    cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
+    x = df.select(cols).to_numpy()
+    rows: list[dict[str, Any]] = []
+    for k in k_values:
+        model = CLUSTERERS[method](seed, **{PARAM_FOR_K[method]: k})
+        labels = np.asarray(model.fit_predict(x))
+        transformed = model[:-1].transform(x)
+        sil = float(silhouette_score(transformed, labels)) if len(set(labels.tolist())) >= 2 else None
+        row: dict[str, Any] = {"k": int(k), "silhouette": sil}
+        if method == "kmeans":
+            row["inertia"] = float(model[-1].inertia_)
+        else:  # gmm
+            row["bic"] = float(model[-1].bic(transformed))
+        rows.append(row)
+    return pl.DataFrame(rows).sort("k")
+
+
+# --- (A) 次元圧縮：2D 埋め込み（図は marimo・正本は寄与率などの要約） ---
+
+
+def _pca_embed(seed: int, *, n_components: int = 2, **params: Any) -> Any:  # noqa: ANN401  sklearn へ素通し
+    """PCA の 2D 埋め込み（線形・寄与率が出る）。中央値埋め＋標準化を前置。random_state=seed。"""
+    from sklearn.decomposition import PCA
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("embed", PCA(n_components=n_components, random_state=seed, **params)),
+        ]
+    )
+
+
+def _tsne(seed: int, *, n_components: int = 2, **params: Any) -> Any:  # noqa: ANN401  sklearn へ素通し
+    """t-SNE の 2D 地図（非線形・新規行に落とせず (A) 専用）。init="pca" と random_state=seed で安定・決定的。"""
+    from sklearn.impute import SimpleImputer
+    from sklearn.manifold import TSNE
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    defaults: dict[str, Any] = {"init": "pca"}
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("embed", TSNE(n_components=n_components, random_state=seed, **{**defaults, **params})),
+        ]
+    )
+
+
+# method 名 → 2D 埋め込みの工場。tsne は transform 不可＝ENCODERS に載せない（(A) 専用）。
+DIMRED: dict[str, DimredFactory] = {
+    "pca": _pca_embed,
+    "tsne": _tsne,
+}
+
+
+@dataclass(frozen=True)
+class EmbedResult:
+    """2D 埋め込みの結果。coords は marimo の散布図が使う n 行・to_dict は座標を含めない要約だけ。"""
+
+    coords: pl.DataFrame  # dim1, dim2 の n 行（図の材料）
+    method: str
+    n_rows: int  # 埋め込んだ行数（抽出時は max_rows）
+    columns: list[str]  # 使った列
+    explained_variance_ratio: list[float] | None  # pca のみ（tsne は None）
+    sampled: bool  # t-SNE で max_rows を超えて等確率抽出したか
+    sample_rows: (
+        list[int] | None
+    )  # 抽出したときの元 df の行位置（marimo で labels/色を coords に揃える）。非抽出は None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "n_rows": self.n_rows,
+            "columns": self.columns,
+            "explained_variance_ratio": self.explained_variance_ratio,
+            "sampled": self.sampled,
+        }
+
+
+def embed_2d(
+    df: pl.DataFrame,
+    *,
+    columns: Sequence[str] | None = None,
+    method: str = "pca",
+    seed: int,
+    max_rows: int = 5000,
+    **params: Any,
+) -> EmbedResult:
+    """数値列を 2 次元に落として座標＋要約を返す（全データに当てる探索用途）。座標は marimo で見る。
+
+    t-SNE は行数が大きいと遅いので max_rows（既定 5000）を超えたら seed 決定的に等確率抽出し sampled=True を残す
+    （門番にせず事実を書く）。columns 省略時は数値列すべて。pca は寄与率を、tsne は None を返す。
+    """
+    if method not in DIMRED:
+        raise ValueError(f"未知の次元圧縮 method '{method}'（{sorted(DIMRED)} のいずれか）")
+    cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
+    x_full = df.select(cols).to_numpy()
+    sample_rows: list[int] | None = None
+    if x_full.shape[0] > max_rows:
+        idx = np.sort(np.random.default_rng(seed).choice(x_full.shape[0], size=max_rows, replace=False))
+        x = x_full[idx]
+        sample_rows = [int(i) for i in idx]  # 元 df の行位置（marimo が labels/色を coords に揃えるため）
+    else:
+        x = x_full
+    model = DIMRED[method](seed, **params)
+    emb = np.asarray(model.fit_transform(x))
+    coords = pl.DataFrame({"dim1": emb[:, 0], "dim2": emb[:, 1]})
+    evr = None
+    if method == "pca":
+        evr = [float(v) for v in model[-1].explained_variance_ratio_]
+    return EmbedResult(coords, method, x.shape[0], list(cols), evr, sample_rows is not None, sample_rows)
+
+
+# --- (A) 異常検知：多変量の外れ行（1 列ずつの Tukey 柵＝eda.profile とは役割が違う） ---
+
+
+def _iforest(seed: int, **params: Any) -> Any:  # noqa: ANN401  sklearn へ素通し
+    """IsolationForest（多変量の外れ・(A)(B) 両用）。木なので標準化不要・中央値埋めだけ前置。random_state=seed。"""
+    from sklearn.ensemble import IsolationForest
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("anomaly", IsolationForest(random_state=seed, **params)),
+        ]
+    )
+
+
+def _lof(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受けて捨てる（近傍ベース＝乱数なし）
+    """LocalOutlierFactor（局所密度の外れ・(A) 専用）。中央値埋め＋標準化を前置。novelty=False で全データに fit。"""
+    from sklearn.impute import SimpleImputer
+    from sklearn.neighbors import LocalOutlierFactor
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("anomaly", LocalOutlierFactor(**params)),
+        ]
+    )
+
+
+# method 名 → 異常検知の工場。lof は novelty=False＝新規行に score できず (A) 専用（ENCODERS には iforest だけ）。
+ANOMALY: dict[str, AnomalyFactory] = {
+    "iforest": _iforest,
+    "lof": _lof,
+}
+
+
+@dataclass(frozen=True)
+class AnomalyReport:
+    """異常検知の結果。scores は n 行（大きいほど異常）・to_dict は分位要約だけ（全スコアは anomaly_rows で見る）。"""
+
+    scores: pl.Series  # n 行の異常スコア（大きいほど異常）
+    method: str
+    columns: list[str]
+    quantiles: dict[str, float]  # q50/q90/q99/max
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"method": self.method, "columns": self.columns, "quantiles": self.quantiles}
+
+
+def anomaly_scores(
+    df: pl.DataFrame,
+    *,
+    columns: Sequence[str] | None = None,
+    method: str = "iforest",
+    seed: int,
+    **params: Any,
+) -> AnomalyReport:
+    """多変量の異常スコア（大きいほど異常）を返す。各列は普通でも組み合わせが変な行を拾う。
+
+    sklearn の score は「大きいほど正常」なので符号反転するだけ（閾値・等級化はしない＝事実の報告）。iforest は
+    score_samples、lof（novelty=False）は negative_outlier_factor_ から取る。全データに当てる探索用途。
+    """
+    if method not in ANOMALY:
+        raise ValueError(f"未知の異常検知 method '{method}'（{sorted(ANOMALY)} のいずれか）")
+    cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
+    x = df.select(cols).to_numpy()
+    model = ANOMALY[method](seed, **params)
+    model.fit(x)
+    if hasattr(model, "score_samples"):  # iforest（Pipeline が最終段の score_samples を委譲）
+        raw = np.asarray(model.score_samples(x))
+    else:  # lof novelty=False は score_samples を持たない → 学習データの局所外れ度を読む
+        raw = np.asarray(model[-1].negative_outlier_factor_)
+    scores = -raw  # 大きいほど異常に揃える
+    quantiles = {
+        "q50": float(np.quantile(scores, 0.50)),
+        "q90": float(np.quantile(scores, 0.90)),
+        "q99": float(np.quantile(scores, 0.99)),
+        "max": float(np.max(scores)),
+    }
+    return AnomalyReport(pl.Series("anomaly_score", scores), method, list(cols), quantiles)
+
+
+def anomaly_rows(df: pl.DataFrame, scores: pl.Series | Sequence[float], *, n: int = 20) -> pl.DataFrame:
+    """df の全列＋ anomaly_score をスコア降順で上位 n（analysis.worst_rows と同じ読み方＝「浮いている行」）。"""
+    col = scores if isinstance(scores, pl.Series) else pl.Series("anomaly_score", list(scores))
+    return df.with_columns(anomaly_score=col).sort("anomaly_score", descending=True).head(n)
