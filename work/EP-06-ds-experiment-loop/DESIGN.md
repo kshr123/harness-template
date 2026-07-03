@@ -181,44 +181,101 @@ class SklearnTrainer:
 
 重要な点：**train.py 自体は sklearn を import しない**。モデルは呼び出し側が `model_factory` で注入する（ダックタイピング＋Protocol）。だから核となる src は sklearn 無しで型検査・テストが通り、LightGBM への移行は「factory と Trainer 実装を差し替えるだけ」の一本道になる（核3の移行路）。`target_transform` の fit（StandardScale）は **y_train でだけ**行う（valid の統計を混ぜない）。
 
-### B-5. models.py（T-0016）— 保存・読込・台帳（`harness/ds/models.py`）
+### B-5. models.py（T-0016）— 永続化と登録簿（`harness/ds/models.py`）
 
-`harness/models.py`（PM の Item 型）と同名だがパッケージが違う。import は `from harness.ds import models as model_store` の別名を実験雛形の規約にして混同を防ぐ。参考リポ `model_repository.py` は「ロジック無し IO」＝manifest 無し・上書き無警告・由来不明。ここを store.py と同じ規律（指紋・manifest・拒否）で強化する。
+**設計の芯**：pickle を「形式の既定」から「native 形式を持たないオブジェクトのための最後の受け皿」に格下げする。直列化そのものは呼び出し側が注入する `Serializer`（Protocol）に追い出し、核（models.py）には**封筒だけ**を残す——URI 解決・版採番・原子的書き込み・上書き拒否・指紋・依存版の記録と照合・manifest・台帳（生成ビュー）・昇格の関門。これで核は sklearn/LightGBM/onnx を一切 import しないまま、形式が何であっても store.py と同じ規律で保存・読込・登録できる。保存は常に許し（実験の記録）、**昇格だけ**をベースライン比較の関門にする（登録と合格を分ける＝「負の結果も記録で完了」と両立）。参考リポ2本の実務（本体は native/ONNX・pickle は限定・依存版を記録・レジストリは (model,version) キー・登録＝関門）を我々の流儀へ翻訳したもの。
 
+`harness/models.py`（PM の Item 型）と同名なので import は `from harness.ds import models as model_store` の別名規約で混同を防ぐ。
+
+**(1) Serializer — 形式固有の処理はここだけに閉じる**
+```python
+@runtime_checkable
+class Serializer(Protocol):
+    """モデル実体の直列化の契約。形式固有の import はこの実装の中だけ。
+    format: manifest に記録し load 時に取り違えを検査。extension: format と対（自己記述性）。
+    critical: load 互換に効く配布物名（例 ("scikit-learn","numpy")）。save 時に版を記録し load 時に照合。"""
+    format: str; extension: str; critical: tuple[str, ...]
+    def dump(self, model: object, path: Path) -> None: ...
+    def load(self, path: Path) -> object: ...
+
+@dataclass(frozen=True)
+class PickleSerializer:  # 核に置く唯一の実装。stdlib pickle なので境界を破らない
+    format: str = "pickle"; extension: str = "pkl"; critical: tuple[str, ...] = ("numpy",)
+```
+LightGBM native（`booster.save_model(.txt)` を包む約10行）や ONNX は、核から import されない別モジュール／実験 code に置く。
+
+**(2) Trainer との噛み合わせ**（Trainer Protocol は変えない。直列化は別の関心）
+```python
+@runtime_checkable
+class SerializerProvider(Protocol):
+    def serializer(self) -> Serializer: ...   # 自分のモデルに合う Serializer を知る Trainer が任意で実装
+```
+`SklearnTrainer.serializer()` は `PickleSerializer(critical=("scikit-learn","numpy"))` を返す（文字列を返すだけ＝train.py は sklearn 非 import を維持）。実験雛形の定型：`ser = trainer.serializer() if isinstance(trainer, SerializerProvider) else PickleSerializer()`。※ モデル自身に save/load を強いる継承方式（参考リポ B の BaseModel）は非採用（sklearn オブジェクトを包めない・注入の方が本基盤と揃う）。
+
+**(3) 記録・保存・読込**
 ```python
 @dataclass(frozen=True)
 class ModelRecord:
-    name: str
-    work: str                         # 作業単位ID（E-0001 等）
-    path: Path
-    format: str                       # 保存形式。既定 "pickle"。可搬形式(onnx 等)を後から足す差し替え口
-    fingerprint: str                  # 保存ファイルの sha256
-    data_fingerprint: str | None      # 学習に使った表の指紋（store.save の返り値と結ぶ）
-    metrics: dict[str, float]
-    config: dict[str, object]         # 変種名・seed・n_folds 等
-    created: str                      # ISO 8601
+    name: str; work: str; version: str            # version = UTC "%Y%m%dT%H%M%S%fZ"（辞書順＝時刻順）
+    path: Path; format: str; filename: str        # 実体ファイル名（拡張子込み・自己記述）
+    fingerprint: str                              # 実体の sha256
+    pipeline_filename: str | None; pipeline_fingerprint: str | None  # 前処理器を同梱したとき
+    feature_names: tuple[str, ...]                # 列順（推論時の列ずれ検知の材料）
+    data_fingerprint: str | None                  # store.save の返り値と結ぶ
+    metrics: dict[str, float]; config: dict[str, object]  # 変種名・seed・n_folds 等
+    code: str | None                              # 実行体パス（git 不使用のため）
+    python: str; critical_dependencies: dict[str, str]    # 照合対象の name→版
+    dependencies: dict[str, str]                  # 全配布物 name→版（記録のみ・再現材料）
+    created: str
 
-def save_model(
-    root: Path, model: object, *, name: str, work: str,
-    fmt: str = "pickle",              # 保存形式。既定は pickle。将来 "onnx" 等をここで受ける
-    data_fingerprint: str | None = None,
-    config: Mapping[str, object] | None = None,
-    metrics: Mapping[str, float] | None = None,
-) -> ModelRecord:
-    """model を fmt の形式で保存し、manifest.yaml（format・指紋・由来）を書く。
-    既存の同名は拒否（上書きしない。別名にするか消してから）。
-    置き場は config の data backend から解決：<uri>/work/<work>/models/<name>.<ext>（store と同じ規約）。
-    fmt=="pickle" のみ実装、他形式は NotImplementedError（可搬形式が要る運用要件が出た時に足す差し替え口）。"""
+def save_model(root, model, *, name, work, serializer=None, pipeline=None, feature_names=(),
+               data_fingerprint=None, config=None, metrics=None, code=None) -> ModelRecord:
+    """封筒だけ：版を採番し serializer.dump で一時ファイル→rename、sha256 と依存版
+    （importlib.metadata）を集め manifest.yaml を書く。pipeline を渡せば同じ経路で同梱。
+    置き場 <uri_for("models")>/work/<work>/models/<name>/<version>/{model.<ext>, pipeline.pkl, manifest.yaml}。
+    再 save は新しい版として積む。同じ版が在れば ValueError。file: 以外は NotImplementedError。"""
 
-def load_model(root: Path, *, name: str, work: str) -> tuple[object, ModelRecord]:
-    """manifest が無い pickle は読まない。pickle の指紋が manifest と食い違っても読まない。"""
-
-def list_models(root: Path, *, work: str | None = None) -> list[ModelRecord]:
-    """manifest を走査した台帳ビュー。CLI `uv run data models` から表示（status 本体はいじらない）。"""
+def load_model(root, *, name, work, version=None, serializer=None,
+               on_dependency_mismatch: Literal["warn","fail"]="warn") -> LoadedModel:  # (model,pipeline,record)
+    """3段の門：①完全性=manifest 無し・sha256 不一致は常に fail。②形式=serializer.format≠manifest は常に fail
+    （.txt を pickle で読む取り違えを止める）。③互換性=critical_dependencies と python を照合、既定 warn
+    （on_dependency_mismatch="fail" で強化）。version=None は最新（版の降順1件）。"""
 ```
 
-- 一時ファイル→rename の原子的書き込み、`file:` 以外の URI は NotImplementedError、は store.py と同じ実装パターンを踏襲（backend 差し替え可能性を保つ）。
-- pickle は「自分が書いたローカルファイルだけ読む」前提を docstring に明記（manifest 指紋照合がその機械的裏付け）。
+**(4) 登録簿（台帳＝生成ビュー・backend 差し替え口）**
+```python
+@runtime_checkable
+class ModelRegistry(Protocol):        # file: 以外（S3+DynamoDB 等）はこれを実装して差し替える
+    def get(self, *, work, name, version) -> ModelRecord: ...
+    def latest(self, *, work, name) -> ModelRecord | None: ...
+    def list(self, *, work=None, name=None) -> list[ModelRecord]: ...
+    def champion(self, *, work, name) -> ModelRecord | None: ...
+
+class FileRegistry:  # file: backend。manifest 群の走査＝台帳（1本の JSON 台帳は作らない＝正本を2重化しない）
+    def __init__(self, root: Path) -> None: ...  # latest は版文字列の降順1件（辞書順＝時刻順）
+
+def list_models(root, *, work=None) -> list[ModelRecord]:  # FileRegistry を包む薄い関数。CLI `uv run data models`（champion に印）
+```
+backend は `config.data.uri_for("models")`（層の上書き口をそのまま使う・既定 `file:data`＝設定変更ゼロで動く）。`file:` 以外は NotImplementedError（store.py と同一作法）。
+
+**(5) 昇格＝ベースライン比較の関門**
+```python
+def promote_model(root, *, work, name, version, thresholds, primary, higher_is_better=True) -> Promotion:
+    """両方通ったときだけ昇格：①絶対関門 eval.passes(record.metrics, thresholds) が True。
+    ②相対関門 現 champion が無ければ無条件・在れば primary で勝つ。通れば
+    models/<name>/promotions/<decided>.yaml を追記（追記のみ）。champion＝最新の昇格記録が指す版（生成ビュー）。
+    落ちたら両者の指標を載せて ValueError。save_model は常に許す＝実験の記録。関門は昇格だけ。"""
+```
+```
+data/work/<work>/models/<name>/
+├── 20260703T093000123456Z/  model.pkl  pipeline.pkl  manifest.yaml
+├── 20260703T110412987654Z/  model.pkl  pipeline.pkl  manifest.yaml
+└── promotions/20260703T111000000000Z.yaml   # 追記のみ。最新が champion を指す
+```
+
+**pickle 緩和策（参考リポの「記録のみ」より一段安全に）**：①依存版を全量記録（再現材料）。②load 時照合は `serializer.critical`＋python に限定（全量はノイズ）・既定 warn（uv.lock で環境は固定済み・fail 既定だと patch 版上がりで台帳が死蔵）・完全性と形式は常に fail（「壊れ・取り違え」と「環境が進んだ」を同じ強さにしない）。③自己記述性＝manifest に format・filename・指紋を必ず持ち load は名から引く（参考リポ B の「native なのに .pkl」を構造的に防ぐ）。④pickle は「自分が書いた manifest 付きファイルだけ読む」（sha256 が裏付け）。
+
+**既存資産との接続**：store.py（URI 解決・rename・指紋・manifest の4作法を踏襲、`data_fingerprint` は `store.save` の返り値）／Trainer は無変更＋`SerializerProvider` 追加で sklearn 非 import を維持／`eval.passes` が昇格の絶対関門（実験の合否と昇格が同じ関数・同じ thresholds 節）／`FeaturePipeline` を `pipeline=` で同梱・`feature_names()` で列順記録／pm・issues と同型（事実はファイル・台帳は生成ビュー・追記のみ・ID/版は再利用しない）。**models.py の import は stdlib＋yaml＋harness.config のみ（numpy すら不要）＝境界維持を import 一覧で機械確認できる。**
 
 ### B-6. E-0001 実験フォルダ（雛形＝以後の実験の正本）
 
@@ -324,11 +381,11 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 0. **T-0017 検証の仕組み**（骨組みの前に置く土台）：`checks.toml` の各段階 pytest を marker 選択（fast=unit / standard=integration / full=e2e、いずれも `not slow`）にし、既存テスト8ファイルにピラミッドの目印を付け、conftest に「未マークのテストは失敗」ガードを置く。ML モジュールに依存しない純粋な仕組みなので先に入れる。
 1. **T-0014 cv.py**（骨組みの背骨）：make_folds／fold_indices／holdout_indices／run_cv＋CVResult。tests に FakeTrainer。統合テスト＝結線・fold 表の store 往復。※ stratify は最初から入れる（後付けだと fold 表スキーマが揺れる）。
 2. **T-0015 train.py**：Trainer Protocol＋FoldOutcome＋SklearnTrainer。ここで sklearn を ds extra に追加。再現性・target_transform の統合テスト。
-3. **T-0016（前半）models.py**：save_model／load_model と manifest・上書き拒否だけ（list_models・CLI 表示は後半へ）。
+3. **T-0016（前半）models.py**：`Serializer` Protocol＋`PickleSerializer`／`ModelRecord`（版・依存記録込み）／`save_model`（版採番・原子書き・manifest・版単位の上書き拒否・pipeline 同梱）／`load_model`（指紋 fail・形式 fail・critical warn）。骨組みの「登録」を仮置きにしない最小。
 4. **E-0001（骨組み）**：フォルダ・SPEC・config.yaml・code/train.py を作り、**baseline 変種だけ**で `--test` を端から端まで通す。`tests/test_e2e_experiment.py::test_e0001_smoke` を追加＝この瞬間から verify に e2e が載る。item は in-progress のまま。
 5. **T-0013 features.py**：FeatureBlock／FeaturePipeline／3ブロック／漏れ検知の統合テスト。train.py の特徴量部を素書きからパイプラインに差し替え（e2e 緑のまま）。
 6. **T-0012 eval 閾値選択**：select_threshold_*。train.py に「OOF で閾値を選んで results に記録」を接続。
-7. **T-0016（後半）**：list_models 台帳・`uv run data models`・load 時の指紋照合。
+7. **T-0016（後半）**：`ModelRegistry` Protocol＋`FileRegistry`（list/latest/get）・`list_models`＋CLI `uv run data models`・`promote_model`＋昇格記録＋champion 表示。
 8. **E-0001（完了）**：interaction 変種・本規模実行（slow）・results/ 確定・SPEC の判定に従い結論を記録して done。仮説が棄却（合成データは線形なので交互作用は効かない見込み）でも done——「負の結果も記録で完了」の実地確認まで含めて完了条件。
 
 各ステップは「スタブ＋赤テスト→実装→verify 緑」の1タスク内完結（EP-06 の進め方）を維持。4 以降は常に e2e が守っている。
@@ -336,6 +393,9 @@ thresholds: {roc_auc: 0.80}           # 値は人の判断待ち（F 参照）
 ## F. 人の判断待ち（業務価値に関わる決定のみ）— 2026-07-03 に方針確定
 
 1. **合否の閾値の値**（config.yaml `thresholds:`）→ **決着：ここで値を決めない。案件ごとのパラメータ**。設計は値を埋めず config で外から受け `passes(metrics, thresholds)` で判定する（決められる設計を担保）。E-0001 の 0.80 は「合成データ構成上まず割らない下限」の仮置きにすぎない。
-2. **モデルの保存形式**→ **決着：pickle＋manifest を既定。形式は差し替え可能に**。`save_model(fmt="pickle")`＋`ModelRecord.format` で manifest に記録し、`load_model`/エクスポータが形式で分岐できる構造にする。可搬形式（ONNX 等）は「別システム・別言語へ引き渡す運用要件」が出た時に、呼び出し側を壊さず足す（今は pickle のみ実装・他形式は NotImplementedError）。
+2. **モデルの保存形式**→ **決着：pickle は「格下げした既定フォールバック」。直列化は注入する `Serializer` に委譲**（B-5 改訂で確定）。参考リポ2本の実務（本体は native/ONNX・pickle は限定・依存版を記録・レジストリは (model,version) キー・登録＝関門）を翻訳。核 models.py は形式非依存の封筒（manifest・指紋・版・台帳・昇格関門）だけを持ち sklearn/onnx を非 import。pickle の脆さは「依存版の記録＋load 時の critical 照合（既定 warn・完全性/形式は常に fail）＋自己記述な manifest＋指紋照合」で参考リポの「記録のみ」より一段安全にする。可搬形式（ONNX 等）は Serializer 実装を足すだけ。**残る業務判断**は次の2-a・2-b：
+   - 2-a. **版不一致時の既定を warn のままにするか**（監査・規制のある案件では fail 既定＝`on_dependency_mismatch="fail"` や verify 組み込みが要り得る。引数1つで切替）。
+   - 2-b. **「再学習の材料」をどこまで実体で複製するか**（既定は指紋参照のみ＝学習表は store 側に在る。参考リポ B のように分割データまで版ディレクトリへ複製するかは保持コストと監査要件の判断）。
+   - 2-c. **昇格の主要指標・方向・絶対閾値**（`promote_model(primary=…, thresholds=…)`。1 と同じくパラメータで、値は案件の価値判断）。
 3. **slow（本規模実行）の扱い**→ **決着：仕組み（段階×目印・門番から slow を外せる構造）は今作り込む**（C「検証の仕組み」・T-0017）。業務判断として残るのは「slow を実際に回す先＝夜間 CI で自動 か 実験を done にする時に手動か」の1点だけで、これは E-0001 まで保留でよい（仕組みはどちらでも受けられる）。
 4. **backend 切替（S3/DWH）の着手時期**→ **決着：まだ着手しない。ローカルのまま**。ただし models.py も store.py と同じく config URI 解決・`file:` 以外は NotImplementedError で書き、口だけ開けておく（見越して設計・実装はしない）。着手時期は共有が要る時点（チーム参加・データ量）で判断。
