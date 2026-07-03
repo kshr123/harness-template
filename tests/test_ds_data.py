@@ -5,12 +5,44 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import polars as pl
 import pytest
 
 from harness.ds import data
 
 pytestmark = pytest.mark.unit
+
+
+def test_load_dataset_synthetic() -> None:
+    # config の data 節から入力を得る。kind: synthetic は n 件を生成する。
+    df = data.load_dataset(Path("."), {"kind": "synthetic"}, n=120, seed=0)
+    assert df.height == 120
+    # kind 未指定は synthetic 既定（雛形がそのまま動く）。
+    assert data.load_dataset(Path("."), {}, n=50, seed=0).height == 50
+
+
+def test_load_dataset_table_delegates_to_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    # kind: table は store.load(root, table_id) に委譲する（n/seed は無視）。
+    from harness.ds import store
+
+    seen: dict[str, object] = {}
+
+    def fake_load(root: Path, table_id: str) -> pl.DataFrame:
+        seen["root"] = root
+        seen["table_id"] = table_id
+        return pl.DataFrame({"id": [1, 2]})
+
+    monkeypatch.setattr(store, "load", fake_load)
+    df = data.load_dataset(Path("/proj"), {"kind": "table", "table_id": "sales"}, n=999, seed=7)
+    assert seen == {"root": Path("/proj"), "table_id": "sales"}
+    assert df.height == 2
+
+
+def test_load_dataset_unknown_kind() -> None:
+    with pytest.raises(ValueError, match="未知のデータ源"):
+        data.load_dataset(Path("."), {"kind": "nope"}, n=1, seed=0)
 
 
 def test_generate_is_reproducible() -> None:

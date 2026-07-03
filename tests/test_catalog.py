@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from harness.cli import _data_blocks, _data_encoders
+from harness.cli import _data_blocks, _data_encoders, _data_models
 from harness.ds.features import BLOCKS
-from harness.ds.pipeline import ENCODERS
+from harness.ds.pipeline import ENCODERS, MODELS
 
 pytestmark = pytest.mark.unit
 
@@ -26,11 +26,18 @@ def test_encoders_have_docstrings() -> None:
         assert factory.__doc__, f"ENCODERS['{kind}'] に docstring が無い（カタログに載れない）"
 
 
+def test_models_have_docstrings() -> None:
+    for kind, factory in MODELS.items():
+        assert factory.__doc__, f"MODELS['{kind}'] に docstring が無い（カタログに載れない）"
+
+
 def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     _data_blocks()
     _data_encoders()
+    _data_models()
     out = capsys.readouterr().out
     # レジストリの項目が一覧に出る（エージェントが1コマンドで発見できる）。
     assert "columns" in out
     assert "onehot" in out
     assert "target" in out
+    assert "logreg" in out

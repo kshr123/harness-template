@@ -6,7 +6,7 @@ import pytest
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 
-from harness.ds.pipeline import build_estimator
+from harness.ds.pipeline import MODELS, build_estimator, build_model
 
 pytestmark = pytest.mark.unit
 
@@ -56,3 +56,17 @@ def test_target_encoder_cv_is_seeded_kfold() -> None:
     kfold = te.get_params()["cv"]
     assert kfold.get_n_splits() == 3  # 非推奨 shuffle/random_state を使わず cv=KFold(seed)
     assert kfold.random_state == 7  # seed 配線（決定的な OOF）
+
+
+def test_build_model_from_registry() -> None:
+    m = build_model({"kind": "logreg"}, seed=7)
+    assert m.get_params()["random_state"] == 7  # seed 配線（決定的）
+    assert m.get_params()["max_iter"] == 1000  # 落ちない安全既定は焼き込み
+    over = build_model({"kind": "logreg", "max_iter": 50}, seed=0)
+    assert over.get_params()["max_iter"] == 50  # params は sklearn へ素通し（上書き）
+
+
+def test_build_model_unknown() -> None:
+    assert "logreg" in MODELS  # レジストリに既定モデルが載る
+    with pytest.raises(ValueError, match="未知のモデル"):
+        build_model({"kind": "nope"}, seed=0)

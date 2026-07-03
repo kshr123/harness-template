@@ -21,7 +21,7 @@ owner: sakurada
 
 ## 受け入れ基準（テスト先行で）
 - `save_model`／`load_model`：pickle＋manifest・版=UTC時刻・再利用拒否・feature_names 自動（get_feature_names_out）・依存版は記録のみ。3段の門（manifest 無し/指紋不一致/形式!=pickle は拒否）。sklearn 非import。
-- `list_models`（生成ビュー台帳）・`champion`・`promote_model`（絶対=passes かつ相対=primary で勝つ関門・追記のみ・保存は常に許す）。CLI `uv run data models`（champion に★）。
+- `list_models`（生成ビュー台帳）・`champion`・`promote_model`（絶対=passes かつ相対=primary で勝つ関門・追記のみ・保存は常に許す）。CLI `uv run data saved`（champion に★。※後日改名：旧 `data models`→`data saved`。`data models` は MODELS レジストリ一覧に付け替え）。
 - `.gitignore` に `data/**/models/`（実体はコミットしない）。
 - train.py が fit_final→save_model を接続（一気通貫）。
 - `uv run verify` 全成功。

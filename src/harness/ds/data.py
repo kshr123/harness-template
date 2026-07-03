@@ -9,11 +9,16 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
 
 SPLITS = ("train", "valid", "test")
+
+DataSource = Callable[..., pl.DataFrame]
 
 
 def generate_synthetic(n: int = 2000, seed: int = 0) -> pl.DataFrame:
@@ -35,6 +40,40 @@ def generate_synthetic(n: int = 2000, seed: int = 0) -> pl.DataFrame:
             "y": y,
         }
     )
+
+
+def _synthetic_source(root: Path, *, n: int, seed: int, **_ignored: Any) -> pl.DataFrame:  # noqa: ANN401
+    """合成データ（デモ・雛形の既定）。n 件を seed で決定的に生成する。config: {kind: synthetic}。"""
+    return generate_synthetic(n=n, seed=seed)
+
+
+def _table_source(root: Path, *, table_id: str, **_ignored: Any) -> pl.DataFrame:  # noqa: ANN401
+    """store の保存済みテーブルを table_id で読む（実データの実験用）。config: {kind: table, table_id: <ID>}。"""
+    from harness.ds import store
+
+    df: pl.DataFrame = store.load(root, table_id)  # store.load は Any 返し＝明示的に受ける
+    return df
+
+
+# config の data 節 kind → 入力の作り方。実データを足すときはここに 1 行（例：CSV/DB 直結）。
+DATA_SOURCES: dict[str, DataSource] = {
+    "synthetic": _synthetic_source,
+    "table": _table_source,
+}
+
+
+def load_dataset(root: Path, spec: Mapping[str, Any], *, n: int, seed: int) -> pl.DataFrame:
+    """config の data 節（{kind, ...params}）から実験の入力 DataFrame を得る。
+
+    kind 未指定は synthetic（雛形がそのまま動く）。n・seed は synthetic のときだけ効く
+    （table のときは無視され table_id で読む）。kind は `uv run data list`（table）等から選ぶ。
+    """
+    kind = spec.get("kind", "synthetic")
+    if kind not in DATA_SOURCES:
+        raise ValueError(f"未知のデータ源 '{kind}'（{sorted(DATA_SOURCES)} のいずれか）")
+    # n・seed は明示引数で渡す（実験の規模・種は top-level が持つ）。data 節に n/seed を書いても重複させない。
+    params = {k: v for k, v in spec.items() if k not in ("kind", "n", "seed")}
+    return DATA_SOURCES[kind](root, n=n, seed=seed, **params)
 
 
 def _bucket(id_value: int, salt: str) -> int:

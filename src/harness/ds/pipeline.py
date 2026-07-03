@@ -24,6 +24,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
@@ -39,6 +40,7 @@ from harness.ds.cv import SklearnLike
 from harness.ds.features import BLOCKS, FeatureBlock, FeaturePipeline
 
 EncoderFactory = Callable[..., object]
+ModelFactory = Callable[..., SklearnLike]
 
 
 def _onehot(seed: int, **params: Any) -> object:  # noqa: ANN401  sklearn へ素通し
@@ -106,6 +108,33 @@ ENCODERS: dict[str, EncoderFactory] = {
     "pca": _pca,
     "tfidf": _tfidf,
 }
+
+
+def _logreg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn へ素通し
+    """ロジスティック回帰（線形・二値分類の既定モデル）。config の model 節に kind: logreg。"""
+    # 決定的：random_state=seed。落ちない：収束しないと警告になるので max_iter を厚めに既定化（params で上書き可）。
+    defaults: dict[str, Any] = {"random_state": seed, "max_iter": 1000}
+    model: SklearnLike = LogisticRegression(**{**defaults, **params})  # sklearn は型なし＝Any を明示的に受ける
+    return model
+
+
+# config の kind → モデルの工場（seed 配線・安全既定つき）。LightGBM 等を足すときはここに 1 行（DEC-0006）。
+MODELS: dict[str, ModelFactory] = {
+    "logreg": _logreg,
+}
+
+
+def build_model(spec: Mapping[str, Any], *, seed: int) -> SklearnLike:
+    """config の model 節（{kind, ...params}）から 1 つのモデル（推定器）を作る。
+
+    kind は `uv run data models` の一覧から。params はそのまま sklearn クラスへ渡す（写経しない）。
+    build_estimator に model として渡すと features→encode→model の 1 本の Pipeline になる。
+    """
+    kind = spec.get("kind")
+    if kind not in MODELS:
+        raise ValueError(f"未知のモデル '{kind}'（{sorted(MODELS)} のいずれか）")
+    params = {k: v for k, v in spec.items() if k != "kind"}
+    return MODELS[kind](seed, **params)
 
 
 def _build_block(spec: Mapping[str, Any], seed: int) -> FeatureBlock:

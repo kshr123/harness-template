@@ -28,7 +28,7 @@
 | 層 | 何か | どこに住むか | 機械で担保できるか | 例 |
 |---|---|---|---|---|
 | 機械検査 | 違反すると verify が失敗する検査 | `harness/`（pm.lint・spec_lint・checks.toml）＋ pytest/ruff/mypy | **完全** | done↔verified_by の実在検査 |
-| 抽象（差し替え口） | 変わりうる部分を切り離す型・設定 | Protocol 定義・config の backend URI | **ほぼ完全**（mypy が担保） | Serializer 注入で核が sklearn を import しない |
+| 抽象（差し替え口） | 変わりうる部分を切り離す型・設定 | Protocol 定義・config の backend URI・レジストリ | **ほぼ完全**（mypy が担保） | 保存形式は manifest の `format` 文字列で分岐（核が形式ライブラリを固定しない） |
 | 規約 | 人と AI が従う決まりごと | `AGENTS.md`（正本） | **部分的**（各項目が検査点を括弧書き。持てない項目は「レビュー観点」） | 「テストの数値は構成由来」 |
 | スキル | セッション中に実行する手順の手引き | `.claude/skills/*/SKILL.md` | 不可（発火は description の語） | harvest：振り返り→learnings 記録 |
 | 決定 | 「なぜそう決めたか」の記録（点） | `docs/decisions/DEC-xxxx` | 参照整合のみ | DEC-0002 STATUS は生成物 |
@@ -108,7 +108,7 @@
 ## G. この基盤の自己適用
 
 基盤自身が最初の案件（charter の思想）。この手順は、まずこの基盤の開発に適用する。
-**EP-06（DS 実験ループ）での実例**：歩く骨組み＝「データ読み込み→fold→特徴→学習→評価→results 記録」が `--test` で一巡し verify が通る最小実装（E-0001 の baseline・DESIGN.md E）。以降のタスク（特徴の本実装・閾値・台帳）は緑を保ったままの差し替えとして積む。Trainer / FeatureBlock / Serializer は既知の差し替え軸なので骨組みの時点で Protocol を切る（C 節の例外規定）。
+**EP-06（DS 実験ループ）での実例**：歩く骨組み＝「データ読み込み→fold→特徴→学習→評価→results 記録」が `--test` で一巡し verify が通る最小実装（E-0001 の baseline・DESIGN.md E）。以降のタスク（特徴の本実装・閾値・台帳）は緑を保ったままの差し替えとして積む。差し替え軸は sklearn Pipeline を背骨に、特徴量は `BLOCKS`・エンコーダは `ENCODERS`・モデル種は `MODELS`・保存形式は manifest の `format` 文字列で持つ（当初案の自前 Protocol 層は過剰分割だったため撤回・DEC-0006/0007）。
 
 **今すぐ入れた最小**：本文書（method.md）／AGENTS 原則に「着手は全体→詳細」1 行／plan スキルの分解手順に「最初のタスクは端まで通る最小の骨組み」1 行／harvest を C 節の 5 手順へ／learnings 書式に「状態」欄（L-004 を昇格済み→DEC-0002 に）／DEC-0005。
 **後で足す分（通常タスク）**：spec_lint に `np.random.seed` 検出（AGENTS 既存ルールへ強制点を付ける最初のケース）／`experiment`・`eda` スキル（EP-06 着手時）／pm.lint に「昇格済み learnings が指す DEC の実在検査」（昇格の流れ自体に機械的裏付け）。

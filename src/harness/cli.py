@@ -200,7 +200,18 @@ def _data_encoders() -> None:
 
 
 @data_app.command("models")
-def _data_models(work: Annotated[str | None, typer.Option(help="作業単位IDで絞る")] = None) -> None:
+def _data_models() -> None:
+    """モデル種の一覧（MODELS レジストリから生成）。config の model 節に書ける kind。"""
+    from harness.ds.pipeline import MODELS
+
+    for kind, factory in sorted(MODELS.items()):
+        doc = factory.__doc__.strip().splitlines()[0] if factory.__doc__ else ""
+        typer.echo(f"{kind}\t{doc}")
+    typer.echo("\nparams は sklearn 本体へ素通し。学習済みモデル（保存版）の一覧は `uv run data saved`。")
+
+
+@data_app.command("saved")
+def _data_saved(work: Annotated[str | None, typer.Option(help="作業単位IDで絞る")] = None) -> None:
     """保存済みモデルの一覧（manifest 走査の生成ビュー）。現 champion に ★ を付ける。"""
     from harness.ds import models as model_store
 

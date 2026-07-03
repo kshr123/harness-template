@@ -20,15 +20,17 @@ KFold/StratifiedKFold を使っている。利用者から「無駄。標準ラ�
 B を採る。`scikit-learn>=1.6` を ds extra の一級依存にし、次を sklearn へ置き換えた：
 `eval` のメトリクス（`accuracy_score`/`roc_auc_score`）・`transforms.StandardScale`（`StandardScaler`）・
 `cv.make_folds`（`KFold`/`StratifiedKFold`）。閾値選択（T-0012）も `sklearn.metrics` で実装する。
-差し替えを保つ境界は残す：**モデルの具体**は Trainer の `model_factory` で注入し train.py は特定モデルを
-import しない／**直列化の形式**は Serializer で注入し models.py は形式ライブラリを import しない。
+差し替えを保つ境界は残す：**モデルの具体**は config でモデル種を選ぶ（`MODELS` レジストリ・train.py は
+特定モデルを直接固定しない）／**直列化の形式**は `ds/models.py` が丸ごと pickle し、manifest の `format`
+文字列で load が分岐する（可搬形式が要る時に枝を足す差し替え口・形式ライブラリを核が直接固定しない）。
 理由：battle-tested な標準実装は自作より正しく・速く・読みやすい。Log1p/Identity は numpy 標準関数
 そのものなので追加ライブラリは不要。単一クラスの AUC など標準が例外を投げる縁だけハーネスの方針で吸収する。
+（当初案の Serializer / Trainer 注入という Protocol 層は、実装では過剰分割だったため上記に簡素化した。）
 
 ## 影響（良い点・悪い点・これからやること）
 - 良い点：手書きの数値・分割・スケーリングを廃し、保守負債とバグの温床を除いた。置換後も既存テストが
   そのまま全通過＝手書きは純粋な再発明だった裏付け。
-- 良い点：sklearn→LightGBM の移行路（Trainer/Serializer 注入）は保たれ、標準実装の恩恵も受ける。
+- 良い点：sklearn→LightGBM の移行路（config で model 段を差し替え）は保たれ、標準実装の恩恵も受ける。
 - 悪い点：ds プロファイルの依存が増える（sklearn＋scipy 等）。土台の中核（PM 層）は従来どおり sklearn 非依存。
 - これからやること：DESIGN の D-1 を反転済み・B-1/B-2/B-3 を sklearn 利用に更新済み。AGENTS に
   「標準ライブラリを再発明しない（レビュー観点）」を追記。fixed_split（id ハッシュの安定分割）と

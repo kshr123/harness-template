@@ -3,6 +3,9 @@
 seed: 20260703
 n: 2000
 n_folds: 5
+data: { kind: synthetic } # 入力源。実データは { kind: table, table_id: <ID> }（`uv run data list` の一覧から）
+target: y # 目的変数の列名
+model: { kind: logreg } # モデル種。`uv run data models` の一覧から。params は sklearn へ素通し（例: max_iter: 2000）
 variants:
   baseline:
     features:

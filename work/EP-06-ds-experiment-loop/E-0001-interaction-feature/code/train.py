@@ -23,13 +23,12 @@ from pathlib import Path
 
 import polars as pl
 import yaml
-from sklearn.linear_model import LogisticRegression
 
 from harness.ds import data, store
 from harness.ds import eval as ev
 from harness.ds import models as model_store
 from harness.ds.experiment import run_experiment
-from harness.ds.pipeline import build_estimator
+from harness.ds.pipeline import build_estimator, build_model
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE.parent / "config.yaml"
@@ -108,22 +107,27 @@ def main() -> int:
     n_folds = int(cfg["test_mode"]["n_folds"] if args.test else cfg["n_folds"])
     variant_spec = cfg["variants"][args.variant]  # build_estimator の spec（features / encode）
     thresholds = cfg["thresholds"]
+    target = cfg.get("target", "y")  # 目的変数の列名（config で選ぶ）
+    data_spec = cfg.get("data", {"kind": "synthetic"})  # 入力源（synthetic / table）
+    # モデルは variant 優先→experiment 既定→logreg（モデル比較実験は variant に model を書く）。
+    model_spec = variant_spec.get("model") or cfg.get("model") or {"kind": "logreg"}
 
     root = prepare_root(test=args.test, root=args.root)
     # --test の既定 out は root 側へ（試走が本物の results/ を上書きしないように）。--out の明示指定は常に優先。
     out = args.out if args.out is not None else (root / "results" if root != ROOT_DEFAULT else HERE.parent / "results")
 
-    df = data.generate_synthetic(n=n, seed=seed)
-    y = df["y"].to_numpy().astype("float64")
-    estimator = build_estimator(variant_spec, LogisticRegression(random_state=seed, max_iter=1000), seed=seed)
-    result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by="y")
+    df = data.load_dataset(root, data_spec, n=n, seed=seed)
+    y = df[target].to_numpy().astype("float64")
+    estimator = build_estimator(variant_spec, build_model(model_spec, seed=seed), seed=seed)
+    result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by=target)
 
     if not result.cv.oof_mask.all():
         raise SystemExit("OOF が全行を覆っていない（この実験は全行 CV 前提。分割を見直すこと）")
     folds_fp = save_folds(root, result.folds)
     oof_table = (
-        df.select("id", "y")
+        df.select("id")
         .with_columns(
+            y=df[target],  # 保存する OOF 表の列名は y に揃える（e0001_oof のテーブル定義）
             fold=result.folds["fold"],
             oof_score=pl.Series("oof_score", result.cv.oof),
         )
@@ -131,7 +135,7 @@ def main() -> int:
     )
     oof_fp = store.save(root, oof_table, f"e0001_oof_{args.variant}", code=CODE_REF, work=WORK_ID)
 
-    y_int = df["y"].to_numpy().astype("int64")
+    y_int = df[target].to_numpy().astype("int64")
     threshold, f1_at = ev.select_threshold_max_f1(y_int, result.cv.oof)  # 閾値は OOF で選ぶ（規約）
     metrics_at = ev.evaluate(y_int, result.cv.oof, threshold=threshold)
 
@@ -142,7 +146,15 @@ def main() -> int:
         name=args.variant,
         work=WORK_ID,
         data_fingerprint=folds_fp,
-        config={"variant": args.variant, "seed": seed, "n": n, "n_folds": n_folds, "spec": variant_spec},
+        config={
+            "variant": args.variant,
+            "seed": seed,
+            "n": n,
+            "n_folds": n_folds,
+            "spec": variant_spec,
+            "model": model_spec,
+            "data": data_spec,
+        },
         metrics=result.metrics,
     )
 
