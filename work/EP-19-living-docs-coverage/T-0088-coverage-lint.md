@@ -1,10 +1,11 @@
 ---
 id: T-0088
 kind: task
-status: todo
+status: done
 title: 導線カバレッジ検査（coverage_lint＝全 CLI コマンドがスキル/正本 docs から到達可能）
 created: 2026-07-06
 depends_on: [T-0069]
+verified_by: [tests/test_coverage_lint.py::test_real_repo_all_cli_commands_are_reachable]
 ---
 # T-0088 導線カバレッジ検査（coverage_lint）
 
@@ -42,5 +43,16 @@ doclint は dead link（参照先が在るか）だけ＝一方向。逆向き�
 - 変異：`checks.py` から coverage_lint を外すと、わざと導線を消したコマンドが検出されなくなる（配線が効く）ことを確認。
 - `uv run verify` 全体緑。
 
-## 独立レビュー（maker≠checker・差分のみ・実測）
-（レビュー後に記入）
+## 独立レビュー（maker≠checker・差分のみ・実測・変異）
+実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。
+- **到達判定＝変異で確認**：`run_checks` の `if token in exempt or token in corpus: continue` を `if True or …` に変異
+  → `test_orphan_command_is_error` が RED（導線の無いコマンドを本当に error にしていることを捕捉）。
+- **name==prefix の素トークン＝変異で確認**：`token = prefix if name == prefix else …` を `f"{prefix} {name}"` 固定に変異
+  → `test_name_equal_to_prefix_yields_bare_token` が RED（`serve` が `serve serve` に化けるのを捕捉＝serve の導線を守る）。
+- **免除の fail-closed＝変異で確認**：`_validated_exempt` の空理由 `raise` を無効化 → `test_blank_exempt_reason_raises` が
+  RED（理由の無い免除＝サイレントな見逃しを止めることを捕捉）。3 変異ともバイト同一に復元。
+- **配線**：`test_coverage_lint_is_wired_into_pm_checks` が `run_checks in checks.PM_CHECKS` を確認（外すと導線忘れが素通り）。
+- **回帰の番人**：`test_real_repo_all_cli_commands_are_reachable` が現リポで 0 件（以後の導線忘れを verify で止める）。
+- **プロファイル境界**：coverage_lint は cli.py を ast で読むだけ（import しない）＝ds/serve/agent の重い依存を core に持ち込まない（doclint と同じ作法・DEC-0004）。
+- **ドキュメント/スキル最新化**：新規 `.claude/skills/agent/SKILL.md`（agent プロファイルの導線・7 コマンド）＋experiment/session スキルへ欠落分追記。実測 RED は `data selectors`／`data tuners`／`data metrics`／`issue new` の 4 件で、いずれも実在する導線で緑化（`data lint` のみ理由つき免除）。learnings は語トークンが部分一致しない書き方で回帰の番人を薄めない配慮あり。
+- **verify 全体緑**（`成功（すべて通過）`）。指摘なし。

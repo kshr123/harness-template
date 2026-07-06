@@ -1,7 +1,7 @@
 ---
 id: EP-19
 kind: epic
-status: in-progress
+status: done
 title: 生きたドキュメント（導線カバレッジの機械化＝missing link を verify で止める）
 plan: detailed
 requirements: [REQ-001]

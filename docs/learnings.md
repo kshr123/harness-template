@@ -70,3 +70,8 @@
 - **要点**：旧来の「`temperature=0` で LLM 出力を決定的にして verify に載せる」手は、現行の Claude モデル（Opus 4.7/4.8・Sonnet 5・Fable 5）では使えない。`temperature`/`top_p`/`top_k` はパラメータごと廃止され、**送ると 400 エラー**になる（EP-22 着手時の調査）。
 - **対応**：AgentSpec は temperature を持たない（`load_agent_spec` が専用エラーで弾き effort への移行を案内）。verify の決定性は入力側で作る：dummy（入力＋seed の正準 JSON ハッシュから決定的応答）＋cassette（記録再生・T-0092）でネットワーク 0。モデル出力自体の非決定性は許容し、分散は本番監視で見る。
 - **判断**：決定性は「モデルのノブ」でなく「ハーネスの構造」（宣言に固定する effort・無ネットワークの再生）で担保する。存在しないノブを宣言に残すと宣言が嘘をつく＝差し替え口ごと持たない。
+
+## L-013 導線の書き忘れ（missing link）は一方向の doclint では捕まらない
+- **状態**：昇格済み → DEC-0016（導線カバレッジ検査 coverage_lint を verify に接続。次の棚卸しで削除可）。
+- **要点**：doclint は「書いた参照が実在するか」（dead link）だけを見る一方向の検査。逆向き＝新しい能力（CLI コマンド）が増えたのに、スキル/正本 docs に導線が書かれない（missing link）は機械で捕まらず、verify は緑のまま。実測で data の selectors・tuners・metrics（一覧コマンド）と issue の new（起票）がどのスキル/正本 docs からも到達不能だった（serve スキルに `data monitor` の 1 行が入ったのは作者が覚えていたから＝忘れても検査は落ちない）。
+- **対応**：coverage_lint（cli.py 群を ast 解析して `@*.command` を全抽出→スキル/正本 docs での出現を検査・未到達＝error・免除は理由必須の allowlist）を PM_CHECKS に接続し、欠けていた導線を experiment/session スキルに追記して緑化（DEC-0016）。DEC-0009 の第 3 要件（スキル/雛形からの導線）の機械化。
