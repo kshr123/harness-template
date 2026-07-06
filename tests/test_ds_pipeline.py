@@ -12,7 +12,8 @@ import polars as pl
 import pytest
 import scipy.sparse as sp
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
+from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import KFold, RandomizedSearchCV, StratifiedKFold
 
@@ -476,3 +477,193 @@ def test_select_estimator_runs_through_run_cv() -> None:
         # estimators は object 型で返る（fold 別の学習済み Pipeline）＝select 段へは動的にアクセスする。
         support = fitted.named_steps["select"].get_support()  # type: ignore[attr-defined]
         assert list(support) == [True, False]
+
+
+# --- target_transform（T-0081：log1p を TransformedTargetRegressor で包む・回帰のみ・pickle 可） ---
+
+
+@pytest.mark.unit
+def test_target_transform_log1p_wraps_regressor_with_module_functions() -> None:
+    # target_transform: log1p → TransformedTargetRegressor(func=np.log1p, inverse_func=np.expm1) で包む。
+    # func/inverse は**モジュール関数**（lambda 不可）＝pickle で名前参照になり save/load 往復できる。
+    m = build_model({"kind": "ridge", "target_transform": "log1p"}, seed=5, task="regression")
+    assert isinstance(m, TransformedTargetRegressor)
+    assert m.func is np.log1p  # モジュール関数そのもの（部分適用や lambda で包まない）
+    assert m.inverse_func is np.expm1
+    assert type(m.regressor) is Ridge
+    assert m.regressor.get_params()["random_state"] == 5  # seed 配線は内側の回帰器へ
+    assert "target_transform" not in m.regressor.get_params()  # 配線キーは params に混ざらない
+
+
+@pytest.mark.unit
+def test_target_transform_fails_loud_on_classification_and_unknown() -> None:
+    # 逆変換して原スケールで測る仕組み＝回帰のみ。分類モデルに付けたら fit を待たず config 段で止める。
+    with pytest.raises(ValueError, match="回帰のみ"):
+        build_model({"kind": "logreg", "target_transform": "log1p"}, seed=0)
+    # 未知の変換名（typo）は黙って素通ししない（fail-loud）。
+    with pytest.raises(ValueError, match="未知の target_transform"):
+        build_model({"kind": "ridge", "target_transform": "sqrt"}, seed=0)
+
+
+@pytest.mark.unit
+def test_target_transform_absent_is_unchanged() -> None:
+    # target_transform 無しの spec は従来どおり素の model（包まれない＝既存挙動は不変）。
+    assert type(build_model({"kind": "ridge"}, seed=0)) is Ridge
+
+
+@pytest.mark.unit
+def test_target_transform_wraps_tuned_model_outermost() -> None:
+    # tune 併用時は tuned を包む（TTR が最外・param_grid のキーは素の名前のまま書ける）。
+    spec = {"kind": "ridge", "target_transform": "log1p", "tune": {"param_grid": {"alpha": [0.1, 1.0]}}}
+    m = build_model(spec, seed=2)
+    assert isinstance(m, TransformedTargetRegressor)
+    assert isinstance(m.regressor, RandomizedSearchCV)  # tuner 省略 → 既定 random
+    assert type(m.regressor.estimator) is Ridge
+
+
+@pytest.mark.integration
+def test_target_transform_predicts_in_original_scale() -> None:
+    # 構成：y = expm1(0.5 + 1.2 x)（正・右に歪む）→ log1p(y) = 0.5 + 1.2 x は x の厳密な一次式。
+    # ridge(alpha≈0) は変換後空間でこの直線を復元し、TTR の逆変換（expm1）で予測は**原スケール**の y に一致する。
+    x = np.linspace(0.0, 3.0, 50).reshape(-1, 1)
+    y = np.expm1(0.5 + 1.2 * x[:, 0])
+    m = build_model({"kind": "ridge", "alpha": 1e-8, "target_transform": "log1p"}, seed=0, task="regression")
+    assert isinstance(m, TransformedTargetRegressor)
+    m.fit(x, y)
+    np.testing.assert_allclose(m.predict(x), y, rtol=1e-4)  # rmse 等を原スケールで測れる（逆変換は TTR が背負う）
+
+
+@pytest.mark.integration
+def test_target_transform_model_save_load_roundtrip(tmp_path: Any) -> None:
+    # log1p 包みの Pipeline が既存 models.py の pickle 経路で save/load 往復し、予測が一致する
+    # （func/inverse がモジュール関数＝pickle 可、の実測）。
+    from harness.ds.models import load_model, save_model
+
+    df = pl.DataFrame({"x": np.linspace(0.0, 3.0, 30)})
+    y = np.expm1(0.5 + 1.0 * df["x"].to_numpy())
+    model = build_model({"kind": "ridge", "alpha": 1e-8, "target_transform": "log1p"}, seed=0, task="regression")
+    est = build_estimator({"features": [{"kind": "columns", "columns": ["x"]}]}, model, seed=0)
+    est.fit(df, y)
+    save_model(tmp_path, est, name="ttr", work="T-0081", feature_names=["x"])
+    loaded, record = load_model(tmp_path, name="ttr", work="T-0081")
+    assert record.format == "pickle"
+    np.testing.assert_allclose(
+        loaded.predict(df),  # type: ignore[attr-defined]
+        est.predict(df),
+    )
+
+
+# --- svd エンコーダ（T-0081：TruncatedSVD・疎対応の次元圧縮＝テキスト経路の穴埋め） ---
+
+
+@pytest.mark.unit
+def test_svd_encoder_registered_and_seeded() -> None:
+    # ENCODERS.build で TruncatedSVD がそのまま出る（impute/scale を前置しない＝疎を密化しない）。
+    svd = ENCODERS.build({"kind": "svd", "columns": ["a", "b"], "n_components": 2}, seed=9)
+    assert isinstance(svd, TruncatedSVD)
+    assert svd.get_params()["n_components"] == 2  # n_components は必須（既定 2 を黙って使わせない）
+    assert svd.get_params()["random_state"] == 9  # 決定的：seed 配線（randomized SVD の乱数）
+    over = ENCODERS.build({"kind": "svd", "columns": ["a"], "n_components": 1, "n_iter": 7}, seed=0)
+    assert over.get_params()["n_iter"] == 7  # params は sklearn へ素通し
+
+
+@pytest.mark.integration
+def test_tfidf_svd_model_chain_fits_sparse() -> None:
+    # tfidf→svd→model の直列が**疎のまま** fit する：svd 直前（tfidf 出力）が scipy 疎で、
+    # TruncatedSVD がそれを密化せず受けて n_components 列に落とす（PCA には無い疎対応＝この部品の存在理由）。
+    rng = np.random.default_rng(0)
+    vocab = [f"w{k}" for k in range(30)]
+    rows = [" ".join(rng.choice(vocab, size=4)) for _ in range(100)]
+    txt = pl.Series("txt", rows)
+    y = np.array([1.0 if "w0" in t else 0.0 for t in rows])
+    from sklearn.pipeline import Pipeline as SkPipeline
+
+    chain = SkPipeline(
+        [
+            ("tfidf", ENCODERS.build({"kind": "tfidf", "columns": "txt"}, seed=0)),
+            ("svd", ENCODERS.build({"kind": "svd", "columns": "txt", "n_components": 5}, seed=0)),
+            ("model", build_model({"kind": "logreg"}, seed=0)),
+        ]
+    )
+    chain.fit(txt, y)
+    assert sp.issparse(chain[:1].transform(txt))  # svd の入力（tfidf 出力）は疎のまま（密化しない）
+    reduced = chain[:2].transform(txt)
+    assert reduced.shape == (100, 5)  # 列数が n_components に落ちる
+    assert chain.predict_proba(txt).shape == (100, 2)
+
+
+@pytest.mark.integration
+def test_svd_in_encode_stage_reduces_numeric_columns() -> None:
+    # config の入口（encode 節）からも使える：数値 3 列 → svd(n_components=2) → model 直前は 2 列。
+    rng = np.random.default_rng(1)
+    df = pl.DataFrame({"a": rng.normal(size=40), "b": rng.normal(size=40), "c": rng.normal(size=40)})
+    y = (df["a"].to_numpy() > 0).astype(np.float64)
+    spec = {
+        "features": [{"kind": "columns", "columns": ["a", "b", "c"]}],
+        "encode": [{"kind": "svd", "columns": ["a", "b", "c"], "n_components": 2}],
+    }
+    est = build_estimator(spec, _model(), seed=0)
+    est.fit(df, y)
+    assert est[:-1].transform(df).shape == (40, 2)  # model に届くのは n_components 列
+
+
+# --- poisson_reg / quantile_reg（T-0081：件数・分位型ターゲットの線形基準） ---
+
+
+@pytest.mark.unit
+def test_poisson_and_quantile_reg_registered_as_regression() -> None:
+    from sklearn.linear_model import PoissonRegressor, QuantileRegressor
+
+    assert MODELS["poisson_reg"].task == "regression"
+    assert MODELS["quantile_reg"].task == "regression"
+    assert isinstance(build_model({"kind": "poisson_reg"}, seed=0, task="regression"), PoissonRegressor)
+    q = build_model({"kind": "quantile_reg", "quantile": 0.9, "alpha": 0.0}, seed=0, task="regression")
+    assert isinstance(q, QuantileRegressor)
+    assert q.get_params()["quantile"] == 0.9  # 分位は quantile=（alpha は L1 正則化・sklearn の語彙）
+    assert q.get_params()["alpha"] == 0.0
+    # 回帰モデル×分類 task は config 段階で止まる（既存の task 検査に載る）。
+    with pytest.raises(ValueError, match="regression 用"):
+        build_model({"kind": "poisson_reg"}, seed=0, task="classification")
+    with pytest.raises(ValueError, match="regression 用"):
+        build_model({"kind": "quantile_reg"}, seed=0, task="classification")
+
+
+@pytest.mark.integration
+def test_poisson_reg_beats_dummy_on_poisson_counts() -> None:
+    # 構成：λ(x) = exp(0.3 + 1.0 x)・y ~ Poisson(λ)（seed 固定）。ポアソン回帰は生成構造（対数リンクの一次式）
+    # そのものを当てられるので、x を見ない定数平均（dummy_reg）より train の poisson deviance が必ず小さい
+    # （GLM の最尤解は定数モデルを含む集合の最適＝構成から導出。alpha≈0 で正則化の縮みを消す）。
+    from sklearn.dummy import DummyRegressor
+    from sklearn.linear_model import PoissonRegressor
+    from sklearn.metrics import mean_poisson_deviance
+
+    rng = np.random.default_rng(0)
+    x = rng.uniform(0.0, 2.0, size=400).reshape(-1, 1)
+    y = rng.poisson(np.exp(0.3 + 1.0 * x[:, 0])).astype(np.float64)
+    poisson = build_model({"kind": "poisson_reg", "alpha": 1e-6}, seed=0, task="regression")
+    dummy = build_model({"kind": "dummy_reg"}, seed=0, task="regression")
+    assert isinstance(poisson, PoissonRegressor)
+    assert isinstance(dummy, DummyRegressor)
+    poisson.fit(x, y)
+    dummy.fit(x, y)
+    assert mean_poisson_deviance(y, poisson.predict(x)) < mean_poisson_deviance(y, dummy.predict(x))
+
+
+@pytest.mark.integration
+def test_quantile_reg_prediction_covers_requested_quantile() -> None:
+    # 構成：y = 0..99 の等間隔 100 点・特徴は定数 0（切片だけのモデル）・alpha=0（無正則化）。
+    # pinball 損失の切片最適解は y の標本分位（分位回帰の定義）＝予測以下の割合が quantile に一致する
+    # （q=0.9 → 最適解は順序統計量 y_(90)〜y_(91) の間＝被覆率 0.90〜0.91・構成から導出）。
+    from sklearn.linear_model import QuantileRegressor
+
+    x = np.zeros((100, 1))
+    y = np.linspace(0.0, 99.0, 100)
+    preds = {}
+    for q in (0.1, 0.5, 0.9):
+        m = build_model({"kind": "quantile_reg", "quantile": q, "alpha": 0.0}, seed=0, task="regression")
+        assert isinstance(m, QuantileRegressor)
+        m.fit(x, y)
+        preds[q] = float(m.predict(x)[0])
+        coverage = float((y <= preds[q]).mean())
+        assert abs(coverage - q) <= 0.02  # 予測が指定分位側に寄る（被覆率＝分位）
+    assert preds[0.1] < preds[0.5] < preds[0.9]  # 分位の単調性（構成から自明）

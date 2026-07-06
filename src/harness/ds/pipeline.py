@@ -18,15 +18,15 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
 
 import numpy as np
 import polars as pl
 from sklearn.base import is_classifier
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.compose import ColumnTransformer
-from sklearn.decomposition import PCA
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
+from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_selection import (
@@ -106,6 +106,18 @@ def _pca(seed: int, *, n_components: int, **params: Any) -> object:  # noqa: ANN
             ("pca", PCA(n_components=n_components, random_state=seed, **params)),
         ]
     )
+
+
+def _svd(seed: int, *, n_components: int, **params: Any) -> object:  # noqa: ANN401  n_components は必須
+    """TruncatedSVD（疎対応の次元圧縮・tfidf の後段や疎な高次元向け）。n_components 必須。columns はリスト。
+
+    PCA と違い scipy 疎行列を**密化せず**受ける（中心化しない＝疎構造を保つ・大語彙 tfidf でも OOM しない）。
+    impute/scale は前置しない（前置すると疎が密化される。tfidf/onehot の出力に NaN は無い。NaN があり得る
+    数値列なら pca か impute 併記を使う）。encode 節の書き方：{kind: svd, columns: [...], n_components: k}。
+    tfidf→svd の直列は encode 段（ColumnTransformer＝並列）では書けないので、Python で
+    Pipeline([tfidf, svd, model]) を組む（両方 ENCODERS.build で作れる）。決定的：random_state=seed。
+    """
+    return TruncatedSVD(n_components=n_components, random_state=seed, **params)
 
 
 def _cluster(seed: int, *, n_clusters: int, output: str = "distance", **params: Any) -> object:  # noqa: ANN401
@@ -225,6 +237,7 @@ ENCODERS.register("ordinal", _ordinal)
 ENCODERS.register("target", _target)
 ENCODERS.register("bins", _bins)
 ENCODERS.register("pca", _pca)
+ENCODERS.register("svd", _svd)  # 疎対応の次元圧縮（tfidf の後段＝テキスト経路の穴埋め・T-0081）
 ENCODERS.register("tfidf", _tfidf)
 ENCODERS.register("cluster", _cluster)  # (B) クラスタとの距離/番号を特徴に（教師なし・DESIGN §4）
 ENCODERS.register("anomaly_score", _anomaly_score)  # (B) 多変量の異常スコアを特徴に（教師なし・DESIGN §5）
@@ -427,6 +440,32 @@ def _hist_gb_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
     return _dense_model(model)  # HistGradientBoosting は疎を受けない＝直前で密化（tfidf 等との組合せを守る）
 
 
+def _poisson_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  seed は受けて捨てる（lbfgs＝決定的）
+    """ポアソン回帰（件数・頻度など非負ターゲットの線形基準・対数リンクの GLM）。task: regression。
+
+    config の model 節に kind: poisson_reg。主なハイパラ：alpha（L2 正則化・sklearn 既定 1.0）・max_iter。
+    y は非負が前提（負値は fit で落ちる）・予測は常に正（exp リンク）。木側の対抗は hist_gb_reg の
+    loss="poisson"（重複を避け、こちらは線形の基準として使う）。params はそのまま sklearn へ。
+    """
+    from sklearn.linear_model import PoissonRegressor
+
+    model: SklearnLike = PoissonRegressor(**params)
+    return model
+
+
+def _quantile_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  seed は受けて捨てる（線形計画＝決定的）
+    """分位点回帰（中央値や上位分位を直接当てる線形モデル・pinball 損失）。task: regression。
+
+    config の model 節に kind: quantile_reg・quantile: 0.9 など（既定 0.5＝中央値）。**alpha は L1 正則化**
+    （sklearn の語彙・分位ではない。既定 1.0 は強めなので alpha: 0.0 から調整が無難）。評価は eval の
+    pinball 系指標と分位を揃える。木側の対抗は hist_gb_reg の loss="quantile"。params はそのまま sklearn へ。
+    """
+    from sklearn.linear_model import QuantileRegressor
+
+    model: SklearnLike = QuantileRegressor(**params)
+    return model
+
+
 # --- LightGBM（optional extra `lightgbm`・末尾で条件登録） ---
 def _lightgbm(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
     """LightGBM 分類（大規模・カテゴリ多めで hist_gb より速く強いことが多い）。task: classification。
@@ -478,6 +517,8 @@ MODELS.register("lasso", _lasso, task="regression")
 MODELS.register("elasticnet", _elasticnet, task="regression")
 MODELS.register("random_forest_reg", _random_forest_reg, task="regression")
 MODELS.register("hist_gb_reg", _hist_gb_reg, task="regression")
+MODELS.register("poisson_reg", _poisson_reg, task="regression")  # 件数・頻度の線形基準（T-0081）
+MODELS.register("quantile_reg", _quantile_reg, task="regression")  # 分位ターゲットの線形基準（T-0081）
 
 # 条件登録：ライブラリが入っている環境でだけ MODELS に足す（`data models` は使える語彙だけを見せる）。
 # import コストゼロの存在確認（find_spec）で登録を切り替える。工場本体は関数内 import なので未導入でも壊れない。
@@ -502,6 +543,11 @@ def build_calibrated(model: SklearnLike, calibrate_spec: Mapping[str, Any], *, s
     return calibrated
 
 
+# target_transform の語彙 → (func, inverse_func)。**モジュール関数**（np.log1p/np.expm1）に限る＝pickle が
+# 名前参照で往復できる（lambda・クロージャは save/load を壊すので登録しない）。足すときはここに 1 行。
+_TARGET_TRANSFORMS: dict[str, tuple[Callable[..., Any], Callable[..., Any]]] = {"log1p": (np.log1p, np.expm1)}
+
+
 def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = None) -> SklearnLike:
     """config の model 節（{kind, ...params}）から 1 つのモデル（推定器）を作る。
 
@@ -510,6 +556,9 @@ def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = 
     build_estimator に model として渡すと features→encode→model の 1 本の Pipeline になる。
     spec に `tune:` があれば model を *SearchCV で包んで返す（`tune.build_tuned`＝run_cv でそのまま nested CV）。
     spec に `calibrate:` があれば CalibratedClassifierCV で包む（`build_calibrated`・tune 併用時は tuned を包む）。
+    spec に `target_transform: log1p` があれば TransformedTargetRegressor(func=np.log1p, inverse_func=np.expm1)
+    で包む（回帰のみ・歪んだ y を変換空間で学習し、予測は逆変換済み＝rmse 等を原スケールで測れる。
+    tune 併用時は tuned を包む＝param 名は素のまま・内側 CV の選抜は変換後スケール）。
     """
     # MODELS は Mapping としてだけ読む（テストが未導入再現のため plain dict に monkeypatch で差し替える）。
     kind = spec.get("kind")
@@ -522,13 +571,22 @@ def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = 
     model_task = "classification" if task == "multiclass" else task
     if model_task is not None and entry.task != model_task:
         raise ValueError(f"モデル '{kind}' は {entry.task} 用（この実験は task: {task}）")
-    params = {k: v for k, v in spec.items() if k not in ("kind", "tune", "calibrate")}
+    params = {k: v for k, v in spec.items() if k not in ("kind", "tune", "calibrate", "target_transform")}
     model: SklearnLike = entry.factory(seed, **params)
     tune = spec.get("tune")
     if tune is not None:  # tune 無しは従来どおり素の model（既存挙動は不変）
         from harness.ds.tune import build_tuned  # 遅延 import（tune.py は pipeline を import しない＝循環なし）
 
         model = build_tuned(model, tune, seed=seed)
+    target_transform = spec.get("target_transform")
+    if target_transform is not None:  # 無しは従来どおり（既存挙動は不変）
+        if entry.task != "regression":  # y の変換＋逆変換で測る仕組み＝回帰のみ（fit まで待たず config 段で止める）
+            raise ValueError(f"target_transform は回帰のみ（モデル '{kind}' は {entry.task}）")
+        if target_transform not in _TARGET_TRANSFORMS:  # typo を黙って素通ししない（fail-loud）
+            raise ValueError(f"未知の target_transform '{target_transform}'（{sorted(_TARGET_TRANSFORMS)} のいずれか）")
+        func, inverse_func = _TARGET_TRANSFORMS[target_transform]
+        # tuned を包む（TTR が最外）＝param_grid のキーは素の名前のまま書ける（regressor__ 前置は不要）。
+        model = TransformedTargetRegressor(regressor=model, func=func, inverse_func=inverse_func)
     calibrate = spec.get("calibrate")
     if calibrate is not None:  # calibrate 無しは従来どおり。併用時は tuned を包む（tune→calibrate の順）
         if entry.task == "regression":  # 確率較正は predict_proba が要る＝分類のみ（fit まで待たず config 段で止める）

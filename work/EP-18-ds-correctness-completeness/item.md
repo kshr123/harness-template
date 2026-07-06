@@ -1,7 +1,7 @@
 ---
 id: EP-18
 kind: epic
-status: in-progress
+status: done
 title: ds 正しさと完成度の詰め（静かに誤る欠陥の修正＋次点部品の取り込み）
 plan: detailed
 requirements: [REQ-002]

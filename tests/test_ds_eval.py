@@ -469,3 +469,150 @@ def test_brier_registered_direction_and_passes() -> None:
     assert m.description
     assert ev.passes({"brier": 0.25}, {"brier": 0.3})  # 閾値以下で合格（小さいほど良い）
     assert not ev.passes({"brier": 0.5}, {"brier": 0.3})
+
+
+# --- T-0080 eval 完成度：bootstrap CI・cost-sensitive 閾値・pinball α ---
+
+
+def test_bootstrap_ci_deterministic_and_ordered() -> None:
+    # 同じ seed → 同じ区間（決定的・rng.choice の再標本のみが乱数源）。lo <= hi は常に成り立つ。
+    rng = np.random.default_rng(0)
+    y = (rng.random(100) < 0.5).astype("int64")
+    s = rng.random(100)
+    ci1 = ev.bootstrap_ci(y, s, metric="roc_auc", n_boot=50, seed=7)
+    ci2 = ev.bootstrap_ci(y, s, metric="roc_auc", n_boot=50, seed=7)
+    assert ci1 == ci2
+    lo, hi = ci1
+    assert lo <= hi
+
+
+def test_bootstrap_ci_degenerate_metric_collapses() -> None:
+    # pred = y + 1 → どの再標本でも各行の絶対誤差が 1 → mae は常に 1 → 区間は (1, 1) に潰れる（構成から）。
+    y = np.arange(10, dtype="float64")
+    pred = y + 1.0
+    assert ev.bootstrap_ci(y, pred, metric="mae", n_boot=30, seed=0) == (1.0, 1.0)
+
+
+def test_bootstrap_ci_coverage_near_nominal() -> None:
+    # コイン投げ p=0.6・pred 全 1 → accuracy = 標本中の 1 の割合（推定量＝標本平均・真値 p=0.6）。
+    # 95% CI が真値を覆う割合はおおむね名目（seed 固定で決定的＝フレーキーにならない）。
+    # 下限は 90：正実装は被覆 92 で緑・分位取り違え変異（95%CI のつもりで 90%CI＝
+    # np.quantile(stats, [alpha, 1-alpha]) を返す）は被覆 88 で赤にして殺す（85 だと変異が生存する）。
+    p = 0.6
+    n, trials = 100, 100
+    rng = np.random.default_rng(123)
+    ones = np.ones(n, dtype="int64")
+    covered = 0
+    for t in range(trials):
+        y = (rng.random(n) < p).astype("int64")
+        lo, hi = ev.bootstrap_ci(y, ones, metric="accuracy", n_boot=200, seed=t)
+        if lo <= p <= hi:
+            covered += 1
+    assert covered >= 90
+
+
+def test_bootstrap_ci_validation() -> None:
+    y = np.array([0, 1, 0, 1], dtype="int64")
+    s = np.array([0.1, 0.9, 0.2, 0.8], dtype="float64")
+    with pytest.raises(ValueError, match="未知の指標"):
+        ev.bootstrap_ci(y, s, metric="nope", seed=0)
+    with pytest.raises(ValueError, match="alpha"):
+        ev.bootstrap_ci(y, s, metric="roc_auc", seed=0, alpha=1.5)
+    with pytest.raises(ValueError, match="n_boot"):
+        ev.bootstrap_ci(y, s, metric="roc_auc", seed=0, n_boot=0)
+    with pytest.raises(ValueError, match="同じ長さ"):
+        ev.bootstrap_ci(y, s[:2], metric="roc_auc", seed=0)
+    with pytest.raises(ValueError, match="同じ長さ|空"):
+        ev.bootstrap_ci(np.array([], dtype="int64"), np.array([], dtype="float64"), metric="roc_auc", seed=0)
+
+
+def test_select_threshold_min_cost_asymmetric_from_construction() -> None:
+    # y=[0,1,0,1], s=[0.2,0.4,0.6,0.8]。閾値の区分ごとの (fp, fn)（pred = score >= t）：
+    #   t<=0.2 全陽性 (2,0)／(0.2,0.4] (1,0)／(0.4,0.6] (1,1)／(0.6,0.8] (0,1)／t>0.8 全陰性 (0,2)
+    # fp_cost=1, fn_cost=10 → 費用 [2,1,11,10,20] → 最小は t=0.4・費用 1（見逃しが高価→広めに拾う）。
+    y = np.array([0, 1, 0, 1], dtype="int64")
+    s = np.array([0.2, 0.4, 0.6, 0.8], dtype="float64")
+    assert ev.select_threshold_min_cost(y, s, fp_cost=1.0, fn_cost=10.0) == (0.4, 1.0)
+    # 費用を逆転（fp_cost=10, fn_cost=1）→ 費用 [20,10,11,1,2] → 最小は t=0.8・費用 1（誤検知が高価→狭める）。
+    assert ev.select_threshold_min_cost(y, s, fp_cost=10.0, fn_cost=1.0) == (0.8, 1.0)
+
+
+def test_select_threshold_min_cost_all_negative_optimum() -> None:
+    # 正例のスコアが最下位（y=[1,0,0], s=[0.5,0.6,0.7]）・誤検知が高価（fp=100, fn=1）：
+    #   t=0.5 (2,0)=200／t=0.6 (2,1)=201／t=0.7 (1,1)=101／全陰性 (0,1)=1 → 全陰性（max スコア直上）が最適。
+    y = np.array([1, 0, 0], dtype="int64")
+    s = np.array([0.5, 0.6, 0.7], dtype="float64")
+    t, cost = ev.select_threshold_min_cost(y, s, fp_cost=100.0, fn_cost=1.0)
+    assert t > 0.7
+    assert cost == 1.0
+    # 返した閾値はそのまま confusion に渡せる（>= 判定が同じ）＝数えの同値性。
+    c = ev.confusion(y, s, threshold=t)
+    assert cost == c["fp"] * 100.0 + c["fn"] * 1.0
+
+
+def test_select_threshold_min_cost_tie_prefers_larger() -> None:
+    # y=[1,0], s=[0.3,0.7]・等費用：t=0.3 (1,0)=1／t=0.7 (1,1)=2／全陰性 (0,1)=1
+    # → 同点（費用 1）は大きい方の閾値（max_f1 と同じ規約）＝全陰性側（> 0.7）。
+    y = np.array([1, 0], dtype="int64")
+    s = np.array([0.3, 0.7], dtype="float64")
+    t, cost = ev.select_threshold_min_cost(y, s, fp_cost=1.0, fn_cost=1.0)
+    assert t > 0.7
+    assert cost == 1.0
+
+
+def test_select_threshold_min_cost_validation() -> None:
+    y = np.array([0, 1], dtype="int64")
+    s = np.array([0.2, 0.8], dtype="float64")
+    with pytest.raises(ValueError, match="正"):
+        ev.select_threshold_min_cost(y, s, fp_cost=0.0, fn_cost=1.0)
+    with pytest.raises(ValueError, match="正"):
+        ev.select_threshold_min_cost(y, s, fp_cost=1.0, fn_cost=-1.0)
+    # 単一クラスは兄弟（select_threshold_*）と同じく _curve が止める。
+    with pytest.raises(ValueError, match="正例・負例"):
+        ev.select_threshold_min_cost(np.array([1, 1], dtype="int64"), s, fp_cost=1.0, fn_cost=1.0)
+
+
+def test_pinball_alpha_asymmetry_from_definition() -> None:
+    # 定義：loss = α·max(y−pred, 0) + (1−α)·max(pred−y, 0)。
+    # 過小予測（y=1, pred=0）→ α×1。過大予測（y=0, pred=1）→ (1−α)×1（符号で非対称が出る）。
+    y_under = np.array([1.0], dtype="float64")
+    p_under = np.array([0.0], dtype="float64")
+    assert ev.pinball(y_under, p_under, alpha=0.1) == pytest.approx(0.1)
+    assert ev.pinball(y_under, p_under, alpha=0.9) == pytest.approx(0.9)
+    y_over = np.array([0.0], dtype="float64")
+    p_over = np.array([1.0], dtype="float64")
+    assert ev.pinball(y_over, p_over, alpha=0.1) == pytest.approx(0.9)
+    assert ev.pinball(y_over, p_over, alpha=0.9) == pytest.approx(0.1)
+
+
+def test_pinball_alpha_half_is_half_mae_and_default() -> None:
+    # α=0.5 は |誤差|/2 の平均＝mae/2。y=[0,0], pred=[3,4] → mae=3.5 → 1.75。既定引数も α=0.5。
+    y = np.array([0.0, 0.0], dtype="float64")
+    p = np.array([3.0, 4.0], dtype="float64")
+    assert ev.pinball(y, p, alpha=0.5) == pytest.approx(1.75)
+    assert ev.pinball(y, p) == pytest.approx(1.75)
+
+
+def test_pinball_alpha_validation() -> None:
+    y = np.array([0.0], dtype="float64")
+    p = np.array([1.0], dtype="float64")
+    for bad in (0.0, 1.0, -0.1, 1.1):
+        with pytest.raises(ValueError, match="alpha"):
+            ev.pinball(y, p, alpha=bad)
+
+
+def test_pinball_quantile_metrics_registered_and_evaluated() -> None:
+    # DEC-0009：代表分位（q10/q90）が説明文つきで METRICS に載り、evaluate_regression から名前で引ける。
+    for name in ("pinball_q10", "pinball_q90"):
+        m = ev.METRICS[name]
+        assert m.description
+        assert m.tasks == ("regression",)
+        assert m.higher_is_better is False
+        assert m.input == "value"
+    # y=[1], pred=[0]（過小予測 1）→ q10=0.1・q50（pinball）=0.5・q90=0.9（定義から）。
+    y = np.array([1.0], dtype="float64")
+    p = np.array([0.0], dtype="float64")
+    out = ev.evaluate_regression(y, p, metrics=["pinball_q10", "pinball", "pinball_q90"])
+    assert out["pinball_q10"] == pytest.approx(0.1)
+    assert out["pinball"] == pytest.approx(0.5)
+    assert out["pinball_q90"] == pytest.approx(0.9)

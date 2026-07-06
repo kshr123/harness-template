@@ -92,12 +92,16 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert "onehot" in out
     assert "target" in out
     assert "anomaly_score" in out  # (B) 教師なしのエンコーダが自動で載る
+    assert "svd" in out  # 疎対応の次元圧縮エンコーダ（T-0081・data encoders）
     assert "logreg" in out
+    assert "poisson_reg" in out  # 件数ターゲットの線形基準（T-0081・data models）
+    assert "quantile_reg" in out  # 分位ターゲットの線形基準（T-0081・data models）
     assert "selectkbest" in out  # 特徴選択カタログ（data selectors）
     assert "variance_threshold" in out
     assert "random" in out  # チューナーカタログ（data tuners）
     assert "halving" in out
     assert "roc_auc" in out  # 指標カタログ
+    assert "pinball_q10" in out  # 分位変種（T-0080）が説明つきで載る（DEC-0009）
     assert "timeseries" in out  # 古典時系列（statsmodels 導入環境・all-extras）
     # (A) 教師なしカタログ（3 レジストリ）が data unsupervised に載る。
     for kind in ("pca", "tsne", "kmeans", "gmm", "hdbscan", "iforest", "lof"):

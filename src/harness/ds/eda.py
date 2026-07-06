@@ -270,7 +270,8 @@ def category_target_summary(
     """カテゴリ×目的変数（列 = column, value, count, ratio, target_mean・各列 count 上位 top）。
 
     分類なら target_mean＝そのカテゴリの陽性率・回帰なら平均。件数の多いカテゴリで target_mean が 0/1 に
-    張り付いていたらリーク疑い（目安・門番にはしない）。専用のリーク検出関数は作らない（correlations でも読める）。
+    張り付いていたらリーク疑い（目安・門番にはしない）。リーク疑いをまとめて洗う入口は leakage_scan
+    （この表・correlations 等の合成。かつての「専用のリーク検出関数は作らない」方針は転換した＝L-011）。
     """
     if target not in df.columns:
         raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
@@ -308,6 +309,83 @@ def category_target_summary(
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
+def leakage_scan(
+    df: pl.DataFrame,
+    *,
+    target: str,
+    task: Task = "classification",
+    seed: int = 0,
+    corr_threshold: float = 0.95,
+    pinned_ratio: float = 0.95,
+    pinned_min_count: int = 2,
+    mi_threshold: float = 0.5,
+    max_categories: int = 50,
+) -> pl.DataFrame:
+    """目的変数を漏らしていそうな列の一覧（列 = column, reason, detail・df の列順・理由 1 件 = 1 行）。0 行＝疑いなし。
+
+    既存部品の**合成だけ**で洗う（新しい統計は書かない）。理由は 5 種：
+    - high_correlation：correlations の |r| >= corr_threshold（数値列。目的変数が数値のときだけ）。
+    - high_mutual_information：mutual_information の MI >= mi_threshold（数値列。**任意の target 型**で効く＝
+      文字列ラベルの分類でも漏れを拾う。非線形依存も見える。MI の task/seed はこの関数の task/seed を配線する）。
+    - category_target_pinned：category_target_summary で target_mean が 0/1 ちょうどのカテゴリ（件数
+      pinned_min_count 以上＝1 件だけの自明な 0/1 は根拠にしない）が行の pinned_ratio 以上を占める
+      （0/1 の 2 値分類向けの読み口。目的変数が数値のときだけ）。
+    - id_like：profile の flags と同じ判定（一意数=行数の整数/文字列列＝識別子疑い）。
+    - duplicate_of_target：duplicate_columns で目的変数と同じ重複グループに属する列を**すべて**挙げる
+      （重複は推移的＝target のコピーが複数あっても全部拾う。列の並び順どちら向きでも検出）。
+    かつては「専用のリーク検出関数は作らない」（各表を個別に読む）方針だったが、読み合わせの見落としが出るため
+    入口 1 つの合成へ転換した（DEC-0012＝方針転換は即記録・docs/learnings.md L-011）。値は事実・門番にはしない
+    （除外や修正の判断はエージェント/実験側。挙がった列は仕組みの理解＝リークかどうかの確認をしてから使う）。
+    """
+    if target not in df.columns:
+        raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
+    found: dict[str, list[tuple[str, str]]] = {}
+
+    def _add(column: str, reason: str, detail: str) -> None:
+        found.setdefault(column, []).append((reason, detail))
+
+    for r in mutual_information(df, target=target, task=task, seed=seed).to_dicts():
+        if r["mi"] >= mi_threshold:
+            _add(r["feature"], "high_mutual_information", f"目的変数との MI={r['mi']:.3f}（>= {mi_threshold}）")
+
+    if df.schema[target].is_numeric():
+        for r in correlations(df, target=target).to_dicts():
+            if abs(r["correlation"]) >= corr_threshold:
+                _add(
+                    r["feature"],
+                    "high_correlation",
+                    f"目的変数との |r|={abs(r['correlation']):.3f}（>= {corr_threshold}）",
+                )
+        cat_cols = [c for c in df.columns if c != target and df[c].n_unique() <= max_categories]
+        summary = category_target_summary(
+            df, target=target, columns=cat_cols, max_categories=max_categories, top=max_categories + 1
+        )
+        for c in cat_cols:
+            rows_c = summary.filter(pl.col("column") == c).to_dicts()
+            total = sum(int(r["count"]) for r in rows_c)
+            pinned = sum(
+                int(r["count"]) for r in rows_c if r["count"] >= pinned_min_count and r["target_mean"] in (0.0, 1.0)
+            )
+            if total and pinned / total >= pinned_ratio:
+                _add(c, "category_target_pinned", f"target_mean が 0/1 のカテゴリが行の {pinned / total:.3f} を占める")
+
+    for r in _flags_overview(df, quasi_constant_ratio=1.0).to_dicts():  # 1.0＝id_like 判定だけ拾う（準定数は対象外）
+        if r["flag"] == "id_like" and r["column"] != target:
+            _add(r["column"], "id_like", r["detail"])
+
+    # 重複は推移的：duplicate_columns は各列を「先に現れた代表列」に向ける。target と同じ代表を持つ列は
+    # すべて target の重複グループ＝コピーが複数あっても全部拾う（代表だけ挙げて漏らさない）。
+    dup_rep = {r["column"]: r["duplicate_of"] for r in duplicate_columns(df).to_dicts()}
+    target_group = dup_rep.get(target, target)
+    for c in df.columns:
+        if c != target and dup_rep.get(c, c) == target_group:
+            _add(c, "duplicate_of_target", "目的変数と同じ重複グループ（内容が一致）")
+
+    out_rows = [{"column": c, "reason": reason, "detail": d} for c in df.columns for reason, d in found.get(c, [])]
+    schema: dict[str, Any] = {"column": pl.String, "reason": pl.String, "detail": pl.String}
+    return pl.DataFrame(out_rows, schema=schema) if out_rows else pl.DataFrame(schema=schema)
+
+
 def _corr(x: np.ndarray, y: np.ndarray) -> float:
     """ピアソン相関。両方が有限な行だけで計算（pairwise-complete。null→NaN が 1 個でも全体を NaN にしない）。
 
@@ -332,6 +410,42 @@ def correlations(df: pl.DataFrame, *, target: str, columns: Sequence[str] | None
     schema: dict[str, Any] = {"feature": pl.String, "correlation": pl.Float64}
     out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
     return out.sort(pl.col("correlation").abs(), descending=True)
+
+
+def mutual_information(
+    df: pl.DataFrame, *, target: str, task: Task, seed: int, columns: Sequence[str] | None = None
+) -> pl.DataFrame:
+    """数値列と目的変数の相互情報量（列 = feature, mi・mi 降順・単位はナット）。correlations（線形）の非線形補完。
+
+    sklearn の mutual_info_classif / mutual_info_regression（kNN 推定）に委譲する（再発明しない）。task で分岐：
+    classification＝目的変数は離散ラベル・regression＝連続値。推定は乱数を使うので seed 必須。決定性は
+    random_state（=seed）で担保する（kNN のジッタは連続値で無視できる＝同じ seed なら同じ表）。
+    欠損は列ごとに有効な行だけで計算（pairwise-complete・_corr と同じ規約）。有効行 4 未満（kNN の既定 k=3 に足りない）
+    ・定数列は 0.0。y=x² のような非線形依存は相関 ≈0 でも MI>0 で見える（リーク疑い・効く特徴の読み口）。
+    """
+    from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+
+    if target not in df.columns:
+        raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
+    cols = list(columns) if columns is not None else [c for c in df.select(cs.numeric()).columns if c != target]
+    y = df[target].to_numpy()
+    if df.schema[target].is_numeric():
+        t_mask = np.isfinite(df[target].cast(pl.Float64).to_numpy())
+    else:
+        t_mask = df[target].is_not_null().to_numpy()
+    mi_func = mutual_info_classif if task == "classification" else mutual_info_regression
+    rows: list[dict[str, Any]] = []
+    for c in cols:
+        x = df[c].cast(pl.Float64).to_numpy()
+        m = np.isfinite(x) & t_mask
+        if int(m.sum()) < 4 or np.std(x[m]) == 0:
+            mi = 0.0  # 有効行不足・定数列＝依存を測れない（NaN や例外を混ぜない）
+        else:
+            mi = float(mi_func(x[m].reshape(-1, 1), y[m], random_state=seed)[0])
+        rows.append({"feature": c, "mi": mi})
+    schema: dict[str, Any] = {"feature": pl.String, "mi": pl.Float64}
+    out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    return out.sort("mi", descending=True)  # 安定ソート＝同値は df の列順で決定的
 
 
 def _pairwise_corr_matrix(x: np.ndarray) -> np.ndarray:
@@ -428,7 +542,7 @@ class CompareReport:
 
     n_train: int
     n_test: int
-    numeric: pl.DataFrame  # column, train_mean, test_mean, train_std, test_std, mean_gap, psi
+    numeric: pl.DataFrame  # column, train_mean, test_mean, train_std, test_std, mean_gap, psi, ks, wasserstein
     categorical: pl.DataFrame  # column, n_train_only, n_test_only, train_only_top, test_only_top, test_coverage, psi
 
     def to_dict(self) -> dict[str, Any]:
@@ -448,10 +562,15 @@ def compare(
     max_categories: int = 50,
     psi_bins: int = 10,
 ) -> CompareReport:
-    """train/test の列ごとの分布比較（統計量・カテゴリの共通/固有・PSI）。
+    """train/test の列ごとの分布比較（統計量・カテゴリの共通/固有・PSI・KS 統計量・Wasserstein 距離）。
 
     リーク禁止は API の形で守る：2 つの DataFrame を受け、各側で独立に集計する（結合してから集計しない）。
+    数値列の分布距離は 3 本立て：psi（ビン分割・目安の解釈が普及）／ks（経験分布関数の最大差・ビン非依存）／
+    wasserstein（輸送距離＝ずれの「量」がそのままの単位で読める）。ks・wasserstein は scipy.stats に委譲する
+    （再発明しない）。片側が全欠損で計算できないときは None（mean_gap と同じ「測れない」の規約）。
     """
+    from scipy.stats import ks_2samp, wasserstein_distance
+
     common = [c for c in train.columns if c in test.columns]
     if columns is not None:
         common = [c for c in columns if c in common]
@@ -466,6 +585,12 @@ def compare(
     for c in num_cols:
         tm, um, ts, us = _f(train[c].mean()), _f(test[c].mean()), _f(train[c].std()), _f(test[c].std())
         gap = None if (ts is None or ts == 0 or tm is None or um is None) else abs(tm - um) / ts
+        tv, uv = train[c].drop_nulls().to_numpy(), test[c].drop_nulls().to_numpy()
+        ks: float | None = None
+        wd: float | None = None
+        if len(tv) and len(uv):
+            ks = float(ks_2samp(tv, uv).statistic)
+            wd = float(wasserstein_distance(tv, uv))
         num_rows.append(
             {
                 "column": c,
@@ -475,6 +600,8 @@ def compare(
                 "test_std": us,
                 "mean_gap": gap,
                 "psi": psi(train[c], test[c], bins=psi_bins),
+                "ks": ks,
+                "wasserstein": wd,
             }
         )
 
@@ -504,6 +631,8 @@ def compare(
         "test_std": pl.Float64,
         "mean_gap": pl.Float64,
         "psi": pl.Float64,
+        "ks": pl.Float64,
+        "wasserstein": pl.Float64,
     }
     cat_schema: dict[str, Any] = {
         "column": pl.String,
