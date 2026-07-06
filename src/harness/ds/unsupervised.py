@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,10 +20,7 @@ import polars.selectors as cs
 from numpy.typing import NDArray
 from sklearn.base import BaseEstimator, TransformerMixin
 
-ClustererFactory = Callable[..., Any]
-DimredFactory = Callable[..., Any]
-AnomalyFactory = Callable[..., Any]
-
+from harness.registry import Entry, Registry
 
 # --- (B) 特徴量用途の薄い包み（sklearn に無い隙間だけ・DEC-0008 の「作る」側） ---
 # 工場（_cluster/_anomaly_score）は他のエンコーダと同じく pipeline.py に置き、この 2 クラスだけを import する。
@@ -132,11 +129,10 @@ def _hdbscan(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受け�
 
 
 # method 名 → クラスタリングの工場（前処理前置＋seed）。t-SNE/HDBSCAN は transform 不可＝ENCODERS に載せない。
-CLUSTERERS: dict[str, ClustererFactory] = {
-    "kmeans": _kmeans,
-    "gmm": _gmm,
-    "hdbscan": _hdbscan,
-}
+CLUSTERERS: Registry[Entry] = Registry("クラスタリング method", catalog="data unsupervised")
+CLUSTERERS.register("kmeans", _kmeans)
+CLUSTERERS.register("gmm", _gmm)
+CLUSTERERS.register("hdbscan", _hdbscan)
 
 # クラスタ数を指定する手法だけの「--k → sklearn の引数名」対応（hdbscan は k 不要＝載せない）。
 PARAM_FOR_K: dict[str, str] = {"kmeans": "n_clusters", "gmm": "n_components"}
@@ -172,11 +168,10 @@ def cluster_summary(
     columns 省略時は数値列すべて。全データに当てる探索用途（結論を学習に戻さないこと）。最良 k は自動選択しない
     （k_scan は目安の表・選ぶのは実験側）。カテゴリ列の深掘りは eda.category_target_summary に labels を渡せばよい。
     """
-    if method not in CLUSTERERS:
-        raise ValueError(f"未知のクラスタリング method '{method}'（{sorted(CLUSTERERS)} のいずれか）")
+    factory = CLUSTERERS.resolve(method).factory  # 未知 method の ValueError は Registry.resolve の 1 か所
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
     x = df.select(cols).to_numpy()
-    model = CLUSTERERS[method](seed, **params)
+    model = factory(seed, **params)
     labels = np.asarray(model.fit_predict(x))
 
     n = len(labels)
@@ -228,7 +223,7 @@ def k_scan(
     x = df.select(cols).to_numpy()
     rows: list[dict[str, Any]] = []
     for k in k_values:
-        model = CLUSTERERS[method](seed, **{PARAM_FOR_K[method]: k})
+        model = CLUSTERERS[method].factory(seed, **{PARAM_FOR_K[method]: k})
         labels = np.asarray(model.fit_predict(x))
         transformed = model[:-1].transform(x)
         sil = float(silhouette_score(transformed, labels)) if len(set(labels.tolist())) >= 2 else None
@@ -278,10 +273,9 @@ def _tsne(seed: int, *, n_components: int = 2, **params: Any) -> Any:  # noqa: A
 
 
 # method 名 → 2D 埋め込みの工場。tsne は transform 不可＝ENCODERS に載せない（(A) 専用）。
-DIMRED: dict[str, DimredFactory] = {
-    "pca": _pca_embed,
-    "tsne": _tsne,
-}
+DIMRED: Registry[Entry] = Registry("次元圧縮 method", catalog="data unsupervised")
+DIMRED.register("pca", _pca_embed)
+DIMRED.register("tsne", _tsne)
 
 
 @dataclass(frozen=True)
@@ -322,8 +316,7 @@ def embed_2d(
     t-SNE は行数が大きいと遅いので max_rows（既定 5000）を超えたら seed 決定的に等確率抽出し sampled=True を残す
     （門番にせず事実を書く）。columns 省略時は数値列すべて。pca は寄与率を、tsne は None を返す。
     """
-    if method not in DIMRED:
-        raise ValueError(f"未知の次元圧縮 method '{method}'（{sorted(DIMRED)} のいずれか）")
+    factory = DIMRED.resolve(method).factory  # 未知 method の ValueError は Registry.resolve の 1 か所
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
     x_full = df.select(cols).to_numpy()
     sample_rows: list[int] | None = None
@@ -333,7 +326,7 @@ def embed_2d(
         sample_rows = [int(i) for i in idx]  # 元 df の行位置（marimo が labels/色を coords に揃えるため）
     else:
         x = x_full
-    model = DIMRED[method](seed, **params)
+    model = factory(seed, **params)
     emb = np.asarray(model.fit_transform(x))
     coords = pl.DataFrame({"dim1": emb[:, 0], "dim2": emb[:, 1]})
     evr = None
@@ -376,10 +369,9 @@ def _lof(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受けて捨
 
 
 # method 名 → 異常検知の工場。lof は novelty=False＝新規行に score できず (A) 専用（ENCODERS には iforest だけ）。
-ANOMALY: dict[str, AnomalyFactory] = {
-    "iforest": _iforest,
-    "lof": _lof,
-}
+ANOMALY: Registry[Entry] = Registry("異常検知 method", catalog="data unsupervised")
+ANOMALY.register("iforest", _iforest)
+ANOMALY.register("lof", _lof)
 
 
 @dataclass(frozen=True)
@@ -408,11 +400,10 @@ def anomaly_scores(
     sklearn の score は「大きいほど正常」なので符号反転するだけ（閾値・等級化はしない＝事実の報告）。iforest は
     score_samples、lof（novelty=False）は negative_outlier_factor_ から取る。全データに当てる探索用途。
     """
-    if method not in ANOMALY:
-        raise ValueError(f"未知の異常検知 method '{method}'（{sorted(ANOMALY)} のいずれか）")
+    factory = ANOMALY.resolve(method).factory  # 未知 method の ValueError は Registry.resolve の 1 か所
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
     x = df.select(cols).to_numpy()
-    model = ANOMALY[method](seed, **params)
+    model = factory(seed, **params)
     model.fit(x)
     if hasattr(model, "score_samples"):  # iforest（Pipeline が最終段の score_samples を委譲）
         raw = np.asarray(model.score_samples(x))

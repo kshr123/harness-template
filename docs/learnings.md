@@ -48,3 +48,15 @@
 - **要点**：`[project.scripts]` の入口関数（typer.run を通さない）で `raise typer.Exit(1)` すると、捕捉されず余計なエラー表示（Traceback）が出る（終了コードは 1 で正しいが見苦しい）。
 - **対応**：入口では `sys.exit(1)` を使う（task-lint・status・verify）。typer.run を通すコマンド（check）は typer.Exit のままでよい。
 - **設計への反映**：不要（実装の作法）。自分たちで使って試す中で見つかった＝仕組みが働いている例。
+
+## L-009 合否・関門を `<`/`>` の対で書くと NaN が両方 False で通過する（fail-open）
+- **状態**：記録のみ（今回 `eval.passes` を修正。spec_lint／レビュー観点への昇格候補）。
+- **要点**：`if value < limit: return False` / `elif value > limit: return False` の形は、`value` が NaN のとき両方の比較が False になり、合格側へ**開いて**通ってしまう。発散モデルの `log_loss=nan`/`rmse=nan` が絶対関門を通り champion 昇格まで届きうる（ds レビュー 2026-07-05）。
+- **対応**：**合格条件を正の形で 1 度だけ書き、満たさなければ落とす**：`ok = value >= limit if higher_is_better else value <= limit; if not ok: return False`。NaN は「満たさない」に倒れて閉じる。
+- **判断**：門番・合否・フィルタは既定を「不合格側」に置く（fail-closed）。同じ形の比較を他所（`store`/`schema`/`analysis`）で書くときも同様。2 回目が出たら機械検査へ。
+
+## L-010 手書きのデータ検証は、ライブラリが吸収するエッジケースを落とす
+- **状態**：記録のみ（DEC-0006「標準を再発明しない」の 2 回目の実例。pandera 導出の判断＝ISS-0010）。
+- **要点**：`schema.validate` を手書きしていたため、parametrized dtype（`Datetime(...)`≠`"Datetime"`）・NaN が null 検査をすり抜ける・複合キー未検査・null 数で一意判定がぶれる、の 4 つを同時に落としていた（ds レビュー 2026-07-05）。これらは `pandera.polars` が既に正しく扱う領域。
+- **対応**：今回は 4 穴を手書きのまま塞いだ（テスト付き）。ただし cross-column の `checks` 評価まで手で作り込むより、正本 YAML から pandera 実行器を導出する方が筋＝ISS-0010 で判断する。
+- **判断**：L-007（メトリクス・CV 分割の手書き＝DEC-0006）に続く「標準の再発明」の 2 例目。検証器も『核は形式ライブラリを直接固定しない・実行器は正本からの導出物』の考え方（DEC-0006）を検証に広げるかを次に決める。

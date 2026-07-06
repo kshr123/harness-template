@@ -34,9 +34,51 @@ def test_high_correlation_pairs() -> None:
     assert ("a", "c") not in pairs and ("b", "c") not in pairs
 
 
+def test_psi_detects_out_of_range_shift() -> None:
+    # train＝[0,1) の一様格子 100 点。test＝60% が同じ範囲・40% が train の範囲外 [1,2)。
+    # ビン境界を train の min/max で閉じると範囲外の質量が histogram で落ち、再正規化で PSI≈0（安定と誤報）。
+    # 外側ビンを ±inf に開くと最終ビンの実測は ~46%（範囲内の上位 ~6% + 範囲外 40%）対 期待 10% で、
+    # その 1 ビンだけで (0.46-0.10)·ln(4.6) ≈ 0.55 → 「大きな変化」の目安 0.25 を確実に超える。
+    train = pl.Series("v", [i / 100 for i in range(100)])
+    test = pl.Series("v", [i / 60 for i in range(60)] + [1.0 + i / 40 for i in range(40)])
+    assert eda.psi(train, test) > 0.25
+
+
+def test_psi_all_null_train_returns_zero() -> None:
+    # train が全欠損 → 分位点を計算できない（従来は np.quantile が IndexError）。
+    # 定数 train（ビンを切れない）と同じく「分布差は測れない＝0.0」を返す。
+    all_null = pl.Series("v", [None, None, None], dtype=pl.Float64)
+    assert eda.psi(all_null, pl.Series("v", [1.0, 2.0, 3.0])) == 0.0
+
+
 def test_psi_identical_is_zero() -> None:
     s = pl.Series("v", [float(i) for i in range(100)])
     assert eda.psi(s, s) == pytest.approx(0.0, abs=1e-9)  # 同一分布 → 0
+
+
+def test_correlations_pairwise_complete_with_null() -> None:
+    # x1 は null 1 行を除き y と完全に線形（x1=2y）・x2 は逆向き（x2=-y）。
+    # null→NaN で np.corrcoef が NaN を返すと、polars の sort は NaN を最大として先頭に置く（誤読の温床）。
+    # 有限な行だけ（pairwise-complete）で計算すれば r は ±1.0 になる。
+    df = pl.DataFrame(
+        {
+            "x1": [2.0, 4.0, 6.0, None, 10.0, 12.0],
+            "x2": [-1.0, -2.0, -3.0, -4.0, None, -6.0],
+            "y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }
+    )
+    d = {r["feature"]: r["correlation"] for r in eda.correlations(df, target="y").to_dicts()}
+    assert d["x1"] == pytest.approx(1.0)  # NaN でなく完全相関
+    assert d["x2"] == pytest.approx(-1.0)
+
+
+def test_high_correlation_pairs_flags_duplicate_with_null() -> None:
+    # b は a のコピーだが 1 行だけ null（結合漏れ等でよくある重複列）。
+    # NaN だと abs(NaN) >= threshold が False になり黙って見逃す。null 行を除けば r=1.0 で検出される。
+    df = pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0], "b": [1.0, 2.0, None, 4.0, 5.0]})
+    pairs = {(r["a"], r["b"]): r["correlation"] for r in eda.high_correlation_pairs(df, threshold=0.99).to_dicts()}
+    assert ("a", "b") in pairs
+    assert pairs[("a", "b")] == pytest.approx(1.0)
 
 
 def test_psi_constant_numeric_does_not_crash() -> None:
@@ -247,8 +289,7 @@ def test_cli_profile_outputs_yaml(monkeypatch: pytest.MonkeyPatch, capsys: pytes
     # data profile は store.load 経由でテーブルを読み、YAML を出す（store をふさいで配線だけ確かめる）。
     import yaml
 
-    from harness import cli
-    from harness.ds import store
+    from harness.ds import cli, store
 
     monkeypatch.setattr(store, "load", lambda root, table_id: pl.DataFrame({"y": [0, 0, 1]}))
     cli._data_profile("some_table", target="y", task="classification")

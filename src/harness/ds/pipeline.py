@@ -17,18 +17,27 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 import numpy as np
 import polars as pl
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
+from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.impute import SimpleImputer
+from sklearn.feature_selection import (
+    SelectFromModel,
+    SelectKBest,
+    VarianceThreshold,
+    f_classif,
+    f_regression,
+    mutual_info_classif,
+)
+from sklearn.impute import MissingIndicator, SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
     FunctionTransformer,
@@ -41,9 +50,7 @@ from sklearn.preprocessing import (
 
 from harness.ds.cv import SklearnLike
 from harness.ds.features import BLOCKS, FeatureBlock, FeaturePipeline
-
-EncoderFactory = Callable[..., object]
-ModelFactory = Callable[..., SklearnLike]
+from harness.registry import Entry, Registry
 
 
 def _onehot(seed: int, **params: Any) -> object:  # noqa: ANN401  sklearn へ素通し
@@ -138,11 +145,27 @@ def _to_numpy(x: Any) -> Any:  # noqa: ANN401  polars/pandas/scipy 疎行列/num
     """特徴量段の出力を numpy 配列に揃える（model 直前の唯一の numpy⇔polars 境界・DESIGN の方針）。
 
     列名を落とすので、名前付き入力で feature_names_in_ を設定できないモデル（LightGBM 等）でも Pipeline が壊れない。
-    scipy 疎行列（tfidf 等の出力）は toarray で密化する（np.asarray だと 0 次元 object になり壊れる）。
+    scipy 疎行列（tfidf 等の出力）は**疎のまま通す**：logreg・木・RF・LightGBM は疎を直接受けるし、toarray で密化すると
+    大語彙 tfidf（例 50k 語 × 50 万行）で OOM になる。疎に列名は付かないので、この関数の目的（列名を落とす）も疎には
+    元々不要。疎を受けないモデル（HistGradientBoosting）は工場側で直前に密化する（_dense_model）＝密化を必要な所へ寄せる。
     """
-    if hasattr(x, "toarray"):  # scipy 疎行列（.to_numpy は無い）
-        return x.toarray()
+    if hasattr(x, "toarray"):  # scipy 疎行列（.to_numpy は無い）→ 密化せずそのまま
+        return x
     return x.to_numpy() if hasattr(x, "to_numpy") else np.asarray(x)
+
+
+def _densify(x: Any) -> Any:  # noqa: ANN401  疎行列だけ密化（それ以外は素通し）
+    return x.toarray() if hasattr(x, "toarray") else x
+
+
+def _dense_model(model: SklearnLike) -> SklearnLike:
+    """疎を受けないモデル（HistGradientBoosting）の直前に密化段を挟む薄い包み。
+
+    _to_numpy が疎を素通しするようになったため、疎非対応モデルは工場側で密化する（tfidf 等との組合せを壊さない）。
+    密化は「疎を受けないモデル」だけに寄せる＝疎対応モデルは大語彙でも OOM しないまま。
+    """
+    dense: SklearnLike = Pipeline([("densify", FunctionTransformer(_densify, accept_sparse=True)), ("model", model)])
+    return dense
 
 
 def _tfidf(seed: int, **params: Any) -> object:  # noqa: ANN401
@@ -156,17 +179,98 @@ def _tfidf(seed: int, **params: Any) -> object:  # noqa: ANN401
     )
 
 
+def _scale(seed: int, **params: Any) -> object:  # noqa: ANN401  seed は受けて捨てる（決定的な変換＝乱数なし）
+    """数値を欠損補完（中央値）してから標準化（kNN・線形の NaN 穴を塞ぐ）。columns は数値列のリスト。"""
+    # 落ちない：StandardScaler は NaN を通すが下流の kNN・線形が落ちる → 中央値埋めを前置。params は scale へ素通し。
+    return Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler(**params))])
+
+
+def _impute(seed: int, **params: Any) -> object:  # noqa: ANN401  seed は受けて捨てる（決定的な変換＝乱数なし）
+    """数値の欠損を補完（既定=中央値）。埋めるだけが要るとき。strategy は params で選べる。columns はリスト。"""
+    defaults: dict[str, Any] = {"strategy": "median"}
+    return SimpleImputer(**{**defaults, **params})
+
+
+def _missing_flags(seed: int, **params: Any) -> object:  # noqa: ANN401  seed は受けて捨てる（決定的な変換＝乱数なし）
+    """欠損の有無を 0/1 特徴にする（欠損自体が予測に効く場合）。columns は数値列のリスト。
+
+    features="all" を既定に焼く：欠損の無い列でも 0 の列を出す＝出力列数が入力列数と一致して安定
+    （既定の "missing-only" は train の欠損状況で列数が変わり ColumnTransformer で扱いにくい）。
+    注意：ColumnTransformer では指定列は flag 列に**置き換わる**（元の値は model に届かない）。値も残すなら
+    同じ列に `impute`（か `scale`）を併記する（補完値＋欠損フラグの両方が特徴になる）。
+    """
+    defaults: dict[str, Any] = {"features": "all"}
+    return MissingIndicator(**{**defaults, **params})
+
+
 # config の kind → sklearn エンコーダの工場（落ちない・漏れない・決定的の既定つき）。足したら 1 行。
-ENCODERS: dict[str, EncoderFactory] = {
-    "onehot": _onehot,
-    "ordinal": _ordinal,
-    "target": _target,
-    "bins": _bins,
-    "pca": _pca,
-    "tfidf": _tfidf,
-    "cluster": _cluster,  # (B) クラスタとの距離/番号を特徴に（教師なし・DESIGN §4）
-    "anomaly_score": _anomaly_score,  # (B) 多変量の異常スコアを特徴に（教師なし・DESIGN §5）
+# 説明文は工場の docstring 1 行目から自動で載る（無ければ登録時に失敗＝DEC-0009）。
+ENCODERS: Registry[Entry] = Registry("エンコーダ", catalog="data encoders")
+ENCODERS.register("onehot", _onehot)
+ENCODERS.register("ordinal", _ordinal)
+ENCODERS.register("target", _target)
+ENCODERS.register("bins", _bins)
+ENCODERS.register("pca", _pca)
+ENCODERS.register("tfidf", _tfidf)
+ENCODERS.register("cluster", _cluster)  # (B) クラスタとの距離/番号を特徴に（教師なし・DESIGN §4）
+ENCODERS.register("anomaly_score", _anomaly_score)  # (B) 多変量の異常スコアを特徴に（教師なし・DESIGN §5）
+ENCODERS.register("scale", _scale)  # 数値前処理の標準入口（T-0054・kNN・線形の NaN 穴を塞ぐ）
+ENCODERS.register("impute", _impute)
+ENCODERS.register("missing_flags", _missing_flags)
+
+
+# --- 特徴選択（select 節・to_numpy と model の間の 1 段・T-0064） ---
+def _variance_threshold(seed: int, **params: Any) -> object:  # noqa: ANN401  seed は受けて捨てる（決定的・教師なし）
+    """分散が閾値以下の列を落とす（定数列など）。教師なし・y 不要。既定 threshold=0.0（sklearn 既定のまま）。"""
+    return VarianceThreshold(**params)
+
+
+# score_func の文字列 → sklearn 関数の写像（config は文字列で選ぶ・関数を直接書かせない）。
+_SCORE_FUNCS: dict[str, Any] = {
+    "f_classif": f_classif,
+    "f_regression": f_regression,
+    "mutual_info_classif": mutual_info_classif,
 }
+
+
+def _selectkbest(seed: int, *, score_func: str = "f_classif", k: int = 10, **params: Any) -> object:  # noqa: ANN401
+    """単変量スコア上位 k 列を選ぶ（SelectKBest）。score_func="f_classif"（既定）/"f_regression"/"mutual_info_classif"。
+
+    y を使うが Pipeline が fit(y) を伝えるので追加配線は不要（run_cv が fold の train の y を渡す＝リークなし）。
+    mutual_info_classif は乱数を使うので seed を配線して決定化（f_classif/f_regression は決定的＝seed 不使用）。
+    注意：k（既定 10）が特徴数より多いと sklearn は警告のみで全列を返す（no-op）＝特徴数に合わせて k を決める。
+    """
+    if score_func not in _SCORE_FUNCS:
+        raise ValueError(f"未知の score_func '{score_func}'（{sorted(_SCORE_FUNCS)} のいずれか）")
+    fn = _SCORE_FUNCS[score_func]
+    if score_func == "mutual_info_classif":  # 決定的：乱数を使う score_func だけ seed を焼く
+        from functools import partial
+
+        fn = partial(mutual_info_classif, random_state=seed)
+    return SelectKBest(score_func=fn, k=k, **params)
+
+
+def _from_model(seed: int, *, estimator: Any | None = None, **params: Any) -> object:  # noqa: ANN401
+    """モデルの重要度でしきい選択（SelectFromModel）。estimator は model spec（{kind,...}）で分類/回帰を選べる。
+
+    estimator に model 節の dict（例 {"kind": "ridge"}）を渡すと build_model で作る＝config(YAML) から回帰選択器も
+    組める。既定は LogisticRegression（分類）＝回帰 y には分類器が fit で落ちるので estimator に回帰モデルを指定する。
+    y を使うが Pipeline が fit(y) を伝える（run_cv が fold の train の y を渡す＝リークなし）。
+    """
+    if estimator is None:
+        base: SklearnLike = LogisticRegression(random_state=seed, max_iter=1000)
+    elif isinstance(estimator, Mapping):  # config 由来の model spec（{kind,...}）を build_model で解決
+        base = build_model(estimator, seed=seed)
+    else:  # 既に sklearn 推定器オブジェクト（Python から直接呼ぶ場合）
+        base = estimator
+    return SelectFromModel(base, **params)
+
+
+# config の select 節の kind → 特徴選択の工場（sklearn 素通し・DEC-0006）。足したら 1 行。
+SELECTORS: Registry[Entry] = Registry("特徴選択", catalog="data selectors")
+SELECTORS.register("variance_threshold", _variance_threshold)
+SELECTORS.register("selectkbest", _selectkbest)
+SELECTORS.register("from_model", _from_model)
 
 
 def _logreg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn へ素通し
@@ -182,6 +286,27 @@ def _ridge(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  sklearn �
     from sklearn.linear_model import Ridge
 
     model: SklearnLike = Ridge(**{"random_state": seed, **params})  # sklearn は型なし＝Any を明示的に受ける
+    return model
+
+
+def _dummy(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
+    """多数派の事前確率を返すだけの分類ベースライン（学習が効いているかの基準）。task: classification。
+
+    既定 strategy="prior"（predict_proba がクラス比率を返す）。"most_frequent"/"stratified"/"uniform"/"constant" に
+    params で上書き可。学習モデルはまずこの基準を上回って初めて「効いている」と言える。
+    決定的：random_state=seed を配線する（prior/most_frequent には無害・stratified/uniform の再現に効く）。
+    """
+    model: SklearnLike = DummyClassifier(**{"strategy": "prior", "random_state": seed, **params})
+    return model
+
+
+def _dummy_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  seed は受けて捨てる（決定的モデル）
+    """平均を返すだけの回帰ベースライン。task: regression。
+
+    既定 strategy="mean"。"median"/"quantile"（quantile= 併記）/"constant"（constant= 併記）に params で上書き可。
+    回帰モデルの相対関門（この基準を下回る指標なら学習が効いていない）。
+    """
+    model: SklearnLike = DummyRegressor(**{"strategy": "mean", **params})
     return model
 
 
@@ -231,7 +356,7 @@ def _hist_gb(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
     from sklearn.ensemble import HistGradientBoostingClassifier
 
     model: SklearnLike = HistGradientBoostingClassifier(**{"random_state": seed, **params})
-    return model
+    return _dense_model(model)  # HistGradientBoosting は疎を受けない＝直前で密化（tfidf 等との組合せを守る）
 
 
 # --- 回帰（追加） ---
@@ -280,7 +405,7 @@ def _hist_gb_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     model: SklearnLike = HistGradientBoostingRegressor(**{"random_state": seed, **params})
-    return model
+    return _dense_model(model)  # HistGradientBoosting は疎を受けない＝直前で密化（tfidf 等との組合せを守る）
 
 
 # --- LightGBM（optional extra `lightgbm`・末尾で条件登録） ---
@@ -308,46 +433,54 @@ def _lightgbm_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401
     return model
 
 
-ModelTask = Literal["classification", "regression"]
-
-
-@dataclass(frozen=True)
-class ModelEntry:
-    """モデル種 1 つの登録情報。factory は sklearn/LightGBM クラスの薄い包み（再発明しない）。
-
-    task：このモデルが解ける課題。build_model が config の task と突き合わせて検査する（回帰モデル×分類 task を
-    実行前に止める）。説明文は factory の docstring 1 行目（`uv run data models` に載る・test_catalog が必須検査）。
-    """
-
-    factory: ModelFactory
-    task: ModelTask
-
-
-# config の kind → モデルの登録（工場＋task）。sklearn を足すときはここに 1 行（DEC-0006）。
-# optional 依存（lightgbm 等）のモデルはファイル末尾で「入っていれば登録」する（§5 条件登録）。
-MODELS: dict[str, ModelEntry] = {
-    # 分類
-    "logreg": ModelEntry(_logreg, "classification"),
-    "knn": ModelEntry(_knn, "classification"),
-    "tree": ModelEntry(_tree, "classification"),
-    "random_forest": ModelEntry(_random_forest, "classification"),
-    "hist_gb": ModelEntry(_hist_gb, "classification"),
-    # 回帰
-    "ridge": ModelEntry(_ridge, "regression"),
-    "lasso": ModelEntry(_lasso, "regression"),
-    "elasticnet": ModelEntry(_elasticnet, "regression"),
-    "random_forest_reg": ModelEntry(_random_forest_reg, "regression"),
-    "hist_gb_reg": ModelEntry(_hist_gb_reg, "regression"),
-}
+# 実験の課題語彙（multiclass を含む）。MODELS の task 属性は classification|regression のまま
+# （多クラスかどうかはモデル種でなく fit 時のラベルのクラス数で決まる＝build_model が正規化して突き合わせる）。
+ModelTask = Literal["classification", "multiclass", "regression"]
 
 # optional 依存の kind → 導入すべき extra 名（未導入で使われたときのヒント）。
 OPTIONAL_MODEL_EXTRAS: dict[str, str] = {"lightgbm": "lightgbm", "lightgbm_reg": "lightgbm"}
 
+# config の kind → モデルの登録（工場＋task）。sklearn を足すときはここに 1 行（DEC-0006）。
+# task は Entry.task に持ち、build_model が config の task と突き合わせる（回帰モデル×分類 task を実行前に止める）。
+# 説明文は factory の docstring 1 行目（`uv run data models` に載る・test_catalog が必須検査）。
+# optional 依存（lightgbm 等）のモデルはファイル末尾で「入っていれば登録」する（§5 条件登録）。
+MODELS: Registry[Entry] = Registry("モデル", catalog="data models", extras_hint=OPTIONAL_MODEL_EXTRAS)
+# 分類
+MODELS.register("dummy", _dummy, task="classification")  # 何も学習しないベースライン（相対関門・T-0062）
+MODELS.register("logreg", _logreg, task="classification")
+MODELS.register("knn", _knn, task="classification")
+MODELS.register("tree", _tree, task="classification")
+MODELS.register("random_forest", _random_forest, task="classification")
+MODELS.register("hist_gb", _hist_gb, task="classification")
+# 回帰
+MODELS.register("dummy_reg", _dummy_reg, task="regression")  # 何も学習しないベースライン（相対関門・T-0062）
+MODELS.register("ridge", _ridge, task="regression")
+MODELS.register("lasso", _lasso, task="regression")
+MODELS.register("elasticnet", _elasticnet, task="regression")
+MODELS.register("random_forest_reg", _random_forest_reg, task="regression")
+MODELS.register("hist_gb_reg", _hist_gb_reg, task="regression")
+
 # 条件登録：ライブラリが入っている環境でだけ MODELS に足す（`data models` は使える語彙だけを見せる）。
 # import コストゼロの存在確認（find_spec）で登録を切り替える。工場本体は関数内 import なので未導入でも壊れない。
 if importlib.util.find_spec("lightgbm") is not None:
-    MODELS["lightgbm"] = ModelEntry(_lightgbm, "classification")
-    MODELS["lightgbm_reg"] = ModelEntry(_lightgbm_reg, "regression")
+    MODELS.register("lightgbm", _lightgbm, task="classification")
+    MODELS.register("lightgbm_reg", _lightgbm_reg, task="regression")
+
+
+def build_calibrated(model: SklearnLike, calibrate_spec: Mapping[str, Any], *, seed: int) -> SklearnLike:
+    """config の calibrate 節から model を CalibratedClassifierCV で包んで返す（確率の較正・tune と同じ流儀）。
+
+    calibrate_spec = {"method": "sigmoid"（既定）| "isotonic", "cv": 3（既定）, ...残りは CalibratedClassifierCV へ}。
+    内側 cv は `StratifiedKFold(shuffle=True, random_state=seed)`＝seed 付きで決定的（分類前提・build_tuned と同じ）。
+    model 段に被せるので run_cv の clone-per-fold で較正も fold の train でだけ起きる（リークなし）。
+    method/cv 以外のキー（ensemble 等）は CalibratedClassifierCV へ素通し＝**未知キー/typo は TypeError で即死**
+    （build_tuned と対称・黙って既定に落とさない＝fail-loud）。
+    """
+    spec = dict(calibrate_spec)
+    inner = StratifiedKFold(n_splits=spec.pop("cv", 3), shuffle=True, random_state=seed)
+    method = spec.pop("method", "sigmoid")
+    calibrated: SklearnLike = CalibratedClassifierCV(model, method=method, cv=inner, **spec)
+    return calibrated
 
 
 def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = None) -> SklearnLike:
@@ -356,38 +489,55 @@ def build_model(spec: Mapping[str, Any], *, seed: int, task: ModelTask | None = 
     kind は `uv run data models` の一覧から。params はそのまま sklearn クラスへ渡す（写経しない・目的関数も
     loss/criterion/objective の文字列 params で変える）。task を渡すとモデル種との整合を検査する（task=None は互換）。
     build_estimator に model として渡すと features→encode→model の 1 本の Pipeline になる。
+    spec に `tune:` があれば model を *SearchCV で包んで返す（`tune.build_tuned`＝run_cv でそのまま nested CV）。
+    spec に `calibrate:` があれば CalibratedClassifierCV で包む（`build_calibrated`・tune 併用時は tuned を包む）。
     """
+    # MODELS は Mapping としてだけ読む（テストが未導入再現のため plain dict に monkeypatch で差し替える）。
     kind = spec.get("kind")
-    if kind not in MODELS:
+    if not isinstance(kind, str) or kind not in MODELS:
         extra = OPTIONAL_MODEL_EXTRAS.get(kind) if isinstance(kind, str) else None
         hint = f"。'{kind}' は `uv sync --extra {extra}` で使えるようになる" if extra else ""
         raise ValueError(f"未知のモデル '{kind}'（{sorted(MODELS)} のいずれか）{hint}")
     entry = MODELS[kind]
-    if task is not None and entry.task != task:
+    # 多クラスもモデル種は classification（クラス数は fit 時のラベルで決まる）＝ MODELS の語彙へ正規化して照合。
+    model_task = "classification" if task == "multiclass" else task
+    if model_task is not None and entry.task != model_task:
         raise ValueError(f"モデル '{kind}' は {entry.task} 用（この実験は task: {task}）")
-    params = {k: v for k, v in spec.items() if k != "kind"}
-    return entry.factory(seed, **params)
+    params = {k: v for k, v in spec.items() if k not in ("kind", "tune", "calibrate")}
+    model: SklearnLike = entry.factory(seed, **params)
+    tune = spec.get("tune")
+    if tune is not None:  # tune 無しは従来どおり素の model（既存挙動は不変）
+        from harness.ds.tune import build_tuned  # 遅延 import（tune.py は pipeline を import しない＝循環なし）
+
+        model = build_tuned(model, tune, seed=seed)
+    calibrate = spec.get("calibrate")
+    if calibrate is not None:  # calibrate 無しは従来どおり。併用時は tuned を包む（tune→calibrate の順）
+        if entry.task == "regression":  # 確率較正は predict_proba が要る＝分類のみ（fit まで待たず config 段で止める）
+            raise ValueError(f"calibrate は分類のみ（モデル '{kind}' は回帰）")
+        return build_calibrated(model, calibrate, seed=seed)
+    return model
 
 
 def _build_block(spec: Mapping[str, Any], seed: int) -> FeatureBlock:
-    kind = spec["kind"]
-    if kind not in BLOCKS:
-        raise ValueError(f"未知の特徴量ブロック '{kind}'（{sorted(BLOCKS)} のいずれか）")
-    cls = BLOCKS[kind]
+    cls = BLOCKS.resolve(spec.get("kind")).factory  # 未知 kind の ValueError は Registry.resolve の 1 か所
     params = {k: v for k, v in spec.items() if k not in ("kind", "name")}
     # seed 引数を持つブロック（TargetAggregate 等）には、config 未指定なら seed を注入する（二重に書かせない）。
     if "seed" in inspect.signature(cls.__init__).parameters and "seed" not in params:
         params["seed"] = seed
-    return cls(**params)
+    block: FeatureBlock = cls(**params)
+    return block
 
 
 def build_estimator(spec: Mapping[str, Any], model: SklearnLike, *, seed: int) -> Pipeline:
     """config（features / encode 節）から 2〜3 段の sklearn Pipeline を組む。
 
     spec = {"features": [{kind, name?, ...params}, ...],            # 必須・1 つ以上
-            "encode":   [{kind, name?, columns, ...params}, ...]}   # 任意（無ければ 2 段）
+            "encode":   [{kind, name?, columns, ...params}, ...],   # 任意（無ければ 2 段）
+            "select":   {kind, ...params}}                          # 任意・1 個の dict（SELECTORS・T-0064）
     encode の columns は ColumnTransformer の対象列（Tfidf だけ文字列 1 本・他はリスト）。生のカテゴリ列は
     features 段の columns ブロックで通しておくこと（encode がそれを受ける）。
+    select があれば to_numpy と model の間に選択段を挿す（無ければ steps は従来どおり）。選択の fit も
+    run_cv の clone-per-fold で fold の train でだけ起きる＝リークなし（encode と同じ構造的担保）。
     """
     features: Sequence[Mapping[str, Any]] = spec.get("features", [])
     if not features:
@@ -403,15 +553,17 @@ def build_estimator(spec: Mapping[str, Any], model: SklearnLike, *, seed: int) -
             raise ValueError(f"encode の name が重複: {dups}（同じ kind を複数使うときは name を明示）")
         transformers = []
         for e in encode:
-            if e["kind"] not in ENCODERS:
-                raise ValueError(f"未知のエンコーダ '{e['kind']}'（{sorted(ENCODERS)} のいずれか）")
-            params = {k: v for k, v in e.items() if k not in ("kind", "name", "columns")}
-            transformers.append((e.get("name", e["kind"]), ENCODERS[e["kind"]](seed, **params), e["columns"]))
+            # kind/name/columns 以外の params を工場へ素通し（Registry.build の既定 drop と同じ配線キー）。
+            transformers.append((e.get("name", e["kind"]), ENCODERS.build(e, seed=seed), e["columns"]))
         steps.append(
             ("encode", ColumnTransformer(transformers, remainder="passthrough", verbose_feature_names_out=False))
         )
 
     # model 直前で numpy に揃える（名前付き入力を扱えないモデルでも壊れない・境界を 1 点に固定）。
     steps.append(("to_numpy", FunctionTransformer(_to_numpy, feature_names_out="one-to-one")))
+    select: Mapping[str, Any] | None = spec.get("select")
+    if select is not None:  # select 無しは従来どおり（steps 不変＝回帰なし）
+        # kind/name 以外を工場へ素通し（ENCODERS.build と同じ配線・Registry.build の既定 drop）。
+        steps.append(("select", SELECTORS.build(select, seed=seed)))
     steps.append(("model", model))
     return Pipeline(steps)

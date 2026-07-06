@@ -15,8 +15,7 @@ import polars as pl
 import pytest
 import yaml
 
-from harness import cli
-from harness.ds import store
+from harness.ds import cli, store
 
 pytestmark = pytest.mark.integration
 

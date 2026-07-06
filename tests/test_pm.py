@@ -174,6 +174,79 @@ def test_investigation_with_conclusion_is_ok(tmp_path: Path) -> None:
     assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "INV-0002" in p.message]
 
 
+def _write_req(root: Path, req_id: str) -> None:
+    """docs/requirements/ に要件ファイルを 1 つ作る（既知の要件 ID の供給源）。"""
+    _write(
+        root / "docs" / "requirements" / f"{req_id}.md",
+        {"id": req_id, "kind": "functional", "status": "accepted"},
+        body=f"# {req_id}",
+    )
+
+
+def test_dangling_requirement_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    _write_req(tmp_path, "REQ-001")
+    # 存在しない要件を参照＝参照エラー＝失敗（depends_on の検査と対称）。
+    x: dict[str, object] = {"id": "T-0020", "kind": "task", "status": "todo", "requirements": ["REQ-9999"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0020-x.md", x)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("REQ-9999" in p.message for p in errors)
+
+
+def test_existing_requirement_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    _write_req(tmp_path, "REQ-001")
+    # 実在する要件への参照はエラーにしない。
+    x: dict[str, object] = {"id": "T-0021", "kind": "task", "status": "todo", "requirements": ["REQ-001"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0021-x.md", x)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
+
+
+def test_uncovered_requirement_is_info(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    _write_req(tmp_path, "REQ-001")
+    _write_req(tmp_path, "REQ-002")
+    # REQ-001 だけ参照。REQ-002 はどの単位からも参照されない＝未カバーの要件（info・失敗にしない）。
+    x: dict[str, object] = {"id": "T-0022", "kind": "task", "status": "todo", "requirements": ["REQ-001"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0022-x.md", x)
+    problems = pm.lint(tmp_path)
+    infos = [p for p in problems if p.level == "info"]
+    assert any("REQ-002" in p.message and "未カバー" in p.message for p in infos)
+    # 計画中は正常なので、未カバーは失敗にしない。
+    assert not [p for p in problems if p.level == "error"]
+
+
+def test_missing_requirements_dir_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # docs/requirements/ が無い案件では、要件の検査そのものを行わない（エラーにしない）。
+    x: dict[str, object] = {"id": "T-0023", "kind": "task", "status": "todo", "requirements": ["REQ-001"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0023-x.md", x)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
+
+
+def test_depends_on_cycle_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # A→B→A の循環。両端が実在するため既存の参照チェックでは通ってしまう。
+    a: dict[str, object] = {"id": "T-0030", "kind": "task", "status": "todo", "depends_on": ["T-0031"]}
+    b: dict[str, object] = {"id": "T-0031", "kind": "task", "status": "todo", "depends_on": ["T-0030"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0030-a.md", a)
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0031-b.md", b)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("循環" in p.message and "T-0030" in p.message and "T-0031" in p.message for p in errors)
+
+
+def test_acyclic_depends_on_chain_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # A→B→C の一直線（循環なし）はエラーにしない。
+    a: dict[str, object] = {"id": "T-0040", "kind": "task", "status": "todo", "depends_on": ["T-0041"]}
+    b: dict[str, object] = {"id": "T-0041", "kind": "task", "status": "todo", "depends_on": ["T-0042"]}
+    c: dict[str, object] = {"id": "T-0042", "kind": "task", "status": "todo"}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0040-a.md", a)
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0041-b.md", b)
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0042-c.md", c)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
+
+
 def test_pending_human_section_lists_blocked_and_questions(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # blocked のタスクと [要確認] を「人の判断待ち」に集約する。
@@ -212,3 +285,34 @@ def test_spec_lint_requires_headings(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert not pm.spec_lint(tmp_path)
+
+
+def test_requirement_filename_with_suffix_matches_id(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 要件ファイルは REQ-0009-<説明>.md でもよい（単位の命名規則と対称）。ID は先頭の REQ-0009。
+    _write(
+        tmp_path / "docs" / "requirements" / "REQ-0009-login.md",
+        {"id": "REQ-0009", "kind": "functional", "status": "accepted"},
+        body="# REQ-0009",
+    )
+    x: dict[str, object] = {"id": "T-0050", "kind": "task", "status": "todo", "requirements": ["REQ-0009"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0050-x.md", x)
+    problems = pm.lint(tmp_path)
+    # 参照は解決する（error なし）し、参照済みなので「未カバー」info も出ない。
+    assert not [p for p in problems if p.level == "error" and "REQ-0009" in p.message]
+    assert not [p for p in problems if "未カバー" in p.message and "REQ-0009" in p.message]
+
+
+def test_deep_dependency_chain_does_not_crash(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 再帰 DFS だと Python の再帰上限(~1000)で RecursionError になる長さの一直線鎖。反復 DFS なら落ちない。
+    n = 1200
+    ep = tmp_path / "work" / "EP-01-foundation"
+    for i in range(n):
+        meta: dict[str, object] = {"id": f"T-{2000 + i}", "kind": "task", "status": "todo"}
+        if i < n - 1:
+            meta["depends_on"] = [f"T-{2000 + i + 1}"]  # 次へ依存（末尾だけ依存なし＝循環しない）
+        _write(ep / f"T-{2000 + i}-c.md", meta)
+    # 例外を投げずに検査が完了すること（循環でないので循環エラーも出ない）。
+    problems = pm.lint(tmp_path)
+    assert not [p for p in problems if p.level == "error" and "循環" in p.message]

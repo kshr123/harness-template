@@ -1,0 +1,418 @@
+"""DS プロファイルの CLI 入口（typer）。`uv run data <サブコマンド>` で呼ぶ。
+
+中核の CLI（src/harness/cli.py＝status/verify 等）とは分ける（プロファイル境界・DEC-0004）。
+重い依存（polars・sklearn）は各コマンドの中で遅延取り込みする（一覧系を軽く保つ）。
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+
+from harness.registry import MetricEntry, Registry
+
+# Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
+# クロスプラットフォームの前提（make 非依存と同じ理由）。
+for _stream in (sys.stdout, sys.stderr):
+    reconfigure = getattr(_stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
+
+
+def _root() -> Path:
+    return Path.cwd()
+
+
+data_app = typer.Typer(help="テーブル定義（データのメタデータ）", add_completion=False)
+
+
+def render_catalog(
+    registry: Registry[Any], *, show_task: bool = False, show_params: bool = False, prefix: str = ""
+) -> None:
+    """レジストリを 1 行 1 項目（タブ区切り）で出す共通レンダラ（全カタログコマンドが使う）。
+
+    列は kind［・task］［・向き（指標のみ）］［・引数一覧］・説明文。説明文はレジストリが登録時に
+    docstring 1 行目から確定させている（空は登録できない＝DEC-0009）。prefix は data unsupervised の
+    グループ名（dimred/cluster/anomaly）用。
+    """
+    import inspect
+
+    for kind, entry in sorted(registry.items()):
+        parts: list[str] = [prefix, kind] if prefix else [kind]
+        if show_task:
+            parts.append(entry.task or "-")
+        if isinstance(entry, MetricEntry):  # 指標だけ合否の向きを併記（passes が読む属性）
+            parts.append("大きいほど良い" if entry.higher_is_better else "小さいほど良い")
+        if show_params:
+            params = [p for p in inspect.signature(entry.factory).parameters if p != "self"]
+            parts.append(f"({', '.join(params)})")
+        parts.append(entry.description)
+        typer.echo("\t".join(parts))
+
+
+@data_app.command("lint")
+def _data_lint() -> None:
+    """テーブル定義の静的検査（ID重複・型名・系譜・越境参照）。verify にも含まれる。"""
+    from harness.ds import schema
+
+    errors = 0
+    for p in schema.data_lint(_root()):
+        typer.echo(f"{'✗' if p.level == 'error' else '・'} {p.message}")
+        errors += 1 if p.level == "error" else 0
+    if errors:
+        typer.echo(f"問題 {errors} 件（失敗）")
+        raise typer.Exit(1)
+    typer.echo("テーブル定義：問題なし")
+
+
+@data_app.command("list")
+def _data_list() -> None:
+    """テーブル定義を scope→role でグループ表示する（生成ビュー）。"""
+    from harness.ds import schema
+
+    schemas = schema.load_schemas(_root())
+    for scope in sorted({s.scope for s in schemas}):
+        typer.echo(f"[scope: {scope}]")
+        for s in sorted((x for x in schemas if x.scope == scope), key=lambda x: (x.role or "", x.id)):
+            typer.echo(f"  {s.layer.value}\t{s.role or '-'}\t{s.id}\t{s.description}")
+
+
+@data_app.command("blocks")
+def _data_blocks() -> None:
+    """特徴量ブロックの一覧（BLOCKS レジストリから生成）。config の features 節に書ける kind。"""
+    from harness.ds.features import BLOCKS
+
+    render_catalog(BLOCKS, show_params=True)
+    typer.echo(
+        "\n使い方は experiment / features スキル。無いものは DEC-0008（sklearn が十分なら data encoders を見る）。"
+    )
+
+
+@data_app.command("encoders")
+def _data_encoders() -> None:
+    """sklearn エンコーダの一覧（ENCODERS レジストリから生成）。config の encode 節に書ける kind。"""
+    from harness.ds.pipeline import ENCODERS
+
+    render_catalog(ENCODERS)
+    typer.echo("\nparams は sklearn 本体へ素通し（安全既定だけ焼き込み済み）。対象列は encode 項目の columns で指定。")
+
+
+@data_app.command("models")
+def _data_models() -> None:
+    """モデル種の一覧（MODELS レジストリから生成）。config の model 節に書ける kind と task。"""
+    from harness.ds.forecast import TS_MODELS
+    from harness.ds.pipeline import MODELS
+
+    render_catalog(MODELS, show_task=True)
+    render_catalog(TS_MODELS, show_task=True)  # statsmodels 導入時のみ。sklearn 背骨に載らない別経路。
+    typer.echo(
+        "\nparams は本体へ素通し（目的関数も loss/criterion/objective で変える・各 docstring 参照）。"
+        "\n[timeseries] は run_forecast 用（sklearn Pipeline には載らない）。未表示なら `uv sync --extra statsmodels`。"
+        "\n学習済みモデル（保存版）の一覧は `uv run data saved`。"
+    )
+
+
+@data_app.command("sources")
+def _data_sources() -> None:
+    """データ源の一覧（DATA_SOURCES レジストリから生成）。config の data 節に書ける kind。"""
+    from harness.ds.data import DATA_SOURCES
+
+    render_catalog(DATA_SOURCES)
+    typer.echo("\ntable 一覧は `uv run data list`。実データを足すときは ds/data.py の DATA_SOURCES に 1 行。")
+
+
+@data_app.command("selectors")
+def _data_selectors() -> None:
+    """特徴選択の一覧（SELECTORS レジストリから生成）。config の select 節に書ける kind。"""
+    from harness.ds.pipeline import SELECTORS
+
+    render_catalog(SELECTORS)
+    typer.echo("\nselect は to_numpy と model の間の 1 段（run_cv の clone-per-fold で train のみ選択＝リークなし）。")
+
+
+@data_app.command("tuners")
+def _data_tuners() -> None:
+    """ハイパラ探索の一覧（TUNERS レジストリから生成）。config の model 節の tune: に書ける kind。"""
+    from harness.ds.tune import TUNERS
+
+    render_catalog(TUNERS)
+    typer.echo("\nmodel 節に tune: を足すと *SearchCV で包む（run_cv でそのまま nested CV）。optuna は optional。")
+
+
+@data_app.command("profile")
+def _data_profile(
+    table_id: str,
+    target: Annotated[str | None, typer.Option(help="目的変数の列名（付けると分布の要約も出す）")] = None,
+    task: Annotated[str, typer.Option(help="classification | regression")] = "classification",
+) -> None:
+    """テーブルの構造化レポートを YAML で出す（store 経由＝検証済みテーブルだけを見る）。"""
+    import yaml
+
+    from harness.ds import eda, store
+
+    df = store.load(_root(), table_id)
+    report: dict[str, object] = {
+        "table": table_id,
+        "profile": eda.profile(df).to_dict(),
+        "missing_patterns": eda.missing_patterns(df).to_dicts(),
+        "duplicate_columns": eda.duplicate_columns(df).to_dicts(),
+        "high_correlation_pairs": eda.high_correlation_pairs(df).to_dicts(),  # リーク/多重共線の疑い
+    }
+    if target is not None:
+        if task not in ("classification", "regression"):
+            typer.echo("task は classification / regression のいずれか")
+            raise typer.Exit(1)
+        report["target"] = eda.target_summary(df, target=target, task=task)  # type: ignore[arg-type]
+        report["category_target"] = eda.category_target_summary(df, target=target).to_dicts()
+        report["correlations"] = eda.correlations(df, target=target).to_dicts()  # 目的変数との相関（|r| 降順）
+    typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("compare")
+def _data_compare(
+    train_id: str,
+    test_id: str,
+    auc: Annotated[bool, typer.Option("--auc", help="分布差 AUC（adversarial validation）も出す")] = False,
+    seed: Annotated[int, typer.Option(help="--auc の乱数種")] = 0,
+) -> None:
+    """train/test の分布比較を YAML で出す（統計・カテゴリ差・PSI。--auc で分布差 AUC も）。store 経由。"""
+    import yaml
+
+    from harness.ds import eda, store
+
+    train = store.load(_root(), train_id)
+    test = store.load(_root(), test_id)
+    report: dict[str, object] = {"train": train_id, "test": test_id, "compare": eda.compare(train, test).to_dict()}
+    if auc:
+        # 数値の共通列だけで見分ける（既定 spec は数値向け・カテゴリは spec を書いて呼ぶ）。
+        # id（行の鍵）は分布差の特徴に入れない：train/test で id 域が分かれると擬似的な完全分離器になり AUC を誤らせる。
+        import polars.selectors as cs
+
+        num = [c for c in train.select(cs.numeric()).columns if c in test.columns and c != "id"]
+        drift = eda.drift_auc(train, test, columns=num, seed=seed)
+        report["drift"] = {"auc": drift.auc, "fold_aucs": drift.fold_aucs, "columns": num}
+    typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
+
+
+def _feature_columns(df: Any, columns: str | None) -> list[str]:  # noqa: ANN401  polars.DataFrame
+    """教師なしに渡す数値列を決める。--columns 指定があればそれ、無ければ数値列から id を除く。
+
+    id（行の鍵・単調増加）は特徴でなく識別子なので既定で外す（data compare と同じ扱い・リークの温床）。
+    目的変数を持つ表では --columns で特徴だけに絞る（どの列が目的変数かは表からは分からないため既定では残す）。
+    """
+    import polars.selectors as cs
+
+    if columns:
+        return columns.split(",")
+    return [c for c in df.select(cs.numeric()).columns if c != "id"]
+
+
+@data_app.command("unsupervised")
+def _data_unsupervised() -> None:
+    """教師なし（次元圧縮・クラスタ・異常検知）のカタログ。3 レジストリから生成し data embed/cluster/anomaly で使う。"""
+    from harness.ds.unsupervised import ANOMALY, CLUSTERERS, DIMRED
+
+    for group, registry in (("dimred", DIMRED), ("cluster", CLUSTERERS), ("anomaly", ANOMALY)):
+        render_catalog(registry, prefix=group)
+    typer.echo("\n埋め込み＝`data embed <表>`／クラスタ＝`data cluster <表> --k N`／異常＝`data anomaly <表>`。")
+
+
+@data_app.command("cluster")
+def _data_cluster(
+    table_id: str,
+    k: Annotated[
+        int | None, typer.Option("--k", help="クラスタ数（kmeans=n_clusters・gmm=n_components。hdbscan は不要）")
+    ] = None,
+    method: Annotated[str, typer.Option(help="kmeans / gmm / hdbscan")] = "kmeans",
+    columns: Annotated[str | None, typer.Option(help="対象列（カンマ区切り。省略時は数値列から id を除く）")] = None,
+    scan: Annotated[
+        str | None, typer.Option(help="k を振る範囲 lo:hi（例 2:10）。目安の表を併記（kmeans/gmm のみ）")
+    ] = None,
+    seed: Annotated[int, typer.Option(help="乱数種")] = 0,
+) -> None:
+    """テーブルをクラスタリングし、構造化レポート（大きさ・シルエット・クラスタ別の数表）を YAML で出す。"""
+    import yaml
+
+    from harness.ds import store, unsupervised
+
+    df = store.load(_root(), table_id)
+    cols = _feature_columns(df, columns)
+    params: dict[str, Any] = {}
+    if method in unsupervised.PARAM_FOR_K:
+        if k is None:
+            raise typer.BadParameter(f"method '{method}' は --k が必要")
+        params[unsupervised.PARAM_FOR_K[method]] = k
+    report = unsupervised.cluster_summary(df, columns=cols, method=method, seed=seed, **params)
+    out: dict[str, object] = {"table": table_id, "method": method, "columns": cols, "cluster": report.to_dict()}
+    if scan is not None:
+        lo_s, hi_s = scan.split(":")
+        table = unsupervised.k_scan(
+            df, columns=cols, method=method, k_values=range(int(lo_s), int(hi_s) + 1), seed=seed
+        )
+        out["scan"] = table.to_dicts()
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("embed")
+def _data_embed(
+    table_id: str,
+    method: Annotated[str, typer.Option(help="pca / tsne")] = "pca",
+    columns: Annotated[str | None, typer.Option(help="対象列（カンマ区切り。省略時は数値列から id を除く）")] = None,
+    seed: Annotated[int, typer.Option(help="乱数種")] = 0,
+) -> None:
+    """テーブルを 2D に埋め込み、要約（寄与率・行数・抽出の有無）を YAML で出す（座標は marimo で見る）。"""
+    import yaml
+
+    from harness.ds import store, unsupervised
+
+    df = store.load(_root(), table_id)
+    cols = _feature_columns(df, columns)
+    result = unsupervised.embed_2d(df, columns=cols, method=method, seed=seed)
+    out = {"table": table_id, "columns": cols, "embed": result.to_dict()}
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("anomaly")
+def _data_anomaly(
+    table_id: str,
+    method: Annotated[str, typer.Option(help="iforest / lof")] = "iforest",
+    columns: Annotated[str | None, typer.Option(help="対象列（カンマ区切り。省略時は数値列から id を除く）")] = None,
+    top: Annotated[int, typer.Option(help="上位何行を出すか（浮いている行）")] = 20,
+    seed: Annotated[int, typer.Option(help="乱数種")] = 0,
+) -> None:
+    """多変量の異常スコア（大きいほど異常）の分位要約と、浮いている行の上位 n を YAML で出す。"""
+    import yaml
+
+    from harness.ds import store, unsupervised
+
+    df = store.load(_root(), table_id)
+    cols = _feature_columns(df, columns)
+    report = unsupervised.anomaly_scores(df, columns=cols, method=method, seed=seed)
+    rows = unsupervised.anomaly_rows(df, report.scores, n=top)
+    out = {"table": table_id, "columns": cols, "anomaly": report.to_dict(), "top_rows": rows.to_dicts()}
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+
+@data_app.command("metrics")
+def _data_metrics() -> None:
+    """評価指標の一覧（METRICS レジストリから生成）。config の thresholds に書ける指標名。"""
+    from harness.ds.eval import METRICS
+
+    render_catalog(METRICS, show_task=True)  # MetricEntry＝向き（大/小）の列が自動で付く
+    typer.echo("\nthresholds に書くと passes が向き（大/小）を見て合否判定する。本体は sklearn.metrics 素通し。")
+
+
+@data_app.command("predict")
+def _data_predict(
+    work: Annotated[str, typer.Option(help="モデルの作業単位ID（保存時の work）")],
+    name: Annotated[str, typer.Option(help="モデル名（保存時の name）")],
+    table: Annotated[str, typer.Option(help="入力の table_id（store 保存済みテーブル）")],
+    version: Annotated[str | None, typer.Option(help="モデルの版（省略時は現 champion）")] = None,
+    out: Annotated[
+        Path | None, typer.Option(help="出力ディレクトリ（既定 artifacts/predictions/<name>/<時刻>）")
+    ] = None,
+    root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
+) -> None:
+    """保存済み champion（または指定版）で入力テーブルにバッチ予測し、parquet＋来歴 manifest を書く。
+
+    予測の種類（prediction_kind）で列が変わる（消費側が意味を取り違えないよう manifest にも残す）：
+    二値分類＝`prediction`（陽性=ラベル 1 の確率）・回帰＝`prediction`（値）・多クラス＝`proba_0..k-1`
+    （クラス数ぶんの確率列＝陽性 1 列に潰さない・黙って Array 列にしない）。
+    sidecar の manifest.yaml にモデル版・指紋・入力テーブルの指紋・行数・prediction_kind を残す（来歴付きの予測ログ）。
+    """
+    from datetime import UTC, datetime
+
+    import numpy as np
+    import polars as pl
+
+    from harness import storage
+    from harness.ds import cv, store
+    from harness.ds import models as model_store
+
+    if version is None:
+        champ = model_store.champion(root, work=work, name=name)
+        if champ is None:
+            raise ValueError(f"{work}/{name}: champion が無い（先に昇格するか --version で版を明示する）")
+        version = champ.version
+    model, record = model_store.load_model(root, name=name, work=work, version=version)
+
+    df = store.load(root, table)
+    if hasattr(model, "predict_proba"):
+        proba = np.asarray(cv._predict(model, df, "proba"))
+        if proba.ndim == 1:  # 二値＝陽性（ラベル 1）確率の 1 列
+            pred_cols = {"prediction": proba}
+            prediction_kind = "proba"
+        else:  # 多クラス＝クラス数ぶんの確率列（陽性 1 列に潰すと黙って誤る＝ISS-0009 の教訓）
+            pred_cols = {f"proba_{i}": proba[:, i] for i in range(proba.shape[1])}
+            prediction_kind = "multiclass_proba"
+    else:  # 回帰＝predict の値
+        pred_cols = {"prediction": np.asarray(cv._predict(model, df, "value"))}
+        prediction_kind = "value"
+    clash = sorted(set(pred_cols) & set(df.columns))
+    if clash:  # 入力の既存列を黙って上書きしない（消えると気づけない）
+        raise ValueError(f"予測列 {clash} が入力テーブルの既存列と衝突する（入力を消さないため中止）")
+    result = df.with_columns([pl.Series(col, values) for col, values in pred_cols.items()])
+
+    created = datetime.now(UTC)
+    if out is None:
+        out = root / "artifacts" / "predictions" / name / created.strftime("%Y%m%dT%H%M%S%fZ")
+    out.mkdir(parents=True, exist_ok=True)
+    prediction_fingerprint = storage.atomic_write(out / "predictions.parquet", result.write_parquet)
+    manifest = {
+        "model": {"work": work, "name": name, "version": record.version, "fingerprint": record.fingerprint},
+        "input_table": table,
+        "data_fingerprint": store.fingerprint_of(root, table),
+        "n_rows": df.height,
+        "prediction_kind": prediction_kind,
+        "prediction_fingerprint": prediction_fingerprint,
+        "created": created.isoformat(),
+    }
+    # manifest は実体の後に書く（存在＝保存完了の印。store/models と同じ作法）。
+    storage.write_manifest(out / "manifest.yaml", manifest)
+    typer.echo(f"{df.height} 行を予測: {out}")
+
+
+@data_app.command("saved")
+def _data_saved(work: Annotated[str | None, typer.Option(help="作業単位IDで絞る")] = None) -> None:
+    """保存済みモデルの一覧（manifest 走査の生成ビュー）。現 champion に ★ を付ける。"""
+    from harness.ds import models as model_store
+
+    records = model_store.list_models(_root(), work=work)
+    champs = {
+        (w, n): champ.version
+        for w, n in {(r.work, r.name) for r in records}
+        if (champ := model_store.champion(_root(), work=w, name=n)) is not None
+    }
+    for r in records:
+        mark = "★" if champs.get((r.work, r.name)) == r.version else " "
+        shown = "  ".join(f"{k}={v:.4f}" for k, v in sorted(r.metrics.items()))
+        typer.echo(f"{mark} {r.work}\t{r.name}\t{r.version}\t{shown}")
+
+
+@data_app.command("experiments")
+def _data_experiments(
+    results: Annotated[Path, typer.Option(help="実験の results ディレクトリ（metrics_*.yaml の置き場所）")],
+    sort_by: Annotated[
+        str | None, typer.Option(help="降順に並べる指標名（省略時は最初のファイルの最初の指標）")
+    ] = None,
+) -> None:
+    """実験結果（results/metrics_*.yaml）を集約したリーダーボード（変種×指標）を表で出す。"""
+    import polars as pl
+
+    from harness.ds import experiment
+
+    df = experiment.leaderboard(results, sort_by=sort_by)
+    if df.height == 0:
+        typer.echo(f"実験結果が無い（{results} に metrics_*.yaml が見つからない）")
+        return
+    with pl.Config(tbl_rows=-1):  # 全変種を出す（既定の 10 行省略だとリーダーボードの中位が「…」で消える）
+        typer.echo(str(df))
+
+
+def data_main() -> None:
+    """`uv run data <サブコマンド>` の入口。"""
+
+    data_app()

@@ -292,10 +292,14 @@ def category_target_summary(
 
 
 def _corr(x: np.ndarray, y: np.ndarray) -> float:
-    """ピアソン相関。どちらかが定数（分散 0）なら 0.0（NaN を黙って混ぜない）。"""
-    if np.std(x) == 0 or np.std(y) == 0:
+    """ピアソン相関。両方が有限な行だけで計算（pairwise-complete。null→NaN が 1 個でも全体を NaN にしない）。
+
+    有効行 2 未満・どちらかが定数（分散 0）なら 0.0（NaN を黙って混ぜない）。
+    """
+    m = np.isfinite(x) & np.isfinite(y)
+    if int(m.sum()) < 2 or np.std(x[m]) == 0 or np.std(y[m]) == 0:
         return 0.0
-    return float(np.corrcoef(x, y)[0, 1])
+    return float(np.corrcoef(x[m], y[m])[0, 1])
 
 
 def correlations(df: pl.DataFrame, *, target: str, columns: Sequence[str] | None = None) -> pl.DataFrame:
@@ -341,10 +345,14 @@ def psi(train: pl.Series, test: pl.Series, *, bins: int = 10) -> float:
     """
     floor = 1e-6
     if train.dtype.is_numeric():
-        edges = np.unique(np.quantile(train.drop_nulls().to_numpy(), np.linspace(0.0, 1.0, bins + 1)))
+        train_values = train.drop_nulls().to_numpy()
+        if len(train_values) == 0:
+            return 0.0  # train が全欠損＝分位点を計算できない。分布差は測れないので 0 とする
+        edges = np.unique(np.quantile(train_values, np.linspace(0.0, 1.0, bins + 1)))
         if len(edges) < 2:
             return 0.0  # train が定数（分位点が 1 点）＝ビンを切れない。分布差は測れないので 0 とする
-        e_counts, _ = np.histogram(train.drop_nulls().to_numpy(), bins=edges)
+        edges[0], edges[-1] = -np.inf, np.inf  # 外側ビンを開く＝train の範囲外に出た test の質量を落とさない
+        e_counts, _ = np.histogram(train_values, bins=edges)
         a_counts, _ = np.histogram(test.drop_nulls().to_numpy(), bins=edges)
         e = np.maximum(e_counts / max(e_counts.sum(), 1), floor)
         a = np.maximum(a_counts / max(a_counts.sum(), 1), floor)

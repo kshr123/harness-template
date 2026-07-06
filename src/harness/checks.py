@@ -9,24 +9,21 @@ from __future__ import annotations
 
 import subprocess
 import tomllib
-from collections.abc import Callable
 from pathlib import Path
 
-from harness import issues, pm
-from harness.ds import schema as ds_schema
+from harness import issues, pm, profiles
+from harness.profiles import PmCheck
 
 # レベル：fast（フック相当）→ standard（pre-commit 相当）→ full（CI・done）。
 LEVELS = ("fast", "standard", "full")
 
-# プロジェクト管理の検査（どの段階でも走る・順不同で全件集める）。中核の検査＋プロファイルの検査。
-# data_lint は DS プロファイル（テーブル定義）の検査。非 DS の案件に複製するときはこの 1 行を外す
-# （プロファイル境界・DEC-0004。将来プロファイルが 2 つ目になったら登録機構へ昇格＝構造レビュー低⑩）。
-PmCheck = Callable[[Path], list[pm.Problem]]
+# 中核のプロジェクト管理の検査（どの段階でも走る・順不同で全件集める）。
+# プロファイルの検査（例：DS のテーブル定義 data_lint）は .harness/config.toml の profiles から
+# 実行時に集める（プロファイル境界・DEC-0004。中核はプロファイルを import しない）。
 PM_CHECKS: list[PmCheck] = [
     pm.lint,
     pm.spec_lint,
     issues.run_checks,
-    ds_schema.data_lint,  # ← DS プロファイル。非 DS ではこの行を外す。
 ]
 
 
@@ -53,7 +50,8 @@ def _pm_checks(root: Path) -> bool:
 
     ok = True
     problems: list[pm.Problem] = []
-    for check in PM_CHECKS:
+    all_checks = PM_CHECKS + [c for p in profiles.load_profiles(root) for c in p.pm_checks]
+    for check in all_checks:
         problems += check(root)
     for p in problems:
         mark = "✗" if p.level == "error" else "・"
@@ -61,7 +59,7 @@ def _pm_checks(root: Path) -> bool:
         if p.level == "error":
             ok = False
     if ok:
-        print("  ○ プロジェクト管理の検査（参照チェック・完了↔検証・課題の整合・テーブル定義）")
+        print("  ○ プロジェクト管理の検査（参照チェック・完了↔検証・課題の整合＋プロファイルの検査）")
     return ok
 
 

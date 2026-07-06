@@ -1,9 +1,10 @@
 ---
 id: ISS-0004
 kind: question
-state: open
+state: resolved
 found_in: 構造レビュー-2026-07
 created: 2026-07-03
+promoted_to: T-0052
 title: 最終評価（holdout）の位置づけが実験ループから切れている
 ---
 # ISS-0004 最終評価（holdout）の位置づけが実験ループから切れている

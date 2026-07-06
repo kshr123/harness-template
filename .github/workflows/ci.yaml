@@ -15,7 +15,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.14"
-      - name: 依存を同期（データサイエンスの上乗せも含める）
-        run: uv sync --extra ds
+      - name: ロックと pyproject の一致を確認（乖離を黙認しない）
+        run: uv lock --check
+      - name: 依存を同期（全部入り＝optional 依存のテストも skip しない・AGENTS の規約）
+        run: uv sync --all-extras
       - name: 共通の検証コマンド（完了判定）
         run: uv run verify

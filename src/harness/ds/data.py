@@ -9,16 +9,16 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
 
-SPLITS = ("train", "valid", "test")
+from harness.registry import Entry, Registry
 
-DataSource = Callable[..., pl.DataFrame]
+SPLITS = ("train", "valid", "test")
 
 
 def generate_synthetic(n: int = 2000, seed: int = 0) -> pl.DataFrame:
@@ -56,24 +56,26 @@ def _table_source(root: Path, *, table_id: str, **_ignored: Any) -> pl.DataFrame
 
 
 # config の data 節 kind → 入力の作り方。実データを足すときはここに 1 行（例：CSV/DB 直結）。
-DATA_SOURCES: dict[str, DataSource] = {
-    "synthetic": _synthetic_source,
-    "table": _table_source,
-}
+# 一覧は `uv run data sources`（説明文は工場の docstring 1 行目から自動で載る）。
+DATA_SOURCES: Registry[Entry] = Registry("データ源", catalog="data sources")
+DATA_SOURCES.register("synthetic", _synthetic_source)
+DATA_SOURCES.register("table", _table_source)
 
 
 def load_dataset(root: Path, spec: Mapping[str, Any], *, n: int, seed: int) -> pl.DataFrame:
     """config の data 節（{kind, ...params}）から実験の入力 DataFrame を得る。
 
     kind 未指定は synthetic（雛形がそのまま動く）。n・seed は synthetic のときだけ効く
-    （table のときは無視され table_id で読む）。kind は `uv run data list`（table）等から選ぶ。
+    （table のときは無視され table_id で読む）。kind は `uv run data sources` から選ぶ
+    （table の実体一覧は `uv run data list`）。
     """
     kind = spec.get("kind", "synthetic")
-    if kind not in DATA_SOURCES:
-        raise ValueError(f"未知のデータ源 '{kind}'（{sorted(DATA_SOURCES)} のいずれか）")
+    # 工場は (root, *, ...) 受け＝seed 第一引数の Registry.build には載せず factory を直接呼ぶ。
+    entry = DATA_SOURCES.resolve(kind)  # 未知 kind の ValueError は Registry.resolve の 1 か所
     # n・seed は明示引数で渡す（実験の規模・種は top-level が持つ）。data 節に n/seed を書いても重複させない。
     params = {k: v for k, v in spec.items() if k not in ("kind", "n", "seed")}
-    return DATA_SOURCES[kind](root, n=n, seed=seed, **params)
+    df: pl.DataFrame = entry.factory(root, n=n, seed=seed, **params)
+    return df
 
 
 def _bucket(id_value: int, salt: str) -> int:

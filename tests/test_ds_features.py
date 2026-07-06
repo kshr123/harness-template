@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import numpy as np
 import polars as pl
 import pytest
@@ -13,6 +15,7 @@ from harness.ds.features import (
     Columns,
     CombineKeys,
     CountEncode,
+    DateTimeFeatures,
     Differences,
     FeaturePipeline,
     GroupAggregate,
@@ -210,3 +213,71 @@ def test_feature_pipeline_fit_transform_delegates_oof() -> None:
     oof = FeaturePipeline([("ta", TargetAggregate(["g"], ["std"], cv=2, seed=0))]).fit_transform(x, y)
     full = FeaturePipeline([("ta", TargetAggregate(["g"], ["std"], cv=2, seed=0))]).fit(x, y).transform(x)
     assert not np.allclose(oof["target_std_by_g"].to_numpy(), full["target_std_by_g"].to_numpy())
+
+
+def test_datetime_parts_are_polars_ranges() -> None:
+    # 2021-01-15 は金曜・2021-12-15 は水曜。polars の weekday は 1..7（月曜=1）なので 5 と 3。
+    x = pl.DataFrame({"t": [datetime(2021, 1, 15, 9, 0), datetime(2021, 12, 15, 23, 0)]})
+    out = DateTimeFeatures(["t"]).fit(x).transform(x)
+    assert out["t_year"].to_list() == [2021, 2021]
+    assert out["t_month"].to_list() == [1, 12]  # month は 1..12
+    assert out["t_day"].to_list() == [15, 15]
+    assert out["t_weekday"].to_list() == [5, 3]  # 金=5・水=3（月曜=1 起点）
+    assert out["t_hour"].to_list() == [9, 23]  # hour は 0..23
+
+
+def test_datetime_cyclical_month_unit_circle_and_wraparound() -> None:
+    # 12 か月ぶんの月初。sin²+cos²=1（単位円上）。位相は 2π(month-1)/12 なので month=1 は角度 0（sin=0, cos=1）。
+    x = pl.DataFrame({"t": [datetime(2021, m, 1) for m in range(1, 13)]})
+    out = DateTimeFeatures(["t"], parts=(), cyclical=("month",)).transform(x)
+    s = out["t_month_sin"].to_numpy()
+    c = out["t_month_cos"].to_numpy()
+    np.testing.assert_allclose(s**2 + c**2, 1.0)
+    np.testing.assert_allclose([s[0], c[0]], [0.0, 1.0], atol=1e-12)
+    # 周期性：12月→1月の距離が 1月→2月の距離と等しい（12月と1月は隣＝不連続が消えている）。
+    dist_12_to_1 = np.hypot(s[11] - s[0], c[11] - c[0])
+    dist_1_to_2 = np.hypot(s[0] - s[1], c[0] - c[1])
+    np.testing.assert_allclose(dist_12_to_1, dist_1_to_2)
+
+
+def test_datetime_cyclical_hour_wraps_around_midnight() -> None:
+    # hour=23 と hour=0 の距離が hour=0 と hour=1 の距離と等しい（日またぎで隣接）。
+    x = pl.DataFrame({"t": [datetime(2021, 1, 1, h) for h in (0, 1, 23)]})
+    out = DateTimeFeatures(["t"], parts=(), cyclical=("hour",)).transform(x)
+    s = out["t_hour_sin"].to_numpy()
+    c = out["t_hour_cos"].to_numpy()
+    dist_23_to_0 = np.hypot(s[2] - s[0], c[2] - c[0])
+    dist_0_to_1 = np.hypot(s[0] - s[1], c[0] - c[1])
+    np.testing.assert_allclose(dist_23_to_0, dist_0_to_1)
+
+
+def test_datetime_cyclical_weekday_wraps_and_anchors_monday() -> None:
+    # 2021-01-18(月)〜01-24(日)＝weekday 1..7。位相 2π(weekday-1)/7 なので月曜(1)は角度 0（sin=0, cos=1）
+    # ＝-1 補正忘れをアンカーで検出。日曜(7)→月曜(1) の距離が 月(1)→火(2) と等しい（週またぎで隣接）。
+    x = pl.DataFrame({"t": [datetime(2021, 1, d) for d in range(18, 25)]})
+    out = DateTimeFeatures(["t"], parts=(), cyclical=("weekday",)).transform(x)
+    s = out["t_weekday_sin"].to_numpy()
+    c = out["t_weekday_cos"].to_numpy()
+    np.testing.assert_allclose(s**2 + c**2, 1.0)
+    np.testing.assert_allclose([s[0], c[0]], [0.0, 1.0], atol=1e-12)  # 月曜=角度 0（-1 補正の確認）
+    dist_sun_to_mon = np.hypot(s[6] - s[0], c[6] - c[0])  # 日(idx6)→月(idx0)
+    dist_mon_to_tue = np.hypot(s[0] - s[1], c[0] - c[1])
+    np.testing.assert_allclose(dist_sun_to_mon, dist_mon_to_tue)
+
+
+def test_datetime_feature_names_match_output() -> None:
+    # parts と cyclical に同じ part（month）があれば整数列と sin/cos の両方が出る。順序は parts → cyclical。
+    x = pl.DataFrame({"t": [datetime(2021, 1, 15, 9, 0)]})
+    block = DateTimeFeatures(["t"], parts=("year", "month"), cyclical=("month", "hour"))
+    out = block.transform(x)
+    expected = ["t_year", "t_month", "t_month_sin", "t_month_cos", "t_hour_sin", "t_hour_cos"]
+    assert out.columns == expected
+    assert block.feature_names() == expected  # 無状態＝fit 前でも確定
+
+
+def test_datetime_rejects_unknown_part_and_cycle() -> None:
+    x = pl.DataFrame({"t": [datetime(2021, 1, 1)]})
+    with pytest.raises(ValueError, match="part"):
+        DateTimeFeatures(["t"], parts=("minute_of_century",)).transform(x)
+    with pytest.raises(ValueError, match="cyclical"):
+        DateTimeFeatures(["t"], cyclical=("year",)).feature_names()  # year は周期を持たない

@@ -126,6 +126,18 @@ def test_passes_respects_direction_and_rejects_unknown() -> None:
         ev.passes({"roc_auc": 0.85}, {"nope": 0.5})
 
 
+def test_passes_nan_fails_closed() -> None:
+    # NaN はどの比較とも False（比較が常に偽）→ 素通り（fail open）せず、両向きとも不合格にする。
+    # 発散したモデル（log_loss=nan・rmse=nan 等）が関門を通って昇格してはいけない。
+    assert not ev.passes({"roc_auc": float("nan")}, {"roc_auc": 0.8})  # 大きいほど良い向き
+    assert not ev.passes({"log_loss": float("nan")}, {"log_loss": 0.5})  # 小さいほど良い向き
+    # 通常の合否は従来どおり（境界値＝閾値ちょうどは合格）。
+    assert ev.passes({"roc_auc": 0.8}, {"roc_auc": 0.8})
+    assert not ev.passes({"roc_auc": 0.75}, {"roc_auc": 0.8})
+    assert ev.passes({"log_loss": 0.5}, {"log_loss": 0.5})
+    assert not ev.passes({"log_loss": 0.6}, {"log_loss": 0.5})
+
+
 def test_evaluate_single_class_edges_absorbed() -> None:
     # 単一クラス（y 全 0）でも log_loss は落ちない・pr_auc は方針値 0.0（docstring と一致）。
     y_true = np.array([0, 0, 0], dtype="int64")
@@ -133,6 +145,74 @@ def test_evaluate_single_class_edges_absorbed() -> None:
     m = ev.evaluate(y_true, y_score)
     assert np.isfinite(m["log_loss"])
     assert m["pr_auc"] == 0.0
+
+
+def test_evaluate_multiclass_perfect_from_construction() -> None:
+    # 3 クラス各 4 行。proba は正解クラス 0.8・他 0.1（行和 1）→ argmax が常に正解＝label 系は満点、
+    # macro_roc_auc も順位が完全なので 1.0、log_loss_multi は全行 -log(0.8)（すべて構成から導出）。
+    y = np.repeat(np.arange(3), 4).astype("int64")
+    proba = np.full((12, 3), 0.1, dtype="float64")
+    proba[np.arange(12), y] = 0.8
+    m = ev.evaluate_multiclass(y, proba)
+    for name in ("accuracy", "macro_f1", "macro_precision", "macro_recall", "macro_roc_auc"):
+        assert m[name] == 1.0, name
+    assert m["log_loss_multi"] == pytest.approx(-np.log(0.8))
+
+
+def test_evaluate_multiclass_random_near_chance() -> None:
+    # 3 クラス均衡 900 行・予測は真値と独立の一様乱数ラベル → accuracy/macro_f1 の期待値は 1/3。
+    # 標準誤差 ≈ sqrt((1/3)(2/3)/900) ≈ 0.016 → ±0.08 は 5σ（境界は構成から導く・実装出力の写経ではない）。
+    rng = np.random.default_rng(0)
+    y = np.repeat(np.arange(3), 300).astype("int64")
+    guess = rng.integers(0, 3, size=900)
+    proba = np.full((900, 3), 0.1, dtype="float64")
+    proba[np.arange(900), guess] = 0.8
+    m = ev.evaluate_multiclass(y, proba, metrics=["accuracy", "macro_f1"])
+    assert m["accuracy"] == pytest.approx(1 / 3, abs=0.08)
+    assert m["macro_f1"] == pytest.approx(1 / 3, abs=0.08)
+
+
+def test_evaluate_multiclass_rejects_mismatched_metrics_and_shape() -> None:
+    y3 = np.repeat(np.arange(3), 2).astype("int64")
+    proba = np.full((6, 3), 1 / 3, dtype="float64")
+    # 二値指標を multiclass に混ぜたら ValueError（tasks 不一致）。
+    with pytest.raises(ValueError, match="二値"):
+        ev.evaluate_multiclass(y3, proba, metrics=["f1"])
+    # 逆向き：多クラス指標を二値 evaluate に混ぜても ValueError。
+    y2 = np.array([0, 1, 0, 1], dtype="int64")
+    s2 = np.array([0.1, 0.9, 0.2, 0.8], dtype="float64")
+    with pytest.raises(ValueError, match="多クラス"):
+        ev.evaluate(y2, s2, metrics=["macro_f1"])
+    # proba が 1 次元なら明確に失敗（多クラスは (n, n_classes) が契約）。
+    with pytest.raises(ValueError, match="n_classes"):
+        ev.evaluate_multiclass(y3, np.full(6, 0.5, dtype="float64"))
+    # 2 列（2 クラス）は多クラス経路でなく evaluate を使う。macro 指標が不透明に落ちる前に明示で止める。
+    with pytest.raises(ValueError, match="2 クラスは evaluate"):
+        ev.evaluate_multiclass(np.array([0, 1, 0, 1], dtype="int64"), np.full((4, 2), 0.5, dtype="float64"))
+
+
+def test_metrics_registry_multiclass_vocabulary_and_passes() -> None:
+    # 語彙：多クラス指標は tasks=("multiclass",)・accuracy は二値と多クラスの両方で測れる。既存の二値語彙は不変。
+    assert ev.METRICS["macro_f1"].tasks == ("multiclass",)
+    assert ev.METRICS["accuracy"].tasks == ("binary", "multiclass")
+    assert ev.METRICS["f1"].tasks == ("binary",)
+    assert ev.METRICS["rmse"].tasks == ("regression",)
+    # 向きと入力：log_loss_multi は小さいほど良い・確率系は score・macro 平均系は label。
+    assert ev.METRICS["log_loss_multi"].higher_is_better is False
+    assert ev.METRICS["macro_roc_auc"].input == "score"
+    assert ev.METRICS["macro_f1"].input == "label"
+    # passes は登録済みの多クラス指標をそのまま判定できる（向きはレジストリで解決）。
+    assert ev.passes({"macro_f1": 0.9}, {"macro_f1": 0.8})
+    assert not ev.passes({"log_loss_multi": 0.6}, {"log_loss_multi": 0.5})
+
+
+def test_metric_fn_for_multiclass() -> None:
+    # metric_fn_for("multiclass") は evaluate_multiclass を包む（proba は (n, n_classes)・threshold 不使用）。
+    fn = ev.metric_fn_for("multiclass", metrics=["accuracy", "macro_f1"])
+    y = np.repeat(np.arange(3), 2).astype("int64")
+    proba = np.full((6, 3), 0.1, dtype="float64")
+    proba[np.arange(6), y] = 0.8
+    assert fn(y, proba) == {"accuracy": 1.0, "macro_f1": 1.0}  # argmax が常に正解（構成から）
 
 
 def test_confusion_from_construction() -> None:
@@ -163,6 +243,110 @@ def test_calibration_table_single_bin() -> None:
     assert tbl[0]["mean_predicted"] == pytest.approx(0.3)
 
 
+def test_r2_from_construction() -> None:
+    # y=[1,2,3,4]：完全一致予測は残差 0 → r2=1.0。平均 2.5 の定数予測は残差平方和＝全平方和 → r2=0.0（定義から）。
+    y = np.array([1.0, 2.0, 3.0, 4.0], dtype="float64")
+    assert ev.evaluate_regression(y, y.copy(), metrics=["r2"])["r2"] == 1.0
+    mean_pred = np.full(4, 2.5, dtype="float64")
+    assert ev.evaluate_regression(y, mean_pred, metrics=["r2"])["r2"] == 0.0
+
+
+def test_pinball_is_half_mae_at_default_alpha() -> None:
+    # α=0.5 のピンボール損失は |誤差|×0.5 の平均＝mae/2。y=[0,0], pred=[3,4] → mae=3.5 → pinball=1.75（構成から）。
+    y_true = np.array([0.0, 0.0], dtype="float64")
+    y_pred = np.array([3.0, 4.0], dtype="float64")
+    assert ev.evaluate_regression(y_true, y_pred, metrics=["pinball"])["pinball"] == pytest.approx(1.75)
+
+
+def test_mcc_and_balanced_accuracy_binary_from_construction() -> None:
+    # 完全一致（閾値 0.5 で pred=y）→ mcc=1.0・均衡正解率 1.0。スコア全反転で pred が全部外れ → mcc=-1.0・BA=0.0。
+    y = np.array([0, 0, 1, 1], dtype="int64")
+    s = np.array([0.1, 0.2, 0.8, 0.9], dtype="float64")
+    m = ev.evaluate(y, s, metrics=["mcc", "balanced_accuracy"])
+    assert m["mcc"] == 1.0
+    assert m["balanced_accuracy"] == 1.0
+    m2 = ev.evaluate(y, 1.0 - s, metrics=["mcc", "balanced_accuracy"])  # pred=[1,1,0,0]＝全外し
+    assert m2["mcc"] == -1.0
+    assert m2["balanced_accuracy"] == 0.0
+
+
+def test_mcc_and_balanced_accuracy_multiclass_perfect() -> None:
+    # 3 クラス各 2 行・proba は正解クラス 0.8 → argmax が常に正解＝どちらも 1.0（構成から）。
+    y = np.repeat(np.arange(3), 2).astype("int64")
+    proba = np.full((6, 3), 0.1, dtype="float64")
+    proba[np.arange(6), y] = 0.8
+    m = ev.evaluate_multiclass(y, proba, metrics=["mcc", "balanced_accuracy"])
+    assert m["mcc"] == 1.0
+    assert m["balanced_accuracy"] == 1.0
+
+
+def test_new_metrics_registry_vocabulary() -> None:
+    # 語彙と向き：r2/pinball は回帰・mcc/balanced_accuracy は二値と多クラス両方・calibration は 0 が最良（False）。
+    assert ev.METRICS["r2"].tasks == ("regression",)
+    assert ev.METRICS["r2"].higher_is_better is True
+    assert ev.METRICS["pinball"].higher_is_better is False
+    assert ev.METRICS["mcc"].tasks == ("binary", "multiclass")
+    assert ev.METRICS["balanced_accuracy"].tasks == ("binary", "multiclass")
+    assert ev.METRICS["calibration_gap"].input == "score"
+    assert ev.METRICS["calibration_gap"].higher_is_better is False
+
+
+def test_calibration_zero_when_means_match_and_grows_when_overpredicting() -> None:
+    # mean(true)=0.5・mean(score)=0.5 → 比 1 → |1-1|=0（最良）。mean(score)=0.75 → 比 1.5 → 0.5（過大予測でずれ増）。
+    y = np.array([0, 1, 0, 1], dtype="int64")
+    s_matched = np.array([0.3, 0.7, 0.5, 0.5], dtype="float64")  # 平均 0.5
+    assert ev.evaluate(y, s_matched, metrics=["calibration_gap"])["calibration_gap"] == 0.0
+    s_over = np.array([0.6, 0.9, 0.7, 0.8], dtype="float64")  # 平均 0.75
+    assert ev.evaluate(y, s_over, metrics=["calibration_gap"])["calibration_gap"] == pytest.approx(0.5)
+
+
+def test_calibration_nan_when_no_positives() -> None:
+    # y 全 0 → mean(true)=0 で比が定義できない → nan（docstring どおり・passes は NaN を不合格＝fail closed）。
+    y = np.array([0, 0, 0], dtype="int64")
+    s = np.array([0.2, 0.5, 0.9], dtype="float64")
+    assert np.isnan(ev.evaluate(y, s, metrics=["calibration_gap"])["calibration_gap"])
+    assert not ev.passes({"calibration_gap": float("nan")}, {"calibration_gap": 0.1})
+
+
+def test_roc_table_perfect_separation() -> None:
+    # 完全分離（順位が真値と一致）→ (fpr=0, tpr=1) の角の点が出る。fpr/tpr は [0,1]・threshold は降順（構成から）。
+    y = np.array([0, 0, 1, 1], dtype="int64")
+    s = np.array([0.1, 0.2, 0.8, 0.9], dtype="float64")
+    tbl = ev.roc_table(y, s)
+    assert tbl.columns == ["fpr", "tpr", "threshold"]
+    assert any(r["fpr"] == 0.0 and r["tpr"] == 1.0 for r in tbl.to_dicts())  # 角
+    fpr, tpr, th = (tbl[c].to_numpy() for c in ("fpr", "tpr", "threshold"))
+    assert ((fpr >= 0.0) & (fpr <= 1.0)).all()
+    assert ((tpr >= 0.0) & (tpr <= 1.0)).all()
+    assert (np.diff(th) < 0).all()  # 降順（先頭は番兵の inf）
+
+
+def test_roc_table_max_points_thins_keeping_ends() -> None:
+    # 100 点でも max_points=5 なら高々 5 行に間引かれ、端点（fpr=tpr=0 の先頭・fpr=tpr=1 の末尾）は残る。
+    rng = np.random.default_rng(0)
+    y = np.tile(np.array([0, 1], dtype="int64"), 50)
+    s = rng.random(100)
+    full = ev.roc_table(y, s)
+    thin = ev.roc_table(y, s, max_points=5)
+    assert len(thin) <= 5 < len(full)
+    first, last = thin.to_dicts()[0], thin.to_dicts()[-1]
+    assert (first["fpr"], first["tpr"]) == (0.0, 0.0)
+    assert (last["fpr"], last["tpr"]) == (1.0, 1.0)
+
+
+def test_roc_table_single_class_is_error() -> None:
+    with pytest.raises(ValueError, match="両方"):
+        ev.roc_table(np.array([1, 1, 1], dtype="int64"), np.array([0.2, 0.5, 0.9], dtype="float64"))
+
+
+def test_roc_table_rejects_max_points_below_two() -> None:
+    # max_points<2 は「端点を必ず残す」約束を守れない（1 だと末尾が落ちる）ので拒否する。
+    y = np.array([0, 0, 1, 1], dtype="int64")
+    s = np.array([0.1, 0.4, 0.6, 0.9], dtype="float64")
+    with pytest.raises(ValueError, match="max_points は 2 以上"):
+        ev.roc_table(y, s, max_points=1)
+
+
 def test_threshold_table_matches_confusion_and_selector() -> None:
     y = np.array([0, 0, 1, 1], dtype="int64")
     s = np.array([0.1, 0.4, 0.6, 0.9], dtype="float64")
@@ -173,3 +357,28 @@ def test_threshold_table_matches_confusion_and_selector() -> None:
     best_t, _ = ev.select_threshold_max_f1(y, s)  # f1 最大の行の閾値が選択器と一致
     max_row = max(tbl.to_dicts(), key=lambda r: r["f1"])
     assert max_row["threshold"] == pytest.approx(best_t)
+
+
+def test_brier_from_construction() -> None:
+    # brier = mean((score - y)²)（brier_score_loss の定義）。期待値はテストデータの構成から厳密に導く。
+    # proba=1.0 で y=1（完全確信で正解）→ (1-1)²=0 の平均 = 0（最良）。
+    y_all1 = np.array([1, 1, 1, 1], dtype="int64")
+    s_sure = np.ones(4, dtype="float64")
+    assert ev.evaluate(y_all1, s_sure, metrics=["brier"])["brier"] == 0.0
+    # proba=0.5 一律・y 混在 → どの行も (0.5-y)²=0.25 → 平均 0.25（情報ゼロの確率）。
+    y_mixed = np.array([0, 1, 0, 1], dtype="int64")
+    s_half = np.full(4, 0.5, dtype="float64")
+    assert ev.evaluate(y_mixed, s_half, metrics=["brier"])["brier"] == pytest.approx(0.25)
+    # 反転（proba=1 で y=0＝完全確信で不正解）→ (1-0)²=1 の平均 = 1（最悪）。
+    y_all0 = np.array([0, 0, 0, 0], dtype="int64")
+    assert ev.evaluate(y_all0, s_sure, metrics=["brier"])["brier"] == 1.0
+
+
+def test_brier_registered_direction_and_passes() -> None:
+    # カタログ規約（DEC-0009）：説明文つきで METRICS に載る。向き（小さいほど良い）が passes で効く。
+    m = ev.METRICS["brier"]
+    assert (m.task, m.input, m.higher_is_better) == ("classification", "score", False)
+    assert m.tasks == ("binary",)  # 既定 classification→binary
+    assert m.description
+    assert ev.passes({"brier": 0.25}, {"brier": 0.3})  # 閾値以下で合格（小さいほど良い）
+    assert not ev.passes({"brier": 0.5}, {"brier": 0.3})

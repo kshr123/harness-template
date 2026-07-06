@@ -23,7 +23,8 @@
 1. **e2e のパス直書き**：`tests/test_e2e_experiment.py` は `work/EP-06-ds-experiment-loop/E-0001-.../code/train.py` を
    直接叩く。新案件で E-0001 のフォルダ名が変わると verify（e2e）が落ちる。**最初の実験フォルダに合わせてこのパスを直す**
    （experiment スキルの手順で最初の実験を作ってから、e2e のパスを差し替える）。
-2. **非 DS の案件**：`src/harness/checks.py` の `PM_CHECKS` から `ds_schema.data_lint` の 1 行を外す。
+2. **非 DS の案件**：`.harness/config.toml` で `profiles = []` にする（または行ごと消す）。これだけで
+   DS の検査（テーブル定義 data_lint）が verify から外れる（`checks.py` の手動編集は不要）。
    `pyproject.toml` の `[project.optional-dependencies].ds` は使わないなら残していてよい（入れなければ効かない）。
    AGENTS・DoD の「（DS プロファイル）」印の項目は非 DS では外す。
 3. **DS の案件**：`uv sync --extra ds` を入れる。テーブル定義（`docs/data/*.yaml`）を新データに合わせて作り直す。
@@ -35,5 +36,6 @@
 - `uv run issue list` に前案件の課題が残っていない。
 
 ## 将来
-プロファイルが 2 つ目（例：アプリ開発）になったら、`PM_CHECKS` の手動増減・「（DS プロファイル）」タグを
-プロファイル登録の仕組みへ昇格する（Rule of Three・構造レビュー低⑩／`docs/method.md` の進化のラチェット）。
+プロファイル登録の仕組みは導入済み（`.harness/config.toml` の `profiles`＋`src/harness/profiles.py`）。
+2 つ目のプロファイル（例：アプリ開発）は、`PROFILE` を公開するモジュールを書いて profiles に足すだけでよい。
+「（DS プロファイル）」タグの文書側の手動増減が残る（`docs/method.md` の進化のラチェット）。

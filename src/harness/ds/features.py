@@ -22,6 +22,8 @@ from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import KFold
 from sklearn.utils.validation import check_is_fitted
 
+from harness.registry import Entry, Registry
+
 
 class FeatureBlock(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """特徴量作成の1単位の基底。子クラスは `_transform` と `feature_names` を実装する。
@@ -441,15 +443,84 @@ class TargetAggregate(FeatureBlock):
         return [self._name(a) for a in self.aggs]
 
 
-# config の kind 文字列 → ブロックのクラス。config から特徴量を組む唯一の表（足したら 1 行足す）。
-BLOCKS: dict[str, type[FeatureBlock]] = {
-    "columns": Columns,
-    "interactions": Interactions,
-    "ratios": Ratios,
-    "differences": Differences,
-    "group_aggregate": GroupAggregate,
-    "count_encode": CountEncode,
-    "combine_keys": CombineKeys,
-    "multi_hot": MultiHot,
-    "target_aggregate": TargetAggregate,
+# 日付部分の抽出式（polars の dt アクセサ素通し・暦計算を手書きしない）。拡張点はこの辞書 1 か所。
+_DT_PARTS: dict[str, Callable[[str], pl.Expr]] = {
+    "year": lambda c: pl.col(c).dt.year(),
+    "month": lambda c: pl.col(c).dt.month(),
+    "day": lambda c: pl.col(c).dt.day(),
+    "weekday": lambda c: pl.col(c).dt.weekday(),
+    "hour": lambda c: pl.col(c).dt.hour(),
 }
+# 周期を持つ part →（周期, 値域のオフセット）。角度 = 2π·(値 − オフセット)/周期 で一周がちょうど閉じる。
+_DT_CYCLES: dict[str, tuple[int, int]] = {
+    "month": (12, 1),  # 1..12 → 2π·(month-1)/12
+    "weekday": (7, 1),  # 1..7 → 2π·(weekday-1)/7
+    "hour": (24, 0),  # 0..23 → 2π·hour/24
+}
+
+
+class DateTimeFeatures(FeatureBlock):
+    """datetime 列から日付部分の整数列と周期成分の sin/cos 列を作る（無状態）。
+
+    parts：各列 c につき polars の dt アクセサで整数列 `{c}_{part}` を出す。値域（polars 実測）：
+    year=暦年（例 2021）・month=1..12・day=1..31・weekday=1..7（月曜=1・日曜=7）・hour=0..23。
+    cyclical：周期を持つ part（month/weekday/hour）につき `{c}_{part}_sin`/`{c}_{part}_cos` の 2 列。
+    角度は値域のオフセットを引いてから周期で割る（month→2π·(month-1)/12・weekday→2π·(weekday-1)/7・
+    hour→2π·hour/24）ので一周でちょうど元に戻る（12月と1月・23時と0時が隣接になる）。
+    同じ part を parts と cyclical の両方に書けば整数列と sin/cos の両方が出る（列名が別なので衝突しない）。
+    出力列の順序は parts 全列 → cyclical 全列（どちらも列→part の順）。
+    前提：columns は Datetime 型。既定 parts は hour を含むので Date 型（時刻なし）列は polars が大声で落ちる
+    （黙って誤らない）。Date 型は parts/cyclical から hour を外して使う（例 parts=("year","month","day","weekday")）。
+    """
+
+    def __init__(
+        self,
+        columns: Sequence[str],
+        parts: Sequence[str] = ("year", "month", "day", "weekday", "hour"),
+        cyclical: Sequence[str] = ("month", "weekday", "hour"),
+    ) -> None:
+        self.columns = columns
+        self.parts = parts
+        self.cyclical = cyclical
+
+    def _validate(self) -> None:
+        for p in self.parts:
+            if p not in _DT_PARTS:
+                raise ValueError(f"未対応の part '{p}'（{sorted(_DT_PARTS)} のいずれか）")
+        for p in self.cyclical:
+            if p not in _DT_CYCLES:
+                raise ValueError(f"未対応の cyclical '{p}'（周期を持つ {sorted(_DT_CYCLES)} のいずれか）")
+
+    def _transform(self, x: pl.DataFrame) -> pl.DataFrame:
+        self._validate()
+        exprs = [_DT_PARTS[p](c).alias(f"{c}_{p}") for c in self.columns for p in self.parts]
+        for c in self.columns:
+            for p in self.cyclical:
+                period, offset = _DT_CYCLES[p]
+                angle = 2 * np.pi * (_DT_PARTS[p](c) - offset) / period
+                exprs.append(angle.sin().alias(f"{c}_{p}_sin"))
+                exprs.append(angle.cos().alias(f"{c}_{p}_cos"))
+        return x.select(exprs)
+
+    def feature_names(self) -> list[str]:
+        self._validate()
+        names = [f"{c}_{p}" for c in self.columns for p in self.parts]
+        for c in self.columns:
+            for p in self.cyclical:
+                names.extend([f"{c}_{p}_sin", f"{c}_{p}_cos"])
+        return names
+
+
+# config の kind 文字列 → ブロックのクラス。config から特徴量を組む唯一の表（足したら 1 行足す）。
+# 説明文はクラス自前の docstring 1 行目から自動で載る（親の継承は使わない・無ければ登録時に失敗）。
+BLOCKS: Registry[Entry] = Registry("特徴量ブロック", catalog="data blocks")
+BLOCKS.register("columns", Columns)
+BLOCKS.register("interactions", Interactions)
+BLOCKS.register("ratios", Ratios)
+BLOCKS.register("differences", Differences)
+BLOCKS.register("group_aggregate", GroupAggregate)
+BLOCKS.register("count_encode", CountEncode)
+BLOCKS.register("combine_keys", CombineKeys)
+BLOCKS.register("multi_hot", MultiHot)
+BLOCKS.register("target_aggregate", TargetAggregate)
+BLOCKS.register("datetime", DateTimeFeatures)
