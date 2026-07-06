@@ -33,6 +33,22 @@ from harness.serve.app import create_app  # noqa: E402
 pytestmark = pytest.mark.integration
 
 
+def test_input_fingerprint_is_sha256_of_canonical_json() -> None:
+    """input_fingerprint のアルゴリズムを独立に固定する（正準 JSON＝キー昇順・区切り最小の sha256）。
+
+    再計算一致だけだと関数が黙って変わっても緑のまま。ここでは正準 JSON の定義（docs/serve.md）を
+    テスト側に書き下してハッシュを独立に計算し、runtime と一致することを固定する（sort_keys を外す・
+    区切りを変える等のアルゴリズム変異を赤にするアンカー）。後続 monitor が過去ログと突き合わせる正本。
+    """
+    import hashlib
+
+    features = {"x2": 2.0, "x1": 1.0}  # あえてキー順を逆に＝正準化（sort_keys）で並べ替わることを確かめる
+    canonical = json.dumps(features, sort_keys=True, separators=(",", ":"))
+    assert canonical == '{"x1":1.0,"x2":2.0}'  # 正準 JSON の定義（キー昇順・区切り最小）をここで固定
+    expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    assert runtime.input_fingerprint(features) == expected
+
+
 def _pipeline(model: Any) -> Pipeline:
     """特徴 x1/x2 だけを選ぶ最小の Pipeline（学習と配信で同じ物が動く前提の器）。"""
     return Pipeline([("features", FeaturePipeline([("columns", Columns(["x1", "x2"]))])), ("model", model)])
