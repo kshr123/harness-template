@@ -33,6 +33,12 @@ statsmodels = ["statsmodels>=0.14"]
 # モデルの安全な保存形式（pickle の代替）。入れれば FORMATS に "skops" が増える（条件登録）。
 # 導入例: uv sync --extra ds --extra skops
 skops = ["skops>=0.11"]
+# 可搬な配信形式（本の中心＝ONNX）。入れれば FORMATS に "onnx" が増える（条件登録・sklearn 尾部のみ変換）。
+# skl2onnx が変換・onnxruntime が読込・onnx を metadata_props で直接触るため 3 つ明示。導入例: uv sync --extra ds --extra onnx
+onnx = ["skl2onnx>=1.20", "onnxruntime>=1.27", "onnx>=1.22"]
+# 配信プロファイル（harness.serve）。champion を FastAPI で出す。ds と併用: uv sync --extra ds --extra serve
+# 配信イメージを可搬にするなら onnx も: uv sync --extra ds --extra serve --extra onnx
+serve = ["fastapi>=0.139", "uvicorn>=0.50"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -44,6 +50,8 @@ issue = "harness.cli:issue_main"
 # data は DS プロファイルの CLI（プロファイル境界・DEC-0004。中核 CLI とはモジュールを分ける）。
 data = "harness.ds.cli:data_main"
 changelog = "harness.cli:changelog_main"
+# 配信プロファイルの CLI（champion を FastAPI で出す）。extra serve が要る（無ければ案内して exit 1）。
+serve = "harness.serve.cli:serve_main"
 
 [dependency-groups]
 dev = [
@@ -52,6 +60,8 @@ dev = [
     "pytest>=8.3",
     "hypothesis>=6.120",
     "pre-commit>=4.0",
+    # FastAPI の TestClient（starlette）が使う。配信プロファイルのテスト用（ランタイム extra には入れない）。
+    "httpx>=0.28",
 ]
 # ty（Astral の高速型チェッカー）は beta のため任意・ローカル用。
 # 使う場合のみ: uv add --dev --prerelease=allow ty
@@ -83,7 +93,7 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 # 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
-module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*"]
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

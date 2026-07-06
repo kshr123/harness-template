@@ -11,6 +11,7 @@ import pytest
 from harness.ds.cli import (
     _data_blocks,
     _data_encoders,
+    _data_formats,
     _data_metrics,
     _data_models,
     _data_selectors,
@@ -72,6 +73,15 @@ def test_dimred_and_anomaly_have_docstrings() -> None:
             assert entry.description, f"{name}['{kind}'] に説明文が無い（カタログに載れない）"
 
 
+def test_formats_have_descriptions() -> None:
+    # 保存形式も config/save_model の語彙＝カタログ対象（DEC-0009）。説明文と実体ファイル名が全項目に在ること。
+    from harness.ds.models import FORMATS
+
+    for name, fmt in FORMATS.items():
+        assert fmt.description, f"FORMATS['{name}'] に説明文が無い（カタログに載れない）"
+        assert fmt.file_name, f"FORMATS['{name}'] に file_name が無い（版ディレクトリの実体名）"
+
+
 def test_metrics_have_descriptions() -> None:
     # 指標も config の語彙（thresholds）＝カタログ対象。説明文が無いと一覧に載れない。
     for name, metric in METRICS.items():
@@ -86,6 +96,7 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     _data_unsupervised()
     _data_selectors()
     _data_tuners()
+    _data_formats()
     out = capsys.readouterr().out
     # レジストリの項目が一覧に出る（エージェントが1コマンドで発見できる）。
     assert "columns" in out
@@ -103,6 +114,10 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert "roc_auc" in out  # 指標カタログ
     assert "pinball_q10" in out  # 分位変種（T-0080）が説明つきで載る（DEC-0009）
     assert "timeseries" in out  # 古典時系列（statsmodels 導入環境・all-extras）
+    # 保存形式カタログ（data formats）。pickle は常時・skops/onnx は optional extra（all-extras 環境）。
+    assert "pickle" in out
+    assert "model.skops" in out
+    assert "model.onnx" in out
     # (A) 教師なしカタログ（3 レジストリ）が data unsupervised に載る。
     for kind in ("pca", "tsne", "kmeans", "gmm", "hdbscan", "iforest", "lof"):
         assert kind in out, f"data unsupervised に {kind} が載っていない"

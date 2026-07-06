@@ -1,0 +1,14 @@
+# 配信の Service（テンプレート）。selector は deployment の Pod ラベルと一致させる（deploy_lint が検査）。
+apiVersion: v1
+kind: Service
+metadata:
+  name: harness-serve
+  namespace: harness-serve
+spec:
+  type: ClusterIP
+  selector:
+    app: harness-serve
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

@@ -1,0 +1,40 @@
+# 配信の 2 形態（テンプレート）。用途に応じてどちらか一方を上げる（両方同時に上げる必要はない）。
+# 参照整合（コンテナ側ポート・image・env SERVE_WORK/SERVE_NAME）は deploy_lint が verify で検査する。
+services:
+  # 配布形：モデル（data/）をイメージに焼き込む。k8s/deployment.yaml と同じイメージを使う。
+  serve-in-image:
+    build:
+      context: .
+      dockerfile: Dockerfile.serve
+      target: model-in-image
+    image: harness-serve:model-in-image
+    environment:
+      SERVE_WORK: "E-0001" # 配る作業単位ID（案件のモデルに合わせて替える）
+      SERVE_NAME: "baseline" # 配るモデル名（同上）
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # 開発形：モデルはイメージに入れず、手元の ./data を読み取り専用で読ませる（再ビルド無しで差し替え）。
+  serve-model-load:
+    build:
+      context: .
+      dockerfile: Dockerfile.serve
+      target: model-load
+    image: harness-serve:model-load
+    environment:
+      SERVE_WORK: "E-0001"
+      SERVE_NAME: "baseline"
+    volumes:
+      - ./data:/app/data:ro
+    ports:
+      - "8001:8000" # ホスト側は 8001（in-image と併走できるように）。コンテナ側は 8000 で統一。
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

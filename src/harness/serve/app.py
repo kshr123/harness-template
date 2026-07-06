@@ -1,0 +1,112 @@
+"""champion を配信する FastAPI アプリ（sync 配信・DEC-0013）。
+
+fastapi・polars はこのモジュールの top で import する（profile.py/__init__.py からは辿られない＝
+`import harness.serve` の軽 import を壊さない）。モデルは起動時（create_app）に読み込み、champion が
+無ければ明示エラーで落とす（リクエスト時に初めて壊れる・黙って空で立つ、をしない）。
+予測は 1 リクエストごとに来歴つき JSONL（runtime.PREDICTION_LOG_FIELDS の契約）へ追記する。
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import polars as pl
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+from harness.serve import runtime
+
+
+class PredictRequest(BaseModel):
+    """POST /predict の本文。records＝予測したい行の一覧（列名→値。全行同じ列であること）。"""
+
+    records: list[dict[str, Any]]
+
+
+def create_app(root: Path, *, work: str, name: str, version: str | None = None, log_dir: Path | None = None) -> FastAPI:
+    """champion（version 指定時はその版）を載せた FastAPI アプリを作る。
+
+    - GET /health … 生存確認（載っているモデルの work/name/version つき）。
+    - GET /metadata … ModelRecord の構造化（来歴・指標）＋prediction_kind/feature_names。
+    - POST /predict … `{"records": [{列名: 値}, ...]}` を予測。空 records・行ごとの列の食い違い・
+      列不足や型不一致で予測できない入力は 422（黙って 200 にしない）。成功時は予測ごとに
+      来歴つき JSONL（既定 artifacts/serve/predictions/<name>/<YYYYMMDD>.jsonl）へ 1 行追記する。
+    """
+    model, record = runtime.load_champion(root, work=work, name=name, version=version)
+    prediction_kind = runtime.prediction_kind_of(model)
+    app = FastAPI(title=f"harness serve {record.work}/{record.name}")
+    # テスト・運用ツールが起動済みアプリから来歴を確認できるよう state にも持つ（handler は closure で参照）。
+    app.state.model = model
+    app.state.record = record
+    app.state.prediction_kind = prediction_kind
+
+    @app.get("/health")
+    def health() -> dict[str, Any]:
+        """生存確認。何が載っているか（モデルの版）まで返す＝取り違えの早期発見。"""
+        return {
+            "status": "ok",
+            "model": {"work": record.work, "name": record.name, "version": record.version},
+        }
+
+    @app.get("/metadata")
+    def metadata() -> dict[str, Any]:
+        """載っているモデルの来歴（manifest の内容）＋予測の種類。path はローカル事情なので出さない。"""
+        return {
+            "work": record.work,
+            "name": record.name,
+            "version": record.version,
+            "format": record.format,
+            "fingerprint": record.fingerprint,
+            "data_fingerprint": record.data_fingerprint,
+            "feature_names": list(record.feature_names),
+            "metrics": dict(record.metrics),
+            "python": record.python,
+            "dependencies": dict(record.dependencies),
+            "created": record.created,
+            "prediction_kind": prediction_kind,
+        }
+
+    @app.post("/predict")
+    def predict(request: PredictRequest) -> dict[str, Any]:
+        """records を予測する。predictions の形は prediction_kind に応じる（docs/serve.md の契約）。"""
+        records = request.records
+        if not records:
+            raise HTTPException(status_code=422, detail="records が空（予測する行を 1 行以上入れること）")
+        keys = set(records[0])
+        for i, rec in enumerate(records[1:], start=1):
+            if set(rec) != keys:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"行 {i} の列 {sorted(rec)} が行 0 の列 {sorted(keys)} と違う（全行同じ列にする）",
+                )
+        try:
+            df = pl.DataFrame(records)
+            predictions, kind = runtime.predict_frame(model, df)
+        except Exception as exc:
+            # モデルは起動時に検証済み＝この経路の失敗は入力起因（列不足・型不一致・値の形）とみなす。
+            raise HTTPException(
+                status_code=422, detail=f"この入力では予測できない（列不足・型不一致など）: {exc}"
+            ) from exc
+        request_id = uuid.uuid4().hex
+        now = datetime.now(UTC)
+        rows = runtime.build_log_rows(
+            record=record,
+            prediction_kind=kind,
+            features_rows=records,
+            predictions=predictions,
+            request_id=request_id,
+            time=now.isoformat(),
+        )
+        runtime.append_jsonl(runtime.log_path(root, name=record.name, log_dir=log_dir, when=now), rows)
+        return {
+            "predictions": predictions.tolist(),
+            "prediction_kind": kind,
+            "model": {"work": record.work, "name": record.name, "version": record.version},
+            "request_id": request_id,
+            "n": len(records),
+        }
+
+    return app

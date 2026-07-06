@@ -34,7 +34,7 @@ _FIXED_FILES = ("AGENTS.md", "CLAUDE.md", "docs/method.md", "docs/learnings.md")
 _DEC_RE = re.compile(r"\bDEC-\d+\b")
 _ISS_RE = re.compile(r"\bISS-\d+\b")
 # 相対パス：既知の先頭ディレクトリで始まり、パスに使う文字だけが続く語。直前がパスの一部なら拾わない。
-_PATH_RE = re.compile(r"(?<![\w./-])((?:docs|src|work|tests|\.claude)/[\w./-]*[\w/])")
+_PATH_RE = re.compile(r"(?<![\w./-])((?:docs|src|work|tests|templates|\.claude)/[\w./-]*[\w/])")
 _CMD_RE = re.compile(r"\buv run ([A-Za-z0-9][\w-]*)")
 # pyproject / .venv から導出できないときも常に含める最小集合（中核 CLI）。
 _FALLBACK_COMMANDS = frozenset({"verify", "status", "task-lint", "data"})

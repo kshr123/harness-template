@@ -203,6 +203,50 @@ def _data_compare(
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
+@data_app.command("monitor")
+def _data_monitor(
+    baseline: Annotated[str, typer.Option("--baseline", help="学習基準テーブルの id（store 経由で読む）")],
+    log: Annotated[
+        str, typer.Option("--log", help="配信予測ログの glob（root 相対）")
+    ] = "artifacts/serve/predictions/**/*.jsonl",
+    columns: Annotated[
+        str | None, typer.Option("--columns", help="対象列（カンマ区切り。省略時は共通列すべて）")
+    ] = None,
+    auc: Annotated[bool, typer.Option("--auc", help="分布差 AUC（adversarial validation）も出す")] = False,
+    since: Annotated[
+        str | None, typer.Option("--since", help="この日付（YYYY-MM-DD・境界日を含む）以降の行だけ")
+    ] = None,
+    seed: Annotated[int, typer.Option(help="--auc の乱数種")] = 0,
+) -> None:
+    """配信ログ（予測 JSONL）×学習基準テーブルの分布監視表を YAML で出す（psi/band・--auc で drift・予測の要約）。
+
+    門番にしない（分布ずれは exit code に載せず band で人が読む・exit 0）。基準テーブルが読めないときだけ非 0。
+    ログの glob は root 相対（既定 artifacts/serve/predictions/**/*.jsonl）。serve は起動しない（結合は契約のみ）。
+    """
+    from datetime import date
+
+    import yaml
+
+    from harness.ds import monitor as monitor_mod
+    from harness.ds import store
+
+    since_date: date | None = None
+    if since is not None:
+        try:
+            since_date = date.fromisoformat(since)
+        except ValueError as exc:
+            raise typer.BadParameter(f"--since は YYYY-MM-DD 形式（受領: {since!r}）") from exc
+
+    root = _root()
+    baseline_df = store.load(root, baseline)  # 読めなければここで例外＝非 0（唯一の門番）
+    files = sorted(root.glob(log))
+    served = monitor_mod.read_prediction_logs(files, since=since_date)
+    cols = columns.split(",") if columns else None
+    report = monitor_mod.monitor(baseline_df, served, columns=cols, auc=auc, seed=seed)
+    out: dict[str, object] = {"baseline": baseline, "log": log, **report.to_dict()}
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+
 def _feature_columns(df: Any, columns: str | None) -> list[str]:  # noqa: ANN401  polars.DataFrame
     """教師なしに渡す数値列を決める。--columns 指定があればそれ、無ければ数値列から id を除く。
 
@@ -309,6 +353,19 @@ def _data_metrics() -> None:
 
     render_catalog(METRICS, show_task=True)  # MetricEntry＝向き（大/小）の列が自動で付く
     typer.echo("\nthresholds に書くと passes が向き（大/小）を見て合否判定する。本体は sklearn.metrics 素通し。")
+
+
+@data_app.command("formats")
+def _data_formats() -> None:
+    """モデル保存形式の一覧（FORMATS レジストリから生成）。save_model の format に書ける名前。"""
+    from harness.ds.models import FORMATS
+
+    for name, fmt in sorted(FORMATS.items()):  # FORMATS は素の dict＝薄い描画（render_catalog は Registry 用）
+        typer.echo(f"{name}\t{fmt.file_name}\t{fmt.description}")
+    typer.echo(
+        "\n保存は model_store.save_model(..., format=<名前>)。未表示＝未導入："
+        "skops は `uv sync --extra skops`・onnx は `uv sync --extra onnx` で登録される。"
+    )
 
 
 @data_app.command("predict")

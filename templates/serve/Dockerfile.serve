@@ -1,0 +1,37 @@
+# 配信イメージ（テンプレート）。champion を `uv run serve` で FastAPI 配信する。
+# マルチターゲット（--target で選ぶ）：
+#   model-load     … モデルをイメージに入れない軽い形。実行時に ./data を volume で読ませる（開発向き）。
+#   model-in-image … data/（モデル一式）をイメージに焼き込む形。イメージ＝配る版（本番・K8s 向き）。
+# 参照整合（EXPOSE＝--port・$SERVE_WORK/$SERVE_NAME・uv sync の --extra serve）は deploy_lint が verify で検査する。
+FROM python:3.14-slim-bookworm AS base
+
+# uv（依存・環境管理ツール）を公式イメージから取り込む（ルートの Dockerfile と同じ作法）。
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# まず依存だけを同期する（ソースを変えても依存の層を再利用できる＝ビルドが速い）。
+# 配信に要る extra だけに絞る（dev 依存・全部入りにしない）。onnx は可搬形式を配る前提の同梱。
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev --extra ds --extra serve --extra onnx
+
+# ソースと置き場設定だけを入れる（data/ はここでは入れない＝model-load を軽いまま保つ）。
+COPY src/ ./src/
+COPY .harness/ ./.harness/
+RUN uv sync --frozen --no-dev --extra ds --extra serve --extra onnx
+
+# 配るモデルの指定は env（compose・k8s/deployment.yaml の env と三者一致＝deploy_lint が検査）。
+ENV SERVE_WORK="" \
+    SERVE_NAME=""
+
+EXPOSE 8000
+
+# env を展開するため shell を挟む（exec 形式の直書きでは $SERVE_WORK が展開されない）。
+ENTRYPOINT ["/bin/sh", "-c", "exec uv run serve --host 0.0.0.0 --port 8000 --work \"$SERVE_WORK\" --name \"$SERVE_NAME\""]
+
+# --- model-load：モデルはイメージに入れない（実行時に ./data を volume で読む） ---
+FROM base AS model-load
+
+# --- model-in-image：モデル一式（data/）をイメージに焼き込む（イメージ＝配る版） ---
+FROM base AS model-in-image
+COPY data/ ./data/
