@@ -1,9 +1,10 @@
 ---
 id: ISS-0002
 kind: risk
-state: open
+state: resolved
 found_in: 構造レビュー-2026-07
 created: 2026-07-03
+promoted_to: T-0069
 title: テスト規約の一部が規約止まりで機械検査になっていない（seed・--test・xfail参照）
 ---
 # ISS-0002 テスト規約の一部が規約止まりで機械検査になっていない（seed・--test・xfail参照）

@@ -117,6 +117,27 @@ def test_null_id_raises() -> None:
         final_eval_on_holdout(_estimator(), df_fit, y_fit, df_hold, y_hold)
 
 
+@pytest.mark.integration
+def test_decision_threshold_renamed_and_reaches_eval() -> None:
+    # decision_threshold=0.0 → 全行を陽性と判定：balanced な holdout（陽性 10・陰性 10）なら
+    # recall は 1.0（陽性を全部拾う）・accuracy は 0.5（半分だけ当たる）＝構成から導ける。
+    df_fit, y_fit = _separable_df(0, 20)
+    df_hold, y_hold = _separable_df(100, 10)
+    result = final_eval_on_holdout(_estimator(), df_fit, y_fit, df_hold, y_hold, decision_threshold=0.0)
+    assert result.metrics["recall"] == 1.0
+    assert result.metrics["accuracy"] == 0.5
+    # 旧 threshold= は残さない（改名の証拠＝TypeError で使えない）。
+    with pytest.raises(TypeError):
+        final_eval_on_holdout(
+            _estimator(),
+            df_fit,
+            y_fit,
+            df_hold,
+            y_hold,
+            threshold=0.4,  # type: ignore[call-arg]
+        )
+
+
 def _three_class_df(start_id: int, n_per_class: int) -> tuple[pl.DataFrame, NDArray[np.float64]]:
     """x1 のクラスタ（-4・0・+4）がそのままクラス（0・1・2）になる完全分離の 3 クラスデータ。"""
     x1 = np.repeat([-4.0, 0.0, 4.0], n_per_class)
