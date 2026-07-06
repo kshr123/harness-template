@@ -1,0 +1,15 @@
+id: e0001_oof_reg_baseline
+description: E-0001 回帰変種（reg_baseline）の OOF 予測（fold 外の予測値と正解。task 分岐スモーク用）
+layer: processed
+scope: E-0001
+role: prediction
+primary_key: [id]
+lineage:
+  inputs: [e0001_folds]
+  code: work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py
+  work: E-0001
+columns:
+  - { name: id, dtype: Int64, nullable: false, unique: true }
+  - { name: fold, dtype: Int64, nullable: false, description: この行が valid だった fold }
+  - { name: y, dtype: Float64, nullable: false, description: 目的変数（連続値） }
+  - { name: oof_score, dtype: Float64, nullable: false, description: OOF の予測値（回帰＝範囲制約なし） }

@@ -4,8 +4,12 @@
 丸ごとコピーして config.yaml だけ書き換える（train.py は触らない）。特徴量・エンコーダの kind は
 `uv run data blocks` / `uv run data encoders` の一覧から選ぶ。
 
-使い方：`python train.py --variant <config の variants キー> [--test] [--root <dir>] [--out <dir>]`
+使い方：`python train.py [--config <yaml>] --variant <config の variants キー> [--test] [--root <dir>] [--out <dir>]`
 - 変種は config.yaml の variants 節で持つ（実験＝1 仮説）。各変種は build_estimator の spec（features / encode）。
+- task（config の task 節）で評価の後段を分岐する（雛形本体は 1 つ・違いは config で選ぶ）：
+  classification（二値・既定）＝OOF で決定境界を選び二値指標／multiclass＝argmax の多クラス指標／
+  regression＝予測値の回帰指標（多クラス・回帰に閾値選択は無い）。config は --config で選ぶ
+  （既定 config.yaml＝二値。回帰・多クラスの変種は config-regression.yaml / config-multiclass.yaml）。
 - --test は小さな規模（config の test_mode）でスモークする。--root 未指定の --test は毎回新しい一時ディレクトリ。
 - 特徴量→（エンコード）→モデルは 1 本の sklearn Pipeline を harness.ds.pipeline.build_estimator が config から組む。
   run_experiment が fold ごとに clone→train で fit（漏れ防止は構造）。CV・保存・閾値は再実装しない（部品が正本）。
@@ -23,6 +27,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import yaml
 
@@ -54,6 +59,35 @@ backend = "file:issues"
 [metadata]
 uri = "file:docs/data"
 """
+
+# ---- 実験ローカルのデータ源（task 変種用） ----
+# 共通部品の synthetic（harness.ds.data.generate_synthetic）は二値のみ。回帰・多クラスの config 変種
+# （config-regression.yaml / config-multiclass.yaml）用の合成データはこの実験のローカル源として
+# DATA_SOURCES に登録し、config の data.kind で選ぶ（データの選択も config＝雛形本体は 1 つ）。
+# 2 本目の実験でも要るようになったら src/harness/ds/data.py の DATA_SOURCES へ昇格する。
+
+
+def _synthetic_regression(root: Path, *, n: int, seed: int, **_ignored: object) -> pl.DataFrame:
+    """回帰の合成データ（E-0001 ローカル）。y = 1.5*x1 − 2.0*x2 + 雑音（std 0.5）＝線形で当てられる連続値。"""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    y = 1.5 * x1 - 2.0 * x2 + rng.normal(scale=0.5, size=n)
+    return pl.DataFrame({"id": np.arange(n, dtype="int64"), "x1": x1, "x2": x2, "y": y})
+
+
+def _synthetic_multiclass(root: Path, *, n: int, seed: int, **_ignored: object) -> pl.DataFrame:
+    """3 クラスの合成データ（E-0001 ローカル）。線形スコアを ±1.0 で区切り y∈{0,1,2}（cv の 0..k-1 契約）。"""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    score = 1.5 * x1 - 2.0 * x2 + rng.normal(scale=0.5, size=n)
+    y = np.digitize(score, [-1.0, 1.0]).astype("int64")  # 3 クラスが各 30〜35% のほぼ均衡になる区切り
+    return pl.DataFrame({"id": np.arange(n, dtype="int64"), "x1": x1, "x2": x2, "y": y})
+
+
+data.DATA_SOURCES.register("synthetic_regression", _synthetic_regression)
+data.DATA_SOURCES.register("synthetic_multiclass", _synthetic_multiclass)
 
 
 def prepare_root(*, test: bool, root: Path | None) -> Path:
@@ -94,9 +128,18 @@ def save_folds(root: Path, folds: pl.DataFrame) -> str:
 
 
 def main() -> int:
-    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))  # --variant の選択肢は config の variants キーから導く
+    # --config を先に読む（--variant の選択肢は config の variants キーから導くため 2 段で解析する）。
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument(
+        "--config",
+        type=Path,
+        default=CONFIG,
+        help="実験 config（既定 config.yaml＝二値。task 変種は config-regression.yaml / config-multiclass.yaml）",
+    )
+    pre_args, _rest = pre.parse_known_args()
+    cfg = yaml.safe_load(pre_args.config.read_text(encoding="utf-8"))
     spec = ExperimentSpec.model_validate(cfg)  # 型の正本。未知キー・型違いを起動時に止め、以後は spec から読む
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(parents=[pre])
     parser.add_argument("--variant", default=next(iter(spec.variants)), choices=list(spec.variants))
     parser.add_argument("--test", action="store_true", help="小さな規模でスモークする")
     parser.add_argument(
@@ -154,20 +197,36 @@ def main() -> int:
     if not result.cv.oof_mask.all():
         raise SystemExit("OOF が全行を覆っていない（この実験は全行 CV 前提。分割を見直すこと）")
     folds_fp = save_folds(root, result.folds)
+    # OOF の保存列：二値=陽性確率・回帰=予測値（どちらも (n,) の float）。多クラスの OOF は (n, k) の proba
+    # なので予測クラス（argmax・0..k-1）を保存する（1 列の表に収める＝テーブル定義 e0001_oof_* の oof_score）。
+    oof_series = (
+        pl.Series("oof_score", result.cv.oof.argmax(axis=1).astype("int64"))
+        if task == "multiclass"
+        else pl.Series("oof_score", result.cv.oof)
+    )
     oof_table = (
         df.select("id")
         .with_columns(
             y=df[target],  # 保存する OOF 表の列名は y に揃える（e0001_oof のテーブル定義）
             fold=result.folds["fold"],
-            oof_score=pl.Series("oof_score", result.cv.oof),
+            oof_score=oof_series,
         )
         .select("id", "fold", "y", "oof_score")
     )
     oof_fp = store.save(root, oof_table, f"e0001_oof_{args.variant}", code=CODE_REF, work=WORK_ID)
 
-    y_int = df[target].to_numpy().astype("int64")
-    threshold, f1_at = ev.select_threshold_max_f1(y_int, result.cv.oof)  # 閾値は OOF で選ぶ（規約）
-    metrics_at = ev.evaluate(y_int, result.cv.oof, threshold=threshold)
+    # task で評価の後段を分岐：binary（classification）だけ OOF で決定境界（閾値）を選ぶ。
+    # multiclass は argmax・regression は予測値そのもので評価するので閾値選択は無い
+    # （run_experiment・final_eval_on_holdout の対応経路が指標を切り替える）。
+    threshold_block: dict[str, object] | None = None
+    metrics_at: dict[str, float] | None = None
+    decision_threshold = 0.5  # 二値以外では使われない（final_eval_on_holdout の既定と同じ）
+    if task == "classification":
+        y_int = df[target].to_numpy().astype("int64")
+        threshold, f1_at = ev.select_threshold_max_f1(y_int, result.cv.oof)  # 閾値は OOF で選ぶ（規約）
+        metrics_at = ev.evaluate(y_int, result.cv.oof, threshold=threshold)
+        threshold_block = {"method": "max_f1", "value": threshold, "f1": f1_at}
+        decision_threshold = threshold
 
     estimator.fit(df, y)  # 配布用は全データで学習し直す（run_cv は clone するので estimator は未学習のまま）
     record = model_store.save_model(
@@ -196,33 +255,36 @@ def main() -> int:
         df_test,
         y_test,
         task=task,
-        decision_threshold=threshold,
+        decision_threshold=decision_threshold,
         thresholds=thresholds,
         metrics=spec.metrics,
         id_column=spec.id_column,
     )
 
+    payload: dict[str, object] = {
+        "variant": args.variant,
+        "mode": "test" if args.test else "full",
+        "seed": seed,
+        "n": n,
+        "n_folds": n_folds,
+        "task": task,
+        "metrics": result.metrics,
+        "passed": result.passed,
+    }
+    if threshold_block is not None:  # 二値だけ（多クラス・回帰の results に決定境界の欄は無い）
+        payload["threshold"] = threshold_block
+        payload["metrics_at_threshold"] = metrics_at
+    payload.update(
+        {
+            "holdout": {"n": df_test.height, "metrics": holdout.metrics, "passed": holdout.passed},
+            "fingerprints": {"folds": folds_fp, "oof": oof_fp, "model": record.fingerprint},
+            "model": {"name": record.name, "version": record.version},
+            "feature_names": list(record.feature_names),
+        }
+    )
     out.mkdir(parents=True, exist_ok=True)
     (out / f"metrics_{args.variant}.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "variant": args.variant,
-                "mode": "test" if args.test else "full",
-                "seed": seed,
-                "n": n,
-                "n_folds": n_folds,
-                "metrics": result.metrics,
-                "passed": result.passed,
-                "threshold": {"method": "max_f1", "value": threshold, "f1": f1_at},
-                "metrics_at_threshold": metrics_at,
-                "holdout": {"n": df_test.height, "metrics": holdout.metrics, "passed": holdout.passed},
-                "fingerprints": {"folds": folds_fp, "oof": oof_fp, "model": record.fingerprint},
-                "model": {"name": record.name, "version": record.version},
-                "feature_names": list(record.feature_names),
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
     print(f"variant={args.variant} passed={result.passed} metrics={result.metrics}")

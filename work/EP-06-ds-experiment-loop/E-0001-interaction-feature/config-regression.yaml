@@ -1,0 +1,19 @@
+# E-0001 の task 変種（回帰）＝雛形 train.py の task 分岐スモーク（--test・e2e が毎回実行）。
+# 雛形本体は 1 つ（code/train.py）・task の違いは config で選ぶ：`python code/train.py --config config-regression.yaml --variant reg_baseline --test`
+# データは train.py 登録のローカル源 synthetic_regression（y = 1.5*x1 − 2.0*x2 + 雑音 std 0.5）。
+# thresholds の導出：線形モデル（ridge）は係数を回復でき残差 ≈ 雑音 → OOF rmse ≈ 0.5。揺れを見て 0.6 以下で合格。
+# 本規模で回すときは --root を分ける（fold 表 e0001_folds は config.yaml（二値）の分割と別物になるため）。
+seed: 20260706
+n: 2000
+n_folds: 5
+data: { kind: synthetic_regression } # train.py が DATA_SOURCES に登録する実験ローカルの合成データ
+target: y
+task: regression # 閾値選択なし・回帰指標で評価（雛形が task で後段を分岐する）
+model: { kind: ridge }
+metrics: [rmse, mae, r2] # mape は y が 0 をまたぐ合成データでは発散するので選ばない
+variants:
+  reg_baseline:
+    features:
+      - { kind: columns, columns: [x1, x2] }
+test_mode: { n: 240, n_folds: 3 } # --test のときの小さな規模
+thresholds: { rmse: 0.6 } # 雑音 std 0.5 ≈ 残差の下限 → 0.6 以下なら学習が効いている
