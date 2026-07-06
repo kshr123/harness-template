@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 import pytest
+from numpy.typing import NDArray
 
 from harness.ds import analysis
 
@@ -45,3 +46,99 @@ def test_residual_summary_from_construction() -> None:
     assert r["mean"] == pytest.approx(-3.5)
     assert r["min"] == pytest.approx(-4.0)
     assert r["max"] == pytest.approx(-3.0)
+
+
+class _IdentityEstimator:
+    """predict が x1 列をそのまま返す偽推定器。全行を v に置換すると平均予測＝v（構成から厳密）。"""
+
+    def predict(self, x: pl.DataFrame) -> NDArray[np.float64]:
+        return x["x1"].to_numpy()
+
+
+class _SpyEstimator:
+    """受け取った DataFrame を記録し x2 列を返す偽推定器（他列が保たれるかの観測用）。"""
+
+    def __init__(self) -> None:
+        self.received: list[pl.DataFrame] = []
+
+    def predict(self, x: pl.DataFrame) -> NDArray[np.float64]:
+        self.received.append(x)
+        return x["x2"].to_numpy()
+
+
+def test_partial_dependence_monotone_increasing_with_logreg() -> None:
+    from sklearn.linear_model import LogisticRegression
+
+    rng = np.random.default_rng(0)
+    x1 = rng.normal(size=200)
+    x = pl.DataFrame({"x1": x1})
+    y = (x1 > 0).astype("int64")  # x1 が大きいほど陽性（線形分離）
+    est = LogisticRegression(random_state=0).fit(x, y)
+    out = analysis.partial_dependence_table(est, x, "x1")
+    assert out.columns == ["feature_value", "avg_prediction"]
+    avg = out["avg_prediction"].to_list()
+    assert all(a < b for a, b in zip(avg, avg[1:], strict=False))  # 単調増加（logreg のシグモイドは狭義単調）
+    assert avg[0] < 0.5 < avg[-1]  # 分離データ＝左端は陰性側・右端は陽性側
+
+
+def test_partial_dependence_grid_passthrough_sorted() -> None:
+    x = pl.DataFrame({"x1": [0.0, 10.0, 20.0]})
+    out = analysis.partial_dependence_table(_IdentityEstimator(), x, "x1", grid=[0.5, -1.0, 2.0], predict="value")
+    assert out["feature_value"].to_list() == [-1.0, 0.5, 2.0]  # 渡した 3 値ちょうど・昇順
+    assert out["avg_prediction"].to_list() == [-1.0, 0.5, 2.0]  # 恒等予測＝全行置換の平均はグリッド値そのもの
+
+
+def test_partial_dependence_n_points_linspace() -> None:
+    x = pl.DataFrame({"x1": np.arange(21, dtype="float64")})  # ユニーク 21 個 > n_points=5 → 等分
+    out = analysis.partial_dependence_table(_IdentityEstimator(), x, "x1", n_points=5, predict="value")
+    assert out["feature_value"].to_list() == [0.0, 5.0, 10.0, 15.0, 20.0]  # min..max（0..20）の 5 等分
+    assert out.height == 5
+
+
+def test_partial_dependence_discrete_uses_unique_values() -> None:
+    x = pl.DataFrame({"x1": [2, 0, 1, 0, 2, 1]})  # ユニーク {0,1,2} ≤ n_points → ユニーク値がグリッド
+    out = analysis.partial_dependence_table(_IdentityEstimator(), x, "x1", predict="value")
+    assert out["feature_value"].to_list() == [0.0, 1.0, 2.0]
+    assert out.height == 3
+
+
+def test_partial_dependence_keeps_other_columns() -> None:
+    x = pl.DataFrame({"x1": [1.0, 2.0, 3.0], "x2": [10.0, 20.0, 30.0]})
+    spy = _SpyEstimator()
+    out = analysis.partial_dependence_table(spy, x, "x1", grid=[99.0], predict="value")
+    assert len(spy.received) == 1
+    seen = spy.received[0]
+    assert seen["x1"].to_list() == [99.0, 99.0, 99.0]  # feature 列だけ全行置換
+    assert seen["x2"].to_list() == x["x2"].to_list()  # 他列は元のまま
+    assert out["avg_prediction"].to_list()[0] == pytest.approx(20.0)  # x2 の平均＝置換の影響は feature 列だけ
+
+
+@pytest.mark.integration
+def test_partial_dependence_int_feature_with_join_encoder() -> None:
+    # Int64 の離散 feature を CountEncode（transform で元列に join する）に通した Pipeline でも、置換が元 dtype を
+    # 保つので f64 vs i64 の SchemaError を出さない。グリッドは離散ユニーク値そのもの（構成から）。
+    from harness.ds.pipeline import build_estimator, build_model
+
+    df = pl.DataFrame({"cat": np.array([0, 1, 2, 0, 1, 2, 0, 1], dtype=np.int64)})
+    y = np.array([0, 1, 1, 0, 1, 1, 0, 1], dtype=np.float64)
+    spec = {"features": [{"kind": "columns", "columns": ["cat"]}, {"kind": "count_encode", "columns": ["cat"]}]}
+    est = build_estimator(spec, build_model({"kind": "logreg"}, seed=0), seed=0)
+    est.fit(df, y)
+    tbl = analysis.partial_dependence_table(est, df, "cat")  # 落ちない（元 dtype 保持）
+    assert tbl["feature_value"].to_list() == [0.0, 1.0, 2.0]  # 離散ユニーク値がグリッド
+    assert tbl.height == 3
+
+
+@pytest.mark.integration
+def test_partial_dependence_rejects_multiclass_proba() -> None:
+    # 多クラス proba は (n, クラス数) で、平均すると 1/k に潰れて黙って誤る → fail-closed で止める。
+    from harness.ds.pipeline import build_estimator, build_model
+
+    rng = np.random.default_rng(0)
+    x = pl.DataFrame({"a": np.concatenate([rng.normal(c, 0.5, 10) for c in (0.0, 5.0, 10.0)])})
+    y = np.repeat(np.arange(3), 10).astype(np.float64)  # 3 クラス
+    spec = {"features": [{"kind": "columns", "columns": ["a"]}]}
+    est = build_estimator(spec, build_model({"kind": "logreg"}, seed=0), seed=0)
+    est.fit(x, y)
+    with pytest.raises(ValueError, match="多クラス"):
+        analysis.partial_dependence_table(est, x, "a")

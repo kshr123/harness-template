@@ -21,6 +21,7 @@ from numpy.typing import NDArray
 
 from harness.ds.cv import make_backtest_folds
 from harness.ds.eval import evaluate_regression, passes
+from harness.registry import Entry, Registry
 
 
 @runtime_checkable
@@ -90,11 +91,16 @@ def _ets(seed: int, **params: Any) -> ForecastLike:  # noqa: ANN401
     return _StatsmodelsForecaster(lambda y: ExponentialSmoothing(y, **params))
 
 
-TsModelFactory = Callable[..., ForecastLike]
 # 条件登録：statsmodels が入っている環境でだけ TS_MODELS に足す（`data models` は使える語彙だけを見せる）。
-TS_MODELS: dict[str, TsModelFactory] = {}
+TS_MODELS: Registry[Entry] = Registry(
+    "時系列モデル",
+    catalog="data models",
+    extras_hint={"arima": "statsmodels", "sarima": "statsmodels", "ets": "statsmodels"},
+)
 if importlib.util.find_spec("statsmodels") is not None:
-    TS_MODELS.update({"arima": _arima, "sarima": _sarima, "ets": _ets})
+    TS_MODELS.register("arima", _arima, task="timeseries")
+    TS_MODELS.register("sarima", _sarima, task="timeseries")
+    TS_MODELS.register("ets", _ets, task="timeseries")
 
 
 def build_ts_model(spec: Mapping[str, Any], *, seed: int) -> ForecastLike:
@@ -103,13 +109,15 @@ def build_ts_model(spec: Mapping[str, Any], *, seed: int) -> ForecastLike:
     未知 kind のエラーには statsmodels 未導入時の導入ヒントを添える。params は素通し（order/seasonal_order だけ
     list→tuple）。再学習は「窓ごとに build_ts_model で新品を作り直す」（statsmodels は構築時に y を抱く＝clone 不可）。
     """
+    # TS_MODELS は Mapping としてだけ読む（テストが未導入再現のため plain dict に monkeypatch で差し替える）。
     kind = spec.get("kind")
-    if kind not in TS_MODELS:
+    if not isinstance(kind, str) or kind not in TS_MODELS:
         absent = importlib.util.find_spec("statsmodels") is None
         hint = "。時系列モデルは `uv sync --extra statsmodels` で使えるようになる" if absent else ""
         raise ValueError(f"未知の時系列モデル '{kind}'（{sorted(TS_MODELS)} のいずれか）{hint}")
     params = {k: v for k, v in spec.items() if k != "kind"}
-    return TS_MODELS[kind](seed, **params)
+    model: ForecastLike = TS_MODELS[kind].factory(seed, **params)
+    return model
 
 
 @dataclass(frozen=True)

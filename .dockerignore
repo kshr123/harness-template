@@ -1,0 +1,13 @@
+# イメージに入れないもの（再現性・軽量化・秘密の漏れ防止）。
+.git
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+STATUS.md
+.env
+.env.*
+secrets/
+# 生成データ・成果物（実体はイメージに焼かない）
+data/

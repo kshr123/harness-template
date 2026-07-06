@@ -11,6 +11,8 @@
   run_experiment が fold ごとに clone→train で fit（漏れ防止は構造）。CV・保存・閾値は再実装しない（部品が正本）。
 - fold 表を split 層・OOF を processed 層に store 保存して再現をデータで担保する（核2）。学習器は全データで
   学習し直して丸ごと保存（前処理と本体がワンセット）。乱数は明示引数（seed）だけ・グローバル種は使わない。
+- 最終評価：先に `data.fixed_split` で test（holdout）を取り分け、選抜・閾値は残り（df_fit）の全行 OOF で決める。
+  確定後に `final_eval_on_holdout` を一度だけ呼んで results に記録する（holdout は選抜・閾値調整に使わない）。
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ import yaml
 from harness.ds import data, store
 from harness.ds import eval as ev
 from harness.ds import models as model_store
-from harness.ds.experiment import run_experiment
+from harness.ds.experiment import final_eval_on_holdout, run_experiment
 from harness.ds.pipeline import build_estimator, build_model
 
 HERE = Path(__file__).resolve().parent
@@ -117,8 +119,13 @@ def main() -> int:
     # --test の既定 out は root 側へ（試走が本物の results/ を上書きしないように）。--out の明示指定は常に優先。
     out = args.out if args.out is not None else (root / "results" if root != ROOT_DEFAULT else HERE.parent / "results")
 
-    df = data.load_dataset(root, data_spec, n=n, seed=seed)
+    df_all = data.load_dataset(root, data_spec, n=n, seed=seed)
+    # 最終評価用の test（holdout）を先に取り分ける（id ハッシュの安定分割＝再実行しても同じ行）。
+    # 選抜・閾値調整は残り（df）の全行 OOF で行い、holdout は最後の final_eval_on_holdout でだけ触る。
+    split = data.fixed_split(df_all, valid_pct=0, test_pct=20)
+    df, df_test = split["train"], split["test"]
     y = df[target].to_numpy().astype("float64")
+    y_test = df_test[target].to_numpy().astype("float64")
     estimator = build_estimator(variant_spec, build_model(model_spec, seed=seed, task=task), seed=seed)
     result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by=target)
 
@@ -159,6 +166,11 @@ def main() -> int:
         metrics=result.metrics,
     )
 
+    # 最終評価：OOF で選抜・閾値決定を終えた後、触っていない test（holdout）で一度だけ測る（選抜には使わない）。
+    holdout = final_eval_on_holdout(
+        estimator, df, y, df_test, y_test, task=task, threshold=threshold, thresholds=thresholds
+    )
+
     out.mkdir(parents=True, exist_ok=True)
     (out / f"metrics_{args.variant}.yaml").write_text(
         yaml.safe_dump(
@@ -172,6 +184,7 @@ def main() -> int:
                 "passed": result.passed,
                 "threshold": {"method": "max_f1", "value": threshold, "f1": f1_at},
                 "metrics_at_threshold": metrics_at,
+                "holdout": {"n": df_test.height, "metrics": holdout.metrics, "passed": holdout.passed},
                 "fingerprints": {"folds": folds_fp, "oof": oof_fp, "model": record.fingerprint},
                 "model": {"name": record.name, "version": record.version},
                 "feature_names": list(record.feature_names),

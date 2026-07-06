@@ -60,6 +60,8 @@ class HarnessConfig(BaseModel):
     data: DataConfig = Field(default_factory=DataConfig)
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
     metadata: MetadataConfig = Field(default_factory=MetadataConfig)
+    # 有効にするプロファイル（モジュールパスの一覧・例 ["harness.ds"]）。既定は空＝中核のみで動く。
+    profiles: list[str] = Field(default_factory=list)
 
 
 def load_config(root: Path) -> HarnessConfig:

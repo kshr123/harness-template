@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from harness.models import Item, Kind, PlanMaturity, Status
 
 WORK_DIR = "work"
+REQUIREMENTS_DIR = "docs/requirements"
 MARKER = "item.md"
 # 軽い単位のファイル名の印。EP- / T- / INV- / E- で始まる .md を単位とみなす（notes.md 等の付属ファイルと区別する）。
 UNIT_FILE = re.compile(r"^(EP|T|INV|E)-\d+.*\.md$")
@@ -112,6 +113,51 @@ def lint(root: Path) -> list[Problem]:
         for dep in n.item.depends_on:
             if dep not in known:
                 problems.append(Problem("error", f"{n.item.id}: depends_on の '{dep}' が見つからない（参照エラー）"))
+
+    # depends_on の循環（A→B→A）＝失敗。両端が実在すると上の参照チェックは通るため、DFS（白/灰/黒）で検出する。
+    # 再帰でなく明示スタックの反復 DFS（深い依存鎖でも RecursionError で門番が落ちない）。
+    graph = {n.item.id: [d for d in n.item.depends_on if d in known] for n in everything}
+    color = dict.fromkeys(graph, 0)  # 0=白（未訪問）／1=灰（訪問中）／2=黒（確定）
+    for start in graph:
+        if color[start] != 0:
+            continue
+        path: list[str] = []
+        dfs: list[tuple[str, int]] = [(start, 0)]  # (ノード, 次に見る子の添字)
+        while dfs:
+            node_id, idx = dfs[-1]
+            if idx == 0:  # このノードの初回訪問時だけ灰にして経路へ積む
+                color[node_id] = 1
+                path.append(node_id)
+            if idx < len(graph[node_id]):
+                dfs[-1] = (node_id, idx + 1)
+                dep = graph[node_id][idx]
+                if color[dep] == 0:
+                    dfs.append((dep, 0))
+                elif color[dep] == 1:  # 灰へ戻る辺＝循環
+                    cycle = [*path[path.index(dep) :], dep]
+                    problems.append(Problem("error", f"{dep}: depends_on が循環している（{' → '.join(cycle)}）"))
+            else:  # 子を見終えた＝確定（黒）にして経路から降ろす
+                color[node_id] = 2
+                path.pop()
+                dfs.pop()
+
+    # requirements の指す先が無い＝参照エラー（失敗）。depends_on の検査と対称にする。
+    # docs/requirements/ が無い案件では要件の検査そのものを行わない（要件文書を持たない案件を咎めない）。
+    req_dir = root / REQUIREMENTS_DIR
+    if req_dir.is_dir():
+        # ID は先頭の REQ-<番号>。ファイル名は REQ-001.md でも REQ-001-<短い説明>.md でもよい（単位の命名規則と対称）。
+        known_reqs = {m.group() for p in req_dir.glob("REQ-*.md") if (m := re.match(r"REQ-\d+", p.stem))}
+        referenced: set[str] = set()
+        for n in everything:
+            for req in n.item.requirements:
+                referenced.add(req)
+                if req not in known_reqs:
+                    problems.append(
+                        Problem("error", f"{n.item.id}: requirements の '{req}' が見つからない（参照エラー）")
+                    )
+        # どの単位からも参照されない要件＝未カバーの要件。計画中（未分解）は正常なので失敗にはしない。
+        for req in sorted(known_reqs - referenced):
+            problems.append(Problem("info", f"{req}: 未カバーの要件（どの単位からも参照されていない）"))
 
     # 完了↔検証の結びつけ：done のタスクは、対応するテスト（verified_by）を持ち、それが存在すること。
     # これにより「テストを書かずに done にする」自己申告完了を機械的に防ぐ。

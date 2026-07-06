@@ -91,11 +91,12 @@ def residual_summary(y_true: NDArray[np.float64], y_pred: NDArray[np.float64]) -
 def _metric_value(name: str, y_true: NDArray[Any], pred: NDArray[np.float64], *, threshold: float) -> float:
     """METRICS の 1 指標を、input 種別（score/label/value）に応じた入力で計算する。"""
     metric = ev.METRICS[name]
+    # MetricEntry.fn は Callable[..., Any]（レジストリの汎用形）＝返りは float に丸めて型を確定させる。
     if metric.input == "label":
-        return metric.fn(y_true.astype(np.int_), (pred >= threshold).astype(np.int_))
+        return float(metric.fn(y_true.astype(np.int_), (pred >= threshold).astype(np.int_)))
     if metric.input == "value":
-        return metric.fn(y_true.astype(np.float64), pred)
-    return metric.fn(y_true.astype(np.int_), pred)  # score
+        return float(metric.fn(y_true.astype(np.float64), pred))
+    return float(metric.fn(y_true.astype(np.int_), pred))  # score
 
 
 def permutation_importance(
@@ -173,3 +174,47 @@ def cv_permutation_importance(
         .agg(pl.col("importance_mean").mean(), pl.col("importance_std").mean())
         .sort("importance_mean", descending=True)
     )
+
+
+def partial_dependence_table(
+    estimator: object,
+    x: pl.DataFrame,
+    feature: str,
+    *,
+    grid: Sequence[float] | None = None,
+    n_points: int = 20,
+    predict: Predict = "proba",
+) -> pl.DataFrame:
+    """部分依存表＝入力列を振って平均予測の形を見る（列 = feature_value, avg_prediction・feature_value 昇順）。
+
+    permutation_importance が「どの列が効くか」なら、こちらは「どう効くか（形）」。各グリッド値 v について
+    x の feature 列を全行 v に置換し、_predict（proba は陽性確率）の平均を取る（ICE 平均の PDP・学習済み
+    Pipeline 丸ごと・モデル非依存）。x は fit に使っていない行（fold の valid / holdout）で呼ぶ。
+    グリッドは grid 指定時はその値。未指定時は x[feature] のユニーク数が n_points 以下ならユニーク値そのもの
+    （離散/カテゴリ・ソート）、多ければ min..max の n_points 等分（np.linspace）。feature は数値列が前提
+    （文字列などの非数値列は grid= に値を渡しても float へ落とすため使えない。事前にエンコードするか数値列で呼ぶ）。
+    置換は feature 列の**元 dtype を保つ**（Int64 列を Float64 に化かすと CountEncode/GroupAggregate 等の join 系
+    エンコーダが SchemaError で落ちるため）。**二値分類（proba＝陽性確率 1 次元）か回帰（value）向け**：多クラス proba
+    （n×クラス数）は平均が無意味になるため非対応（クラス別に呼ぶか value を使う・下で fail-closed に検出する）。
+    sklearn.inspection.partial_dependence を使わない理由（DEC-0008）：numpy/pandas 入力前提で、polars 入力
+    （特に MultiHot の list 列）の Pipeline に入らない。グリッドの置換だけ自作し、予測は _predict へ委譲する。
+    """
+    if grid is not None:
+        values = sorted(float(v) for v in grid)
+    else:
+        unique = [float(v) for v in x[feature].drop_nulls().unique().sort().to_list()]
+        if len(unique) <= n_points:
+            values = unique  # 離散/カテゴリ：ユニーク値そのもの（ソート済み）
+        else:
+            values = [float(v) for v in np.linspace(unique[0], unique[-1], n_points)]  # 連続：min..max 等分
+    dtype = x.schema[feature]  # 置換で元 dtype を保つ（join 系エンコーダの f64 vs i64 SchemaError を防ぐ）
+    avg: list[float] = []
+    for v in values:
+        pred = np.asarray(_predict(estimator, x.with_columns(pl.lit(v).cast(dtype).alias(feature)), predict))
+        if pred.ndim != 1:  # 多クラス proba（n×クラス数）＝平均が 1/k に潰れて黙って誤る → 検出して止める
+            raise ValueError(
+                f"partial_dependence_table は二値分類か回帰向け（多クラス proba 形 {pred.shape} は非対応）"
+                "＝クラス別に呼ぶか predict='value' を使う"
+            )
+        avg.append(float(pred.mean()))
+    return pl.DataFrame({"feature_value": values, "avg_prediction": avg})

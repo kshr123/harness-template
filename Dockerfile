@@ -8,12 +8,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 
 # まず依存だけを同期する（ソースを変えても依存の層を再利用できる＝ビルドが速い）。
+# --all-extras＝DS プロファイルの依存も入れる（CMD の verify が全部入り前提で走るため。AGENTS の規約と一致）。
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project
+RUN uv sync --frozen --no-install-project --all-extras
 
 # ソースを入れて、プロジェクト自身も同期する。
 COPY . .
-RUN uv sync --frozen
+RUN uv sync --frozen --all-extras
 
 # 既定は共通の検証コマンド（完了＝すべて成功）。
 CMD ["uv", "run", "verify"]

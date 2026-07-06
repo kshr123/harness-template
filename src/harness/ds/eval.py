@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -21,18 +20,26 @@ from numpy.typing import NDArray
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
+    balanced_accuracy_score,
+    brier_score_loss,
     confusion_matrix,
     f1_score,
     log_loss,
+    matthews_corrcoef,
     mean_absolute_error,
     mean_absolute_percentage_error,
+    mean_pinball_loss,
     precision_recall_curve,
     precision_recall_fscore_support,
     precision_score,
+    r2_score,
     recall_score,
     roc_auc_score,
+    roc_curve,
     root_mean_squared_error,
 )
+
+from harness.registry import MetricEntry, Registry
 
 
 def accuracy(y_true: NDArray[np.int_], y_pred: NDArray[np.int_]) -> float:
@@ -64,6 +71,10 @@ def _log_loss(y_true: NDArray[np.int_], y_score: NDArray[np.float64]) -> float:
     return float(log_loss(y_true, y_score, labels=[0, 1]))
 
 
+def _brier(y_true: NDArray[Any], y_score: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(brier_score_loss(y_true, y_score))
+
+
 # 以下は sklearn.metrics の薄い包み（再発明しない・zero_division/型を吸収するだけ）。名前で引けるよう関数にする。
 def _f1(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
     return float(f1_score(y_true, y_pred, zero_division=0.0))
@@ -75,6 +86,50 @@ def _precision(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: AN
 
 def _recall(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
     return float(recall_score(y_true, y_pred, zero_division=0.0))
+
+
+# mcc・balanced_accuracy は sklearn がそのまま多クラスも扱う（average 不要）＝二値・多クラス共用（tasks に併記）。
+def _mcc(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(matthews_corrcoef(y_true, y_pred))
+
+
+def _balanced_accuracy(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(balanced_accuracy_score(y_true, y_pred))
+
+
+def _calibration_gap(y_true: NDArray[Any], y_score: NDArray[Any]) -> float:  # noqa: ANN401
+    """較正のずれの診断 |1 - mean(score)/mean(true)|。0 が最良（小さいほど良い）。
+
+    「1 に近いほど良い」比のままだと passes の大小比較（向き属性）に乗らないため、絶対値のずれで返す。
+    mean(true)=0（正例なし）は比が定義できないので nan（passes は NaN を不合格にする＝fail closed）。
+    """
+    mean_true = float(np.asarray(y_true, dtype=np.float64).mean())
+    if mean_true == 0.0:
+        return float("nan")
+    return abs(1.0 - float(np.asarray(y_score, dtype=np.float64).mean()) / mean_true)
+
+
+# 多クラス分類の包み（average="macro"・multi_class="ovr" を sklearn へ素通し・DEC-0006。手書きしない）。
+# labels は proba の列数から明示する（fold にクラスが欠けても sklearn が黙って列対応をずらさない）。
+# ラベルは 0..n_classes-1 が前提（proba の列順と一致。cv._predict の多クラス出力・evaluate_multiclass と同じ契約）。
+def _macro_f1(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(f1_score(y_true, y_pred, average="macro", zero_division=0.0))
+
+
+def _macro_precision(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(precision_score(y_true, y_pred, average="macro", zero_division=0.0))
+
+
+def _macro_recall(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(recall_score(y_true, y_pred, average="macro", zero_division=0.0))
+
+
+def _log_loss_multi(y_true: NDArray[Any], y_proba: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(log_loss(y_true, y_proba, labels=np.arange(y_proba.shape[1])))
+
+
+def _macro_roc_auc(y_true: NDArray[Any], y_proba: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(roc_auc_score(y_true, y_proba, multi_class="ovr", average="macro", labels=np.arange(y_proba.shape[1])))
 
 
 def _rmse(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
@@ -89,58 +144,169 @@ def _mape(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
     return float(mean_absolute_percentage_error(y_true, y_pred))
 
 
-MetricInput = Literal["score", "label", "value"]
-# fn の第一引数は分類で int・回帰で float。両方を受けるため NDArray[Any]（sklearn 自体が型なし）。
-MetricBody = Callable[[NDArray[Any], NDArray[Any]], float]
+def _r2(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(r2_score(y_true, y_pred))
 
 
-@dataclass(frozen=True)
-class Metric:
-    """指標 1 つの登録情報。fn は sklearn.metrics の薄い包み（再発明しない）。
-
-    input：fn に何を渡すか。score=確率・label=閾値後のラベル・value=回帰の予測値。
-    higher_is_better：合否判定（passes）の向き。回帰の rmse/log_loss は False（小さいほど良い）。
-    description：一覧コマンド（uv run data metrics）に載る 1 行（test_catalog で必須検査）。
-    """
-
-    fn: MetricBody
-    task: Literal["classification", "regression"]
-    input: MetricInput
-    higher_is_better: bool
-    description: str
+def _pinball(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
+    return float(mean_pinball_loss(y_true, y_pred, alpha=0.5))
 
 
-# config の thresholds に書ける指標名 → 指標の定義。足したら 1 行（他レジストリと同じ）。本体は全部 sklearn 素通し。
-METRICS: dict[str, Metric] = {
-    # 分類・確率入力（score）
-    "roc_auc": Metric(roc_auc, "classification", "score", True, "ROC 曲線下面積（順位の良さ・0.5=でたらめ）"),
-    "pr_auc": Metric(_pr_auc, "classification", "score", True, "PR 曲線下面積（不均衡に強い・陽性の当てやすさ）"),
-    "log_loss": Metric(_log_loss, "classification", "score", False, "対数損失（確率の当たり具合・小さいほど良い）"),
-    # 分類・ラベル入力（label＝閾値後）
-    "accuracy": Metric(accuracy, "classification", "label", True, "正解率（当たった割合）"),
-    "f1": Metric(_f1, "classification", "label", True, "F1（適合率と再現率の調和平均）"),
-    "precision": Metric(_precision, "classification", "label", True, "適合率（陽性のうち本当に陽性の割合）"),
-    "recall": Metric(_recall, "classification", "label", True, "再現率（本当の陽性を取りこぼさない割合）"),
-    # 回帰・予測値入力（value）
-    "rmse": Metric(_rmse, "regression", "value", False, "二乗平均平方根誤差（小さいほど良い）"),
-    "mae": Metric(_mae, "regression", "value", False, "平均絶対誤差（小さいほど良い）"),
-    "mape": Metric(_mape, "regression", "value", False, "平均絶対百分率誤差（比率・小さいほど良い）"),
-}
+# config の thresholds に書ける指標名 → 指標の定義（MetricEntry：input・向き・対応 task つき）。足したら 1 行。
+# description は説明用の日本語（工場の docstring より一覧向きの短文）なので明示で渡す。本体は全部 sklearn 素通し。
+# tasks は「測れる課題」の並び（語彙は binary | multiclass | regression。省略時は task から導く＝分類は二値）。
+METRICS: Registry[MetricEntry] = Registry("指標", catalog="data metrics")
+
+
+def _register_metric(
+    name: str,
+    fn: Callable[[NDArray[Any], NDArray[Any]], float],
+    task: Literal["classification", "regression"],
+    input_: Literal["score", "label", "value"],
+    higher_is_better: bool,
+    description: str,
+    *,
+    tasks: tuple[str, ...] | None = None,
+) -> None:
+    if tasks is None:
+        tasks = ("binary",) if task == "classification" else ("regression",)
+    METRICS.register(
+        name,
+        fn,
+        description=description,
+        task=task,
+        entry_cls=MetricEntry,
+        input=input_,
+        higher_is_better=higher_is_better,
+        tasks=tasks,
+    )
+
+
+# 分類・確率入力（score）
+_register_metric("roc_auc", roc_auc, "classification", "score", True, "ROC 曲線下面積（順位の良さ・0.5=でたらめ）")
+_register_metric("pr_auc", _pr_auc, "classification", "score", True, "PR 曲線下面積（不均衡に強い・陽性の当てやすさ）")
+_register_metric(
+    "log_loss", _log_loss, "classification", "score", False, "対数損失（確率の当たり具合・小さいほど良い）"
+)
+_register_metric(
+    "brier",
+    _brier,
+    "classification",
+    "score",
+    False,
+    "ブライアスコア（確率のずれの二乗平均・0 が最良・小さいほど良い）",
+)
+_register_metric(
+    "calibration_gap",
+    _calibration_gap,
+    "classification",
+    "score",
+    False,
+    "較正のずれ（|1-平均予測/平均実測|・0 が最良。reliability の calibration_table とは別＝平均レベルのみ）",
+)
+# 分類・ラベル入力（label＝閾値後）。accuracy は多クラスでもそのまま測れる（tasks に multiclass を併記）。
+_register_metric(
+    "accuracy", accuracy, "classification", "label", True, "正解率（当たった割合）", tasks=("binary", "multiclass")
+)
+_register_metric("f1", _f1, "classification", "label", True, "F1（適合率と再現率の調和平均）")
+_register_metric("precision", _precision, "classification", "label", True, "適合率（陽性のうち本当に陽性の割合）")
+_register_metric("recall", _recall, "classification", "label", True, "再現率（本当の陽性を取りこぼさない割合）")
+_register_metric(
+    "mcc",
+    _mcc,
+    "classification",
+    "label",
+    True,
+    "マシューズ相関（-1〜1・不均衡に強い）",
+    tasks=("binary", "multiclass"),
+)
+_register_metric(
+    "balanced_accuracy",
+    _balanced_accuracy,
+    "classification",
+    "label",
+    True,
+    "均衡正解率（クラス毎 recall の平均）",
+    tasks=("binary", "multiclass"),
+)
+# 分類・多クラス（tasks=("multiclass",)。名前は二値名と衝突させない＝macro_ 接頭辞・_multi 接尾辞）
+_register_metric(
+    "macro_roc_auc",
+    _macro_roc_auc,
+    "classification",
+    "score",
+    True,
+    "多クラス AUC（各クラス ovr の macro 平均）",
+    tasks=("multiclass",),
+)
+_register_metric(
+    "log_loss_multi",
+    _log_loss_multi,
+    "classification",
+    "score",
+    False,
+    "多クラス対数損失（確率の当たり具合・小さいほど良い）",
+    tasks=("multiclass",),
+)
+_register_metric(
+    "macro_f1",
+    _macro_f1,
+    "classification",
+    "label",
+    True,
+    "多クラス F1（クラス別 F1 の macro 平均）",
+    tasks=("multiclass",),
+)
+_register_metric(
+    "macro_precision",
+    _macro_precision,
+    "classification",
+    "label",
+    True,
+    "多クラス適合率（クラス別適合率の macro 平均）",
+    tasks=("multiclass",),
+)
+_register_metric(
+    "macro_recall",
+    _macro_recall,
+    "classification",
+    "label",
+    True,
+    "多クラス再現率（クラス別再現率の macro 平均）",
+    tasks=("multiclass",),
+)
+# 回帰・予測値入力（value）
+_register_metric("rmse", _rmse, "regression", "value", False, "二乗平均平方根誤差（小さいほど良い）")
+_register_metric("mae", _mae, "regression", "value", False, "平均絶対誤差（小さいほど良い）")
+_register_metric("mape", _mape, "regression", "value", False, "平均絶対百分率誤差（比率・小さいほど良い）")
+_register_metric("r2", _r2, "regression", "value", True, "決定係数（1 で完全・0 で平均予測並み）")
+_register_metric(
+    "pinball",
+    _pinball,
+    "regression",
+    "value",
+    False,
+    "ピンボール損失 α=0.5 固定（点予測では mae/2。分位回帰の導入時に α の口を足す）",
+)
 
 MetricFn = Callable[[NDArray[np.int_], NDArray[np.float64]], dict[str, float]]
 
+# 課題の語彙（binary | multiclass | regression）。指標側は MetricEntry.tasks（測れる課題の並び）で表す。
+EvalTask = Literal["binary", "multiclass", "regression"]
+_TASK_JA: dict[str, str] = {"binary": "二値分類", "multiclass": "多クラス分類", "regression": "回帰"}
 
-def _select(task: Literal["classification", "regression"], names: Sequence[str] | None) -> list[str]:
-    """名前を検証して task に合う指標名の並びを返す。names 未指定はその task の全登録指標。"""
+
+def _select(task: EvalTask, names: Sequence[str] | None) -> list[str]:
+    """名前を検証して task で測れる指標名の並びを返す。names 未指定はその task の全登録指標（tasks 照合）。"""
     if names is None:
-        return [n for n, m in METRICS.items() if m.task == task]
+        return [n for n, m in METRICS.items() if task in m.tasks]
     chosen: list[str] = []
     for n in names:
         if n not in METRICS:
             raise ValueError(f"未登録の指標 '{n}'（{sorted(METRICS)} のいずれか）")
-        if METRICS[n].task != task:
-            other = "回帰" if task == "classification" else "分類"
-            raise ValueError(f"指標 '{n}' は{other}用（この評価は {task}）")
+        if task not in METRICS[n].tasks:
+            usable = "/".join(_TASK_JA.get(t, t) for t in METRICS[n].tasks)
+            raise ValueError(f"指標 '{n}' は{usable}用（この評価は {task}）")
         chosen.append(n)
     return chosen
 
@@ -152,18 +318,45 @@ def evaluate(
     threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
 ) -> dict[str, float]:
-    """分類の指標をまとめて返す。既定は分類の全登録指標。label 系は threshold でラベル化してから測る。
+    """二値分類の指標をまとめて返す。既定は二値の全登録指標。label 系は threshold でラベル化してから測る。
 
     threshold はスコアをラベルに変える決定境界（既定 0.5）。metrics=["roc_auc", ...] で選べる
-    （回帰指標の名を渡すと ValueError）。返り値は追加のみで増えることがある（キーの部分集合で参照すること）。
-    y_true は分類ラベルとして int に揃える（run_cv が float の器で渡してきても安全に）。
+    （二値で測れない指標の名を渡すと ValueError）。返り値は追加のみで増えることがある（キーの部分集合で参照すること）。
+    y_true は分類ラベルとして int に揃える（run_cv が float の器で渡してきても安全に）。多クラスは evaluate_multiclass。
     """
     y_int = np.asarray(y_true).astype(np.int_)
     y_label = (y_score >= threshold).astype("int64")
     out: dict[str, float] = {}
-    for name in _select("classification", metrics):
+    for name in _select("binary", metrics):
         m = METRICS[name]
         out[name] = m.fn(y_int, y_label if m.input == "label" else y_score)
+    return out
+
+
+def evaluate_multiclass(
+    y_true: NDArray[np.int_],
+    y_proba: NDArray[np.float64],
+    *,
+    metrics: Sequence[str] | None = None,
+) -> dict[str, float]:
+    """多クラス分類の指標をまとめて返す。既定は multiclass の全登録指標（accuracy・macro 平均系・log_loss_multi）。
+
+    y_proba は (n, n_classes) の確率（cv._predict(how="proba") の多クラス出力と同じ形）。label 系は argmax で
+    ラベル化してから測る（二値の threshold 経路はここでは使わない）。ラベルは 0..n_classes-1 が前提
+    （proba の列順と対応。二値の「陽性=ラベル 1」前提と同じく、外れるラベルは呼び手で振り直す）。
+    """
+    proba = np.asarray(y_proba, dtype=np.float64)
+    if proba.ndim != 2 or proba.shape[1] < 3:
+        # 2 クラスは二値経路（evaluate）へ。多クラス指標（macro_roc_auc 等）は 2 列だと不透明に落ちるので明示で止める。
+        raise ValueError(
+            f"多クラスの y_proba は (n, n_classes>=3) の 2 次元（実際の形: {proba.shape}）。2 クラスは evaluate を使う"
+        )
+    y_int = np.asarray(y_true).astype(np.int_)
+    y_label = proba.argmax(axis=1).astype("int64")
+    out: dict[str, float] = {}
+    for name in _select("multiclass", metrics):
+        m = METRICS[name]
+        out[name] = m.fn(y_int, y_label if m.input == "label" else proba)
     return out
 
 
@@ -175,18 +368,21 @@ def evaluate_regression(
 
 
 def metric_fn_for(
-    task: Literal["classification", "regression"] = "classification",
+    task: Literal["classification", "multiclass", "regression"] = "classification",
     *,
     threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
 ) -> MetricFn:
     """run_cv / run_experiment の metric_fn に渡す形へ束ねる（task の分岐はここ 1 か所）。
 
-    classification は evaluate（threshold でラベル化）・regression は evaluate_regression を包む。
-    どちらも (y_true, 予測) → dict の同じ形で返す（run_cv は中身を知らないまま fold ごとに呼ぶ）。
+    classification（＝二値）は evaluate（threshold でラベル化）・multiclass は evaluate_multiclass
+    （予測は (n, n_classes) の proba・threshold は使わない）・regression は evaluate_regression を包む。
+    いずれも (y_true, 予測) → dict の同じ形で返す（run_cv は中身を知らないまま fold ごとに呼ぶ）。
     """
     if task == "regression":
         return lambda t, p: evaluate_regression(t.astype(np.float64), p, metrics=metrics)
+    if task == "multiclass":
+        return lambda t, p: evaluate_multiclass(t, p, metrics=metrics)
     return lambda t, p: evaluate(t, p, threshold=threshold, metrics=metrics)
 
 
@@ -196,6 +392,7 @@ def passes(metrics: dict[str, float], thresholds: dict[str, float]) -> bool:
     higher_is_better なら `>=`、そうでなければ `<=`（例 log_loss: 0.5 は「0.5 以下で合格」）。
     thresholds に METRICS 未登録の名があれば ValueError（typo を黙って不合格にしない）。
     metrics 側に無い登録済みの名は不合格（測っていない＝満たしたと見なさない）。
+    値が NaN のときも不合格（fail closed。発散したモデルを関門で止める）。
     """
     for name, limit in thresholds.items():
         if name not in METRICS:
@@ -203,10 +400,10 @@ def passes(metrics: dict[str, float], thresholds: dict[str, float]) -> bool:
         if name not in metrics:
             return False
         value = metrics[name]
-        if METRICS[name].higher_is_better:
-            if value < limit:
-                return False
-        elif value > limit:
+        # 合格条件を正の形（>= / <=）で問う＝NaN はどの比較も False なので必ず不合格（fail closed）。
+        # 「不合格条件が成り立つか」で書くと NaN が素通りする（発散したモデルが昇格してしまう）。
+        ok = value >= limit if METRICS[name].higher_is_better else value <= limit
+        if not ok:
             return False
     return True
 
@@ -336,6 +533,30 @@ def calibration_table(
         "count": pl.Int64,
     }
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def roc_table(y_true: NDArray[np.int_], y_score: NDArray[np.float64], *, max_points: int | None = None) -> pl.DataFrame:
+    """ROC 曲線の表。列 = fpr, tpr, threshold。roc_curve 素通し（人は marimo で見る・AUC＝roc_auc の下地）。
+
+    threshold は sklearn のまま降順（先頭は番兵の inf）。両クラス必須（_curve と同じ・OOF/valid 全体で呼ぶこと）。
+    max_points 指定時は等間隔の添字で間引く（先頭・末尾の点は必ず残す）。省略時は全点。max_points は 2 以上
+    （両端点を残す約束のため。1 以下は端点を落とすので拒否する）。
+    """
+    if len(np.unique(y_true)) < 2:
+        raise ValueError("ROC 曲線には正例・負例の両方が要る（OOF/valid 全体で呼ぶこと）")
+    if max_points is not None and max_points < 2:
+        raise ValueError(f"max_points は 2 以上（先頭・末尾の点を残すため。指定値: {max_points}）")
+    fpr, tpr, thresholds = roc_curve(y_true, y_score)
+    if max_points is not None and len(fpr) > max_points:
+        keep = np.unique(np.round(np.linspace(0, len(fpr) - 1, max_points)).astype(int))
+        fpr, tpr, thresholds = fpr[keep], tpr[keep], thresholds[keep]
+    return pl.DataFrame(
+        {
+            "fpr": np.asarray(fpr, dtype=np.float64),
+            "tpr": np.asarray(tpr, dtype=np.float64),
+            "threshold": np.asarray(thresholds, dtype=np.float64),
+        }
+    )
 
 
 def threshold_table(

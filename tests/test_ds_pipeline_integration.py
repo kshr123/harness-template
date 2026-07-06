@@ -16,7 +16,7 @@ from sklearn.linear_model import LogisticRegression
 
 from harness.ds import cv
 from harness.ds import models as model_store
-from harness.ds.pipeline import build_estimator
+from harness.ds.pipeline import build_estimator, build_model
 
 pytestmark = pytest.mark.integration
 
@@ -90,7 +90,8 @@ def test_feature_names_tracked_to_manifest(make_project: Callable[..., Any]) -> 
 
 
 def test_tfidf_sparse_output_fits_through_numpy_boundary() -> None:
-    # tfidf は語彙が増えると scipy 疎行列を返す。model 直前の _to_numpy が密化しないと fit で落ちる（回帰防止）。
+    # tfidf は語彙が増えると scipy 疎行列を返す。_to_numpy は疎を密化せず通す（OOM 回避）。
+    # model は疎のまま受けて fit できる（回帰防止）。
     rng = np.random.default_rng(0)
     vocab = [f"w{k}" for k in range(30)]  # 疎になる程度の語彙
     rows = [" ".join(rng.choice(vocab, size=4)) for _ in range(200)]
@@ -99,4 +100,19 @@ def test_tfidf_sparse_output_fits_through_numpy_boundary() -> None:
     spec = {"features": [{"kind": "columns", "columns": ["txt"]}], "encode": [{"kind": "tfidf", "columns": "txt"}]}
     est = build_estimator(spec, _model(), seed=0)
     est.fit(df, y)  # 疎→密の境界が効いていれば落ちない
+    assert est.predict_proba(df).shape == (200, 2)
+
+
+def test_tfidf_hist_gb_densifies_at_model() -> None:
+    # HistGradientBoosting は疎を受けない。_to_numpy が疎を素通しする今、工場側の密化（_dense_model）が
+    # 効いていないと tfidf(疎)→hist_gb で fit が TypeError になる（回帰防止）。
+    rng = np.random.default_rng(0)
+    vocab = [f"w{k}" for k in range(30)]
+    rows = [" ".join(rng.choice(vocab, size=4)) for _ in range(200)]
+    df = pl.DataFrame({"txt": rows})
+    y = np.array([1.0 if "w0" in t else 0.0 for t in rows])  # w0 の有無で決まる
+    spec = {"features": [{"kind": "columns", "columns": ["txt"]}], "encode": [{"kind": "tfidf", "columns": "txt"}]}
+    hist_gb = build_model({"kind": "hist_gb"}, seed=0)
+    est = build_estimator(spec, hist_gb, seed=0)
+    est.fit(df, y)  # 工場側の密化が効いていれば落ちない
     assert est.predict_proba(df).shape == (200, 2)

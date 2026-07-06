@@ -6,10 +6,10 @@ requires-python = ">=3.14"
 dependencies = [
     "typer>=0.15",
     "pydantic>=2.11",
-    "pydantic-settings>=2.7",
-    "ruamel.yaml>=0.18",
     "python-frontmatter>=1.1",
-    "jsonschema>=4.23",
+    # YAML の読み書きは cli.py・ds/{schema,store,models}.py で直接使う（import yaml）。
+    # 以前は python-frontmatter の推移的依存で偶然入っていただけ＝明示宣言に直す（宣言と実態の一致）。
+    "pyyaml>=6.0",
 ]
 
 # データサイエンスの上乗せ（プロファイル）。土台の中核とは分け、案件に応じて足す。
@@ -19,15 +19,20 @@ ds = [
     "altair>=5.4",
     "marimo>=0.9",
     "numpy>=2.1",
-    "polars>=1.17",
+    # features.py が join(nulls_equal=, maintain_order=)・explode(empty_as_null=) を使うため 1.42 以上。
+    "polars>=1.42",
     # 業界標準を再発明しない：メトリクス・交差検証の分割・スケーリングは scikit-learn を使う。
-    "scikit-learn>=1.6",
+    # pipeline.py が TargetEncoder(cv=KFold(...))（分割器オブジェクト渡し）を使うため 1.9 以上（1.8 以前は int のみ）。
+    "scikit-learn>=1.9",
 ]
 # 追加モデルの optional 依存（ライブラリ名＝extra 名）。入れれば `data models` に増える（条件登録）。
 # 入れなくても ds は全機能動く（sklearn の hist_gb で勾配ブースティングは賄える）。導入例: uv sync --extra ds --extra lightgbm
 lightgbm = ["lightgbm>=4.5"]
 # 古典時系列（ARIMA/SARIMA/ETS）の別経路（forecast.py）。入れれば `data models` に [timeseries] が増える。
 statsmodels = ["statsmodels>=0.14"]
+# モデルの安全な保存形式（pickle の代替）。入れれば FORMATS に "skops" が増える（条件登録）。
+# 導入例: uv sync --extra ds --extra skops
+skops = ["skops>=0.11"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -36,7 +41,8 @@ check = "harness.cli:check_main"
 status = "harness.cli:status_main"
 task-lint = "harness.cli:task_lint_main"
 issue = "harness.cli:issue_main"
-data = "harness.cli:data_main"
+# data は DS プロファイルの CLI（プロファイル境界・DEC-0004。中核 CLI とはモジュールを分ける）。
+data = "harness.ds.cli:data_main"
 changelog = "harness.cli:changelog_main"
 
 [dependency-groups]
@@ -77,7 +83,7 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 # 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
-module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*"]
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
