@@ -1,0 +1,36 @@
+# 配信の Deployment（テンプレート）。イメージは model-in-image ターゲット（モデル同梱＝配る版）。
+# 参照整合（image・namespace・selector・containerPort・env）は deploy_lint が verify で検査する。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harness-serve
+  namespace: harness-serve
+  labels:
+    app: harness-serve
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: harness-serve
+  template:
+    metadata:
+      labels:
+        app: harness-serve
+    spec:
+      containers:
+        - name: serve
+          # docker-compose.serve.yml の serve-in-image と同じイメージ（レジストリ経由なら push 先の名前に置換）。
+          image: harness-serve:model-in-image
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SERVE_WORK
+              value: "E-0001" # 配る作業単位ID（案件のモデルに合わせて替える）
+            - name: SERVE_NAME
+              value: "baseline" # 配るモデル名（同上）
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10

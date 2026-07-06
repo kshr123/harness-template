@@ -1,0 +1,6 @@
+# 配信専用の namespace（テンプレート）。名前は deployment/service の metadata.namespace と一致させる
+# （deploy_lint が検査）。案件名に合わせて 3 ファイルまとめて置換する。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: harness-serve
