@@ -195,13 +195,25 @@ def test_monitor_skips_dtype_mismatch_with_warning() -> None:
 @pytest.mark.unit
 def test_monitor_empty_log_degrades_without_failure() -> None:
     baseline = pl.DataFrame({"x1": [1.0, 2.0, 3.0]})
-    empty = monitor.ServedLog(features=pl.DataFrame(), prediction_kinds=[], predictions=[], n_skipped=0)
-    with pytest.warns(UserWarning):  # 空ログ＋ --auc 計算不能の縮退を知らせる（失敗にはしない）
-        report = monitor.monitor(baseline, empty, auc=True, seed=0)
-    assert report.n_served == 0
-    assert report.psi.height == 0  # 片側 0 行の psi は意味を持たないので出さない
-    assert report.drift is None
-    assert report.prediction_summary == []
+    # 2 通りの「配信 0 行」を試す：
+    #  (a) 列 0 個の空フレーム＝read_prediction_logs が空ログで返す実運用の形。
+    #  (b) 基準と同じ列を持つ 0 行フレーム＝共通列があるので monitor の n_rows==0 ガードを直接効かせる。
+    # (b) が無いと、ガードを外しても common が「列が無いから」偶然空になり退行を見逃す。(b) はガードを外すと
+    # eda.psi が 0 行相手に呼ばれ偽の「大変化」を出す＝この退行を捕まえる（レビュー指摘の穴を塞ぐ）。
+    zero_columns = monitor.ServedLog(features=pl.DataFrame(), prediction_kinds=[], predictions=[], n_skipped=0)
+    zero_rows = monitor.ServedLog(
+        features=pl.DataFrame({"x1": []}, schema={"x1": pl.Float64}),
+        prediction_kinds=[],
+        predictions=[],
+        n_skipped=0,
+    )
+    for empty in (zero_columns, zero_rows):
+        with pytest.warns(UserWarning):  # 空ログ＋ --auc 計算不能の縮退を知らせる（失敗にはしない）
+            report = monitor.monitor(baseline, empty, auc=True, seed=0)
+        assert report.n_served == 0
+        assert report.psi.height == 0  # 片側 0 行の psi は意味を持たないので出さない（黙って大変化に見せない）
+        assert report.drift is None
+        assert report.prediction_summary == []
 
 
 @pytest.mark.unit
