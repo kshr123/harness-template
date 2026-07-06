@@ -209,36 +209,53 @@ def missing_patterns(df: pl.DataFrame, *, top: int = 20) -> pl.DataFrame:
     """欠損の同時発生パターン（列 = columns（欠損列名の list）, count, ratio・count 降順・上位 top）。
 
     「どの列がまとまって欠けるか」（同一原因の欠損・結合漏れ）を行単位で見る。全列非欠損の行は columns=[]。
+    集計は polars の group_by 1 パス（Python 行ループ無し）。count 同数のパターンは欠損列名の並び
+    （df の列順で作った list の辞書順）で決定的に整列する。
     """
-    cols = df.columns
-    null_flags = df.select([pl.col(c).is_null() for c in cols])
-    patterns: dict[tuple[str, ...], int] = {}
-    for row in null_flags.iter_rows():
-        key = tuple(c for c, is_null in zip(cols, row, strict=True) if is_null)
-        patterns[key] = patterns.get(key, 0) + 1
-    n = df.height
-    ordered = sorted(patterns.items(), key=lambda kv: kv[1], reverse=True)[:top]
-    rows = [{"columns": list(k), "count": v, "ratio": (v / n if n else 0.0)} for k, v in ordered]
     schema: dict[str, Any] = {"columns": pl.List(pl.String), "count": pl.Int64, "ratio": pl.Float64}
-    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    if df.height == 0 or df.width == 0:
+        return pl.DataFrame(schema=schema)
+    n = df.height
+    # 元の列名（count/columns/ratio と同名の列があり得る）との衝突を避けるため位置ベースの別名で持つ。
+    flag_names = [f"__null_{i}__" for i in range(df.width)]
+    flags = df.select(pl.col(c).is_null().alias(a) for c, a in zip(df.columns, flag_names, strict=True))
+    pattern = pl.concat_list(
+        pl.when(pl.col(a)).then(pl.lit(c, dtype=pl.String)) for c, a in zip(df.columns, flag_names, strict=True)
+    ).list.drop_nulls()
+    return (
+        flags.group_by(flag_names)
+        .agg(pl.len().cast(pl.Int64).alias("count"))
+        .with_columns(columns=pattern, ratio=pl.col("count") / n)
+        .sort(["count", pl.col("columns").list.join("\x1f")], descending=[True, False])
+        .head(top)
+        .select("columns", "count", "ratio")
+    )
 
 
 def duplicate_columns(df: pl.DataFrame) -> pl.DataFrame:
     """内容が同一の列ペア（列 = column, duplicate_of（先に現れた列名））。0 行なら重複なし。
 
     null 同士は等しいとみなす（eq_missing）。列内容のハッシュで候補を絞ってから全比較（総当たりを避ける）。
+    指紋＝行位置を混ぜた行ハッシュの総和（polars/numpy の 1 パス・Python 行ループ無し）。uint64 のラップ和で
+    決定的・並べ替えただけの列は別指紋になる。衝突しても eq_missing の全比較で確定するので結果は正しい。
     片方を落とす判断はエージェント/実験側（ここは事実の報告だけ）。
     """
+    schema: dict[str, Any] = {"column": pl.String, "duplicate_of": pl.String}
+    if df.width == 0:
+        return pl.DataFrame(schema=schema)
+    row_index = pl.int_range(pl.len(), dtype=pl.UInt32)
+    hashed = df.select(
+        pl.struct(index=row_index, value=pl.col(c)).hash(seed=0).alias(f"__h_{i}__") for i, c in enumerate(df.columns)
+    )
+    fingerprints = hashed.to_numpy().sum(axis=0, dtype=np.uint64)
     buckets: dict[int, list[str]] = {}
     rows: list[dict[str, Any]] = []
-    for c in df.columns:
-        fingerprint = hash(tuple(df[c].hash().to_list()))  # 内容＋null 位置が同じなら同じ指紋
+    for c, fingerprint in zip(df.columns, fingerprints.tolist(), strict=True):
         match = next((p for p in buckets.get(fingerprint, []) if bool(df[c].eq_missing(df[p]).all())), None)
         if match is not None:
             rows.append({"column": c, "duplicate_of": match})
         else:
             buckets.setdefault(fingerprint, []).append(c)
-    schema: dict[str, Any] = {"column": pl.String, "duplicate_of": pl.String}
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
@@ -253,7 +270,8 @@ def category_target_summary(
     """カテゴリ×目的変数（列 = column, value, count, ratio, target_mean・各列 count 上位 top）。
 
     分類なら target_mean＝そのカテゴリの陽性率・回帰なら平均。件数の多いカテゴリで target_mean が 0/1 に
-    張り付いていたらリーク疑い（目安・門番にはしない）。専用のリーク検出関数は作らない（correlations でも読める）。
+    張り付いていたらリーク疑い（目安・門番にはしない）。リーク疑いをまとめて洗う入口は leakage_scan
+    （この表・correlations 等の合成。かつての「専用のリーク検出関数は作らない」方針は転換した＝L-011）。
     """
     if target not in df.columns:
         raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
@@ -291,6 +309,83 @@ def category_target_summary(
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
+def leakage_scan(
+    df: pl.DataFrame,
+    *,
+    target: str,
+    task: Task = "classification",
+    seed: int = 0,
+    corr_threshold: float = 0.95,
+    pinned_ratio: float = 0.95,
+    pinned_min_count: int = 2,
+    mi_threshold: float = 0.5,
+    max_categories: int = 50,
+) -> pl.DataFrame:
+    """目的変数を漏らしていそうな列の一覧（列 = column, reason, detail・df の列順・理由 1 件 = 1 行）。0 行＝疑いなし。
+
+    既存部品の**合成だけ**で洗う（新しい統計は書かない）。理由は 5 種：
+    - high_correlation：correlations の |r| >= corr_threshold（数値列。目的変数が数値のときだけ）。
+    - high_mutual_information：mutual_information の MI >= mi_threshold（数値列。**任意の target 型**で効く＝
+      文字列ラベルの分類でも漏れを拾う。非線形依存も見える。MI の task/seed はこの関数の task/seed を配線する）。
+    - category_target_pinned：category_target_summary で target_mean が 0/1 ちょうどのカテゴリ（件数
+      pinned_min_count 以上＝1 件だけの自明な 0/1 は根拠にしない）が行の pinned_ratio 以上を占める
+      （0/1 の 2 値分類向けの読み口。目的変数が数値のときだけ）。
+    - id_like：profile の flags と同じ判定（一意数=行数の整数/文字列列＝識別子疑い）。
+    - duplicate_of_target：duplicate_columns で目的変数と同じ重複グループに属する列を**すべて**挙げる
+      （重複は推移的＝target のコピーが複数あっても全部拾う。列の並び順どちら向きでも検出）。
+    かつては「専用のリーク検出関数は作らない」（各表を個別に読む）方針だったが、読み合わせの見落としが出るため
+    入口 1 つの合成へ転換した（DEC-0012＝方針転換は即記録・docs/learnings.md L-011）。値は事実・門番にはしない
+    （除外や修正の判断はエージェント/実験側。挙がった列は仕組みの理解＝リークかどうかの確認をしてから使う）。
+    """
+    if target not in df.columns:
+        raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
+    found: dict[str, list[tuple[str, str]]] = {}
+
+    def _add(column: str, reason: str, detail: str) -> None:
+        found.setdefault(column, []).append((reason, detail))
+
+    for r in mutual_information(df, target=target, task=task, seed=seed).to_dicts():
+        if r["mi"] >= mi_threshold:
+            _add(r["feature"], "high_mutual_information", f"目的変数との MI={r['mi']:.3f}（>= {mi_threshold}）")
+
+    if df.schema[target].is_numeric():
+        for r in correlations(df, target=target).to_dicts():
+            if abs(r["correlation"]) >= corr_threshold:
+                _add(
+                    r["feature"],
+                    "high_correlation",
+                    f"目的変数との |r|={abs(r['correlation']):.3f}（>= {corr_threshold}）",
+                )
+        cat_cols = [c for c in df.columns if c != target and df[c].n_unique() <= max_categories]
+        summary = category_target_summary(
+            df, target=target, columns=cat_cols, max_categories=max_categories, top=max_categories + 1
+        )
+        for c in cat_cols:
+            rows_c = summary.filter(pl.col("column") == c).to_dicts()
+            total = sum(int(r["count"]) for r in rows_c)
+            pinned = sum(
+                int(r["count"]) for r in rows_c if r["count"] >= pinned_min_count and r["target_mean"] in (0.0, 1.0)
+            )
+            if total and pinned / total >= pinned_ratio:
+                _add(c, "category_target_pinned", f"target_mean が 0/1 のカテゴリが行の {pinned / total:.3f} を占める")
+
+    for r in _flags_overview(df, quasi_constant_ratio=1.0).to_dicts():  # 1.0＝id_like 判定だけ拾う（準定数は対象外）
+        if r["flag"] == "id_like" and r["column"] != target:
+            _add(r["column"], "id_like", r["detail"])
+
+    # 重複は推移的：duplicate_columns は各列を「先に現れた代表列」に向ける。target と同じ代表を持つ列は
+    # すべて target の重複グループ＝コピーが複数あっても全部拾う（代表だけ挙げて漏らさない）。
+    dup_rep = {r["column"]: r["duplicate_of"] for r in duplicate_columns(df).to_dicts()}
+    target_group = dup_rep.get(target, target)
+    for c in df.columns:
+        if c != target and dup_rep.get(c, c) == target_group:
+            _add(c, "duplicate_of_target", "目的変数と同じ重複グループ（内容が一致）")
+
+    out_rows = [{"column": c, "reason": reason, "detail": d} for c in df.columns for reason, d in found.get(c, [])]
+    schema: dict[str, Any] = {"column": pl.String, "reason": pl.String, "detail": pl.String}
+    return pl.DataFrame(out_rows, schema=schema) if out_rows else pl.DataFrame(schema=schema)
+
+
 def _corr(x: np.ndarray, y: np.ndarray) -> float:
     """ピアソン相関。両方が有限な行だけで計算（pairwise-complete。null→NaN が 1 個でも全体を NaN にしない）。
 
@@ -317,24 +412,88 @@ def correlations(df: pl.DataFrame, *, target: str, columns: Sequence[str] | None
     return out.sort(pl.col("correlation").abs(), descending=True)
 
 
+def mutual_information(
+    df: pl.DataFrame, *, target: str, task: Task, seed: int, columns: Sequence[str] | None = None
+) -> pl.DataFrame:
+    """数値列と目的変数の相互情報量（列 = feature, mi・mi 降順・単位はナット）。correlations（線形）の非線形補完。
+
+    sklearn の mutual_info_classif / mutual_info_regression（kNN 推定）に委譲する（再発明しない）。task で分岐：
+    classification＝目的変数は離散ラベル・regression＝連続値。推定は乱数を使うので seed 必須。決定性は
+    random_state（=seed）で担保する（kNN のジッタは連続値で無視できる＝同じ seed なら同じ表）。
+    欠損は列ごとに有効な行だけで計算（pairwise-complete・_corr と同じ規約）。有効行 4 未満（kNN の既定 k=3 に足りない）
+    ・定数列は 0.0。y=x² のような非線形依存は相関 ≈0 でも MI>0 で見える（リーク疑い・効く特徴の読み口）。
+    """
+    from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+
+    if target not in df.columns:
+        raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
+    cols = list(columns) if columns is not None else [c for c in df.select(cs.numeric()).columns if c != target]
+    y = df[target].to_numpy()
+    if df.schema[target].is_numeric():
+        t_mask = np.isfinite(df[target].cast(pl.Float64).to_numpy())
+    else:
+        t_mask = df[target].is_not_null().to_numpy()
+    mi_func = mutual_info_classif if task == "classification" else mutual_info_regression
+    rows: list[dict[str, Any]] = []
+    for c in cols:
+        x = df[c].cast(pl.Float64).to_numpy()
+        m = np.isfinite(x) & t_mask
+        if int(m.sum()) < 4 or np.std(x[m]) == 0:
+            mi = 0.0  # 有効行不足・定数列＝依存を測れない（NaN や例外を混ぜない）
+        else:
+            mi = float(mi_func(x[m].reshape(-1, 1), y[m], random_state=seed)[0])
+        rows.append({"feature": c, "mi": mi})
+    schema: dict[str, Any] = {"feature": pl.String, "mi": pl.Float64}
+    out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    return out.sort("mi", descending=True)  # 安定ソート＝同値は df の列順で決定的
+
+
+def _pairwise_corr_matrix(x: np.ndarray) -> np.ndarray:
+    """ピアソン相関行列（pairwise-complete）。規約は _corr と同じ：共通有効行 2 未満・分散 0 のペアは 0.0。
+
+    全ペアを行列積の 1 パスで計算する（Python のペアループ無し）。列ごとの有限平均で先に中心化する
+    （Pearson は列の平行移動に不変・大きなオフセットの桁落ちを防ぐ）。共通行での和・積和はマスク行列との
+    積で得る（非有限は 0 に置いて積和に寄与させない）。
+    """
+    m = np.isfinite(x)
+    mf = m.astype(np.float64)
+    counts = mf.sum(axis=0)
+    sums = np.where(m, x, 0.0).sum(axis=0)
+    means = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
+    xc = np.where(m, x - means, 0.0)
+    n_ab = mf.T @ mf  # ペアごとの共通有効行数
+    sx = xc.T @ mf  # 共通行での x の和（共通行の平均は列平均と一般に異なるので補正項に使う）
+    sxx = (xc * xc).T @ mf  # 共通行での x^2 の和
+    cov = n_ab * (xc.T @ xc) - sx * sx.T
+    varx = n_ab * sxx - sx * sx  # n^2 × 分散（[a,b] = a 側・転置が b 側）
+    denom = np.sqrt(np.maximum(varx * varx.T, 0.0))
+    r: np.ndarray = np.zeros_like(cov)
+    np.divide(cov, denom, out=r, where=(n_ab >= 2) & (denom > 0))
+    np.clip(r, -1.0, 1.0, out=r)  # 丸めで ±1 をわずかに超えた値を潰す（np.corrcoef と同じ規約）
+    return r
+
+
 def high_correlation_pairs(
     df: pl.DataFrame, *, threshold: float = 0.99, columns: Sequence[str] | None = None
 ) -> pl.DataFrame:
-    """相関の高い列ペア（列 = a, b, correlation・|r| 降順）。既定 0.99＝リーク/重複疑い。
+    """相関の高い列ペア（列 = a, b, correlation・|r| 降順・同値は (a, b) 昇順＝決定的）。既定 0.99＝リーク/重複疑い。
 
     0.8 に下げれば多重共線性の点検にも使える（引数で外から）。定数列は相関が定義できないので除く。
+    相関は行列 1 パス（_pairwise_corr_matrix・欠損は pairwise-complete）で計算し閾値抽出する。
     """
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
-    vals = {c: df[c].to_numpy().astype(np.float64) for c in cols}
-    rows = []
-    for i, a in enumerate(cols):
-        for b in cols[i + 1 :]:
-            r = _corr(vals[a], vals[b])
-            if abs(r) >= threshold:
-                rows.append({"a": a, "b": b, "correlation": r})
     schema: dict[str, Any] = {"a": pl.String, "b": pl.String, "correlation": pl.Float64}
+    if len(cols) < 2:
+        return pl.DataFrame(schema=schema)
+    r = _pairwise_corr_matrix(df.select(pl.col(c).cast(pl.Float64) for c in cols).to_numpy())
+    iu, ju = np.triu_indices(len(cols), k=1)
+    keep = np.abs(r[iu, ju]) >= threshold
+    rows = [
+        {"a": cols[i], "b": cols[j], "correlation": float(r[i, j])}
+        for i, j in zip(iu[keep].tolist(), ju[keep].tolist(), strict=True)
+    ]
     out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
-    return out.sort(pl.col("correlation").abs(), descending=True)
+    return out.sort([pl.col("correlation").abs(), "a", "b"], descending=[True, False, False])
 
 
 def psi(train: pl.Series, test: pl.Series, *, bins: int = 10) -> float:
@@ -383,7 +542,7 @@ class CompareReport:
 
     n_train: int
     n_test: int
-    numeric: pl.DataFrame  # column, train_mean, test_mean, train_std, test_std, mean_gap, psi
+    numeric: pl.DataFrame  # column, train_mean, test_mean, train_std, test_std, mean_gap, psi, ks, wasserstein
     categorical: pl.DataFrame  # column, n_train_only, n_test_only, train_only_top, test_only_top, test_coverage, psi
 
     def to_dict(self) -> dict[str, Any]:
@@ -403,10 +562,15 @@ def compare(
     max_categories: int = 50,
     psi_bins: int = 10,
 ) -> CompareReport:
-    """train/test の列ごとの分布比較（統計量・カテゴリの共通/固有・PSI）。
+    """train/test の列ごとの分布比較（統計量・カテゴリの共通/固有・PSI・KS 統計量・Wasserstein 距離）。
 
     リーク禁止は API の形で守る：2 つの DataFrame を受け、各側で独立に集計する（結合してから集計しない）。
+    数値列の分布距離は 3 本立て：psi（ビン分割・目安の解釈が普及）／ks（経験分布関数の最大差・ビン非依存）／
+    wasserstein（輸送距離＝ずれの「量」がそのままの単位で読める）。ks・wasserstein は scipy.stats に委譲する
+    （再発明しない）。片側が全欠損で計算できないときは None（mean_gap と同じ「測れない」の規約）。
     """
+    from scipy.stats import ks_2samp, wasserstein_distance
+
     common = [c for c in train.columns if c in test.columns]
     if columns is not None:
         common = [c for c in columns if c in common]
@@ -421,6 +585,12 @@ def compare(
     for c in num_cols:
         tm, um, ts, us = _f(train[c].mean()), _f(test[c].mean()), _f(train[c].std()), _f(test[c].std())
         gap = None if (ts is None or ts == 0 or tm is None or um is None) else abs(tm - um) / ts
+        tv, uv = train[c].drop_nulls().to_numpy(), test[c].drop_nulls().to_numpy()
+        ks: float | None = None
+        wd: float | None = None
+        if len(tv) and len(uv):
+            ks = float(ks_2samp(tv, uv).statistic)
+            wd = float(wasserstein_distance(tv, uv))
         num_rows.append(
             {
                 "column": c,
@@ -430,6 +600,8 @@ def compare(
                 "test_std": us,
                 "mean_gap": gap,
                 "psi": psi(train[c], test[c], bins=psi_bins),
+                "ks": ks,
+                "wasserstein": wd,
             }
         )
 
@@ -459,6 +631,8 @@ def compare(
         "test_std": pl.Float64,
         "mean_gap": pl.Float64,
         "psi": pl.Float64,
+        "ks": pl.Float64,
+        "wasserstein": pl.Float64,
     }
     cat_schema: dict[str, Any] = {
         "column": pl.String,

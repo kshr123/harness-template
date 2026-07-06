@@ -1,7 +1,8 @@
 ---
 id: ISS-0008
 kind: risk
-state: open
+state: resolved
+promoted_to: T-0048
 found_in: ds-review-2026-07-05
 created: 2026-07-05
 title: レジストリの形がばらつき、DATA_SOURCES にだけ一覧コマンド（入口）が無い

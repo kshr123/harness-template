@@ -14,9 +14,10 @@ import pytest
 from numpy.typing import NDArray
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401  HalvingRandomSearchCV の有効化に必須
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GridSearchCV, HalvingRandomSearchCV, RandomizedSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, HalvingRandomSearchCV, KFold, RandomizedSearchCV, StratifiedKFold
 
 from harness.ds import cv
+from harness.ds.eval import metric_fn_for
 from harness.ds.pipeline import build_model
 from harness.ds.tune import TUNERS, build_tuned
 
@@ -95,6 +96,42 @@ def test_build_model_with_tune_wraps_and_wires_seed() -> None:
     inner = m.cv
     assert isinstance(inner, StratifiedKFold)
     assert (inner.n_splits, inner.shuffle, inner.random_state) == (3, True, 5)
+
+
+@pytest.mark.unit
+def test_build_tuned_regression_uses_kfold_inner_cv() -> None:
+    # G8：回帰モデル＋tune の内側 cv は KFold（連続 y は層化できない＝StratifiedKFold は fit で "continuous" 落ち）。
+    # task は config に書かせず model から知る（is_classifier）。seed 付き shuffle で決定的（分類側と対称）。
+    m = build_model({"kind": "ridge", "tune": {"param_grid": {"alpha": [0.1, 1.0]}}}, seed=5)
+    assert isinstance(m, RandomizedSearchCV)
+    inner = m.cv
+    assert type(inner) is KFold  # StratifiedKFold ではない（回帰の分岐）
+    assert (inner.n_splits, inner.shuffle, inner.random_state) == (3, True, 5)
+    # _dense_model で Pipeline に包まれた回帰モデル（hist_gb_reg）も回帰と判定される（is_classifier は最終段を見る）。
+    hg = build_model({"kind": "hist_gb_reg", "tune": {"param_grid": {"model__max_depth": [2, 3]}}}, seed=5)
+    assert isinstance(hg, RandomizedSearchCV)
+    assert type(hg.cv) is KFold
+    # 分類は従来どおり StratifiedKFold（既存の test_build_model_with_tune_wraps_and_wires_seed と併せて対称を固定）。
+    clf = build_model({"kind": "logreg", "tune": {"param_grid": {"C": [0.1, 1.0]}}}, seed=5)
+    assert isinstance(clf, RandomizedSearchCV)
+    assert type(clf.cv) is StratifiedKFold
+
+
+@pytest.mark.integration
+def test_regression_tune_runs_through_run_cv() -> None:
+    # G8 の赤→緑：構成は y=2x の無雑音線形（60 行）。alpha=0.001 はほぼ OLS＝残差 ≈ 0・alpha=10^6 は係数が
+    # ほぼ 0 に縮んで予測が平均に潰れる＝残差大 → scoring="neg_mean_squared_error" で alpha=0.001 が必ず勝つ
+    # （構成から導出）。修正前は内側 cv が StratifiedKFold 固定＝連続 y の fit が ValueError で死んでいた。
+    x = pl.DataFrame({"f": np.linspace(0.0, 10.0, 60)})
+    y = 2.0 * x["f"].to_numpy()
+    tune = {"param_grid": {"alpha": [0.001, 1_000_000.0]}, "n_iter": 2, "scoring": "neg_mean_squared_error"}
+    tuned = build_model({"kind": "ridge", "tune": tune}, seed=0, task="regression")
+    splits = list(KFold(n_splits=3, shuffle=True, random_state=0).split(np.zeros(len(y))))
+    result = cv.run_cv(tuned, x, y, splits, predict="value", metric_fn=metric_fn_for("regression"))
+    assert result.oof_mask.all()
+    # 各 fold の内側探索も良い側（ほぼ OLS）を選ぶ＋無雑音線形なので oof の残差はほぼ 0。
+    assert all(est.best_params_["alpha"] == 0.001 for est in result.estimators)  # type: ignore[attr-defined]
+    assert result.oof_metrics["rmse"] < 0.1  # 無雑音の線形＝ほぼ 0（緩い上界・構成から導出）
 
 
 @pytest.mark.unit

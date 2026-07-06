@@ -359,6 +359,93 @@ def test_threshold_table_matches_confusion_and_selector() -> None:
     assert max_row["threshold"] == pytest.approx(best_t)
 
 
+def test_threshold_table_rows_from_construction() -> None:
+    # y=[0,0,0,1,1], s=[.1,.4,.6,.6,.9]。明示閾値ごとに pred=(s>=t) を手で数えて tp/fp/fn/tn・P/R/F1 を導出。
+    y = np.array([0, 0, 0, 1, 1], dtype="int64")
+    s = np.array([0.1, 0.4, 0.6, 0.6, 0.9], dtype="float64")
+    tbl = ev.threshold_table(y, s, thresholds=[0.0, 0.5, 0.6, 0.7, 1.0])
+    assert tbl.columns == ["threshold", "precision", "recall", "f1", "tn", "fp", "fn", "tp"]  # 列名・順序は不変
+    rows = tbl.to_dicts()
+    # t=0.0: 全部陽性 → tp=2, fp=3, fn=0, tn=0, P=2/5, R=1, F1=2·(2/5)·1/(2/5+1)=4/7
+    assert (rows[0]["tp"], rows[0]["fp"], rows[0]["fn"], rows[0]["tn"]) == (2, 3, 0, 0)
+    assert rows[0]["precision"] == pytest.approx(2 / 5)
+    assert rows[0]["recall"] == 1.0
+    assert rows[0]["f1"] == pytest.approx(4 / 7)
+    # t=0.5: pred=[0,0,1,1,1] → tp=2, fp=1, fn=0, tn=2, P=2/3, R=1, F1=4/5
+    assert (rows[1]["tp"], rows[1]["fp"], rows[1]["fn"], rows[1]["tn"]) == (2, 1, 0, 2)
+    assert rows[1]["precision"] == pytest.approx(2 / 3)
+    assert rows[1]["f1"] == pytest.approx(4 / 5)
+    # t=0.6: 同値スコアは >= で陽性側 → t=0.5 と同じ数え（境界の包含を固定）。
+    assert (rows[2]["tp"], rows[2]["fp"], rows[2]["fn"], rows[2]["tn"]) == (2, 1, 0, 2)
+    # t=0.7: pred=[0,0,0,0,1] → tp=1, fp=0, fn=1, tn=3, P=1, R=1/2, F1=2/3
+    assert (rows[3]["tp"], rows[3]["fp"], rows[3]["fn"], rows[3]["tn"]) == (1, 0, 1, 3)
+    assert rows[3]["recall"] == pytest.approx(1 / 2)
+    assert rows[3]["f1"] == pytest.approx(2 / 3)
+    # t=1.0: 全部陰性 → tp=fp=0 → P=R=F1=0（0 割しない）。
+    assert (rows[4]["tp"], rows[4]["fp"], rows[4]["fn"], rows[4]["tn"]) == (0, 0, 2, 3)
+    assert (rows[4]["precision"], rows[4]["recall"], rows[4]["f1"]) == (0.0, 0.0, 0.0)
+
+
+def test_threshold_table_matches_definition_oracle_on_random_data() -> None:
+    # 定義から独立に数える oracle（pred=(s>=t) の集計と P/R/F1 の定義式）と、全行・全列が一致する性質テスト。
+    # 期待値は実装出力の写経ではなく、混同行列の定義そのものから導く（金メッキ禁止）。
+    rng = np.random.default_rng(42)
+    y = (rng.random(200) < 0.3).astype("int64")
+    s = rng.random(200)
+
+    def oracle(t: float) -> tuple[int, int, int, int, float, float, float]:
+        pred = s >= t
+        tp = int(((y == 1) & pred).sum())
+        fp = int(((y == 0) & pred).sum())
+        fn = int(((y == 1) & ~pred).sum())
+        tn = int(((y == 0) & ~pred).sum())
+        p = tp / (tp + fp) if tp + fp else 0.0
+        r = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * p * r / (p + r) if p + r else 0.0
+        return tp, fp, fn, tn, p, r, f1
+
+    # 既定スイープ（_curve の閾値）と明示指定の両経路を検査。
+    default_tbl = ev.threshold_table(y, s)
+    assert len(default_tbl) == len(ev._curve(y, s)[2])  # 行数＝pr 曲線の閾値数（従来と同じ土台）
+    explicit_ts = [0.0, 0.25, 0.5, 0.75, 1.0]
+    explicit_tbl = ev.threshold_table(y, s, thresholds=explicit_ts)
+    assert explicit_tbl["threshold"].to_list() == explicit_ts  # 指定順を保つ
+    for tbl in (default_tbl, explicit_tbl):
+        for r_ in tbl.to_dicts():
+            tp, fp, fn, tn, p, rec, f1 = oracle(r_["threshold"])
+            assert (r_["tp"], r_["fp"], r_["fn"], r_["tn"]) == (tp, fp, fn, tn)
+            assert r_["precision"] == pytest.approx(p)
+            assert r_["recall"] == pytest.approx(rec)
+            assert r_["f1"] == pytest.approx(f1)
+
+
+def test_threshold_table_degenerate_inputs_no_division_error() -> None:
+    # 退化：全陽性・全陰性・単一スコア。既定スイープは両クラス必須（_curve）なので明示閾値で通す。0 割しない。
+    # 全陽性 y=[1,1], s=[.2,.8], t=.5 → tp=1, fn=1, fp=tn=0 → P=1, R=1/2, F1=2/3。
+    all_pos = ev.threshold_table(
+        np.array([1, 1], dtype="int64"), np.array([0.2, 0.8], dtype="float64"), thresholds=[0.5]
+    ).to_dicts()[0]
+    assert (all_pos["tp"], all_pos["fp"], all_pos["fn"], all_pos["tn"]) == (1, 0, 1, 0)
+    assert all_pos["precision"] == 1.0
+    assert all_pos["recall"] == pytest.approx(1 / 2)
+    assert all_pos["f1"] == pytest.approx(2 / 3)
+    # 全陰性 y=[0,0] → tp=fn=0（正例なし）→ P=R=F1=0.0（nan にしない）。
+    all_neg = ev.threshold_table(
+        np.array([0, 0], dtype="int64"), np.array([0.2, 0.8], dtype="float64"), thresholds=[0.5]
+    ).to_dicts()[0]
+    assert (all_neg["tp"], all_neg["fp"], all_neg["fn"], all_neg["tn"]) == (0, 1, 0, 1)
+    assert (all_neg["precision"], all_neg["recall"], all_neg["f1"]) == (0.0, 0.0, 0.0)
+    # 単一スコア（全行 0.5）：t=0.5 で全部陽性（>= の境界）・t=0.6 で全部陰性。
+    y_one = np.array([0, 1, 0, 1], dtype="int64")
+    s_one = np.full(4, 0.5, dtype="float64")
+    single = ev.threshold_table(y_one, s_one, thresholds=[0.5, 0.6]).to_dicts()
+    assert (single[0]["tp"], single[0]["fp"], single[0]["fn"], single[0]["tn"]) == (2, 2, 0, 0)
+    assert single[0]["precision"] == pytest.approx(1 / 2)
+    assert single[0]["recall"] == 1.0
+    assert (single[1]["tp"], single[1]["fp"], single[1]["fn"], single[1]["tn"]) == (0, 0, 2, 2)
+    assert (single[1]["precision"], single[1]["recall"], single[1]["f1"]) == (0.0, 0.0, 0.0)
+
+
 def test_brier_from_construction() -> None:
     # brier = mean((score - y)²)（brier_score_loss の定義）。期待値はテストデータの構成から厳密に導く。
     # proba=1.0 で y=1（完全確信で正解）→ (1-1)²=0 の平均 = 0（最良）。
@@ -382,3 +469,150 @@ def test_brier_registered_direction_and_passes() -> None:
     assert m.description
     assert ev.passes({"brier": 0.25}, {"brier": 0.3})  # 閾値以下で合格（小さいほど良い）
     assert not ev.passes({"brier": 0.5}, {"brier": 0.3})
+
+
+# --- T-0080 eval 完成度：bootstrap CI・cost-sensitive 閾値・pinball α ---
+
+
+def test_bootstrap_ci_deterministic_and_ordered() -> None:
+    # 同じ seed → 同じ区間（決定的・rng.choice の再標本のみが乱数源）。lo <= hi は常に成り立つ。
+    rng = np.random.default_rng(0)
+    y = (rng.random(100) < 0.5).astype("int64")
+    s = rng.random(100)
+    ci1 = ev.bootstrap_ci(y, s, metric="roc_auc", n_boot=50, seed=7)
+    ci2 = ev.bootstrap_ci(y, s, metric="roc_auc", n_boot=50, seed=7)
+    assert ci1 == ci2
+    lo, hi = ci1
+    assert lo <= hi
+
+
+def test_bootstrap_ci_degenerate_metric_collapses() -> None:
+    # pred = y + 1 → どの再標本でも各行の絶対誤差が 1 → mae は常に 1 → 区間は (1, 1) に潰れる（構成から）。
+    y = np.arange(10, dtype="float64")
+    pred = y + 1.0
+    assert ev.bootstrap_ci(y, pred, metric="mae", n_boot=30, seed=0) == (1.0, 1.0)
+
+
+def test_bootstrap_ci_coverage_near_nominal() -> None:
+    # コイン投げ p=0.6・pred 全 1 → accuracy = 標本中の 1 の割合（推定量＝標本平均・真値 p=0.6）。
+    # 95% CI が真値を覆う割合はおおむね名目（seed 固定で決定的＝フレーキーにならない）。
+    # 下限は 90：正実装は被覆 92 で緑・分位取り違え変異（95%CI のつもりで 90%CI＝
+    # np.quantile(stats, [alpha, 1-alpha]) を返す）は被覆 88 で赤にして殺す（85 だと変異が生存する）。
+    p = 0.6
+    n, trials = 100, 100
+    rng = np.random.default_rng(123)
+    ones = np.ones(n, dtype="int64")
+    covered = 0
+    for t in range(trials):
+        y = (rng.random(n) < p).astype("int64")
+        lo, hi = ev.bootstrap_ci(y, ones, metric="accuracy", n_boot=200, seed=t)
+        if lo <= p <= hi:
+            covered += 1
+    assert covered >= 90
+
+
+def test_bootstrap_ci_validation() -> None:
+    y = np.array([0, 1, 0, 1], dtype="int64")
+    s = np.array([0.1, 0.9, 0.2, 0.8], dtype="float64")
+    with pytest.raises(ValueError, match="未知の指標"):
+        ev.bootstrap_ci(y, s, metric="nope", seed=0)
+    with pytest.raises(ValueError, match="alpha"):
+        ev.bootstrap_ci(y, s, metric="roc_auc", seed=0, alpha=1.5)
+    with pytest.raises(ValueError, match="n_boot"):
+        ev.bootstrap_ci(y, s, metric="roc_auc", seed=0, n_boot=0)
+    with pytest.raises(ValueError, match="同じ長さ"):
+        ev.bootstrap_ci(y, s[:2], metric="roc_auc", seed=0)
+    with pytest.raises(ValueError, match="同じ長さ|空"):
+        ev.bootstrap_ci(np.array([], dtype="int64"), np.array([], dtype="float64"), metric="roc_auc", seed=0)
+
+
+def test_select_threshold_min_cost_asymmetric_from_construction() -> None:
+    # y=[0,1,0,1], s=[0.2,0.4,0.6,0.8]。閾値の区分ごとの (fp, fn)（pred = score >= t）：
+    #   t<=0.2 全陽性 (2,0)／(0.2,0.4] (1,0)／(0.4,0.6] (1,1)／(0.6,0.8] (0,1)／t>0.8 全陰性 (0,2)
+    # fp_cost=1, fn_cost=10 → 費用 [2,1,11,10,20] → 最小は t=0.4・費用 1（見逃しが高価→広めに拾う）。
+    y = np.array([0, 1, 0, 1], dtype="int64")
+    s = np.array([0.2, 0.4, 0.6, 0.8], dtype="float64")
+    assert ev.select_threshold_min_cost(y, s, fp_cost=1.0, fn_cost=10.0) == (0.4, 1.0)
+    # 費用を逆転（fp_cost=10, fn_cost=1）→ 費用 [20,10,11,1,2] → 最小は t=0.8・費用 1（誤検知が高価→狭める）。
+    assert ev.select_threshold_min_cost(y, s, fp_cost=10.0, fn_cost=1.0) == (0.8, 1.0)
+
+
+def test_select_threshold_min_cost_all_negative_optimum() -> None:
+    # 正例のスコアが最下位（y=[1,0,0], s=[0.5,0.6,0.7]）・誤検知が高価（fp=100, fn=1）：
+    #   t=0.5 (2,0)=200／t=0.6 (2,1)=201／t=0.7 (1,1)=101／全陰性 (0,1)=1 → 全陰性（max スコア直上）が最適。
+    y = np.array([1, 0, 0], dtype="int64")
+    s = np.array([0.5, 0.6, 0.7], dtype="float64")
+    t, cost = ev.select_threshold_min_cost(y, s, fp_cost=100.0, fn_cost=1.0)
+    assert t > 0.7
+    assert cost == 1.0
+    # 返した閾値はそのまま confusion に渡せる（>= 判定が同じ）＝数えの同値性。
+    c = ev.confusion(y, s, threshold=t)
+    assert cost == c["fp"] * 100.0 + c["fn"] * 1.0
+
+
+def test_select_threshold_min_cost_tie_prefers_larger() -> None:
+    # y=[1,0], s=[0.3,0.7]・等費用：t=0.3 (1,0)=1／t=0.7 (1,1)=2／全陰性 (0,1)=1
+    # → 同点（費用 1）は大きい方の閾値（max_f1 と同じ規約）＝全陰性側（> 0.7）。
+    y = np.array([1, 0], dtype="int64")
+    s = np.array([0.3, 0.7], dtype="float64")
+    t, cost = ev.select_threshold_min_cost(y, s, fp_cost=1.0, fn_cost=1.0)
+    assert t > 0.7
+    assert cost == 1.0
+
+
+def test_select_threshold_min_cost_validation() -> None:
+    y = np.array([0, 1], dtype="int64")
+    s = np.array([0.2, 0.8], dtype="float64")
+    with pytest.raises(ValueError, match="正"):
+        ev.select_threshold_min_cost(y, s, fp_cost=0.0, fn_cost=1.0)
+    with pytest.raises(ValueError, match="正"):
+        ev.select_threshold_min_cost(y, s, fp_cost=1.0, fn_cost=-1.0)
+    # 単一クラスは兄弟（select_threshold_*）と同じく _curve が止める。
+    with pytest.raises(ValueError, match="正例・負例"):
+        ev.select_threshold_min_cost(np.array([1, 1], dtype="int64"), s, fp_cost=1.0, fn_cost=1.0)
+
+
+def test_pinball_alpha_asymmetry_from_definition() -> None:
+    # 定義：loss = α·max(y−pred, 0) + (1−α)·max(pred−y, 0)。
+    # 過小予測（y=1, pred=0）→ α×1。過大予測（y=0, pred=1）→ (1−α)×1（符号で非対称が出る）。
+    y_under = np.array([1.0], dtype="float64")
+    p_under = np.array([0.0], dtype="float64")
+    assert ev.pinball(y_under, p_under, alpha=0.1) == pytest.approx(0.1)
+    assert ev.pinball(y_under, p_under, alpha=0.9) == pytest.approx(0.9)
+    y_over = np.array([0.0], dtype="float64")
+    p_over = np.array([1.0], dtype="float64")
+    assert ev.pinball(y_over, p_over, alpha=0.1) == pytest.approx(0.9)
+    assert ev.pinball(y_over, p_over, alpha=0.9) == pytest.approx(0.1)
+
+
+def test_pinball_alpha_half_is_half_mae_and_default() -> None:
+    # α=0.5 は |誤差|/2 の平均＝mae/2。y=[0,0], pred=[3,4] → mae=3.5 → 1.75。既定引数も α=0.5。
+    y = np.array([0.0, 0.0], dtype="float64")
+    p = np.array([3.0, 4.0], dtype="float64")
+    assert ev.pinball(y, p, alpha=0.5) == pytest.approx(1.75)
+    assert ev.pinball(y, p) == pytest.approx(1.75)
+
+
+def test_pinball_alpha_validation() -> None:
+    y = np.array([0.0], dtype="float64")
+    p = np.array([1.0], dtype="float64")
+    for bad in (0.0, 1.0, -0.1, 1.1):
+        with pytest.raises(ValueError, match="alpha"):
+            ev.pinball(y, p, alpha=bad)
+
+
+def test_pinball_quantile_metrics_registered_and_evaluated() -> None:
+    # DEC-0009：代表分位（q10/q90）が説明文つきで METRICS に載り、evaluate_regression から名前で引ける。
+    for name in ("pinball_q10", "pinball_q90"):
+        m = ev.METRICS[name]
+        assert m.description
+        assert m.tasks == ("regression",)
+        assert m.higher_is_better is False
+        assert m.input == "value"
+    # y=[1], pred=[0]（過小予測 1）→ q10=0.1・q50（pinball）=0.5・q90=0.9（定義から）。
+    y = np.array([1.0], dtype="float64")
+    p = np.array([0.0], dtype="float64")
+    out = ev.evaluate_regression(y, p, metrics=["pinball_q10", "pinball", "pinball_q90"])
+    assert out["pinball_q10"] == pytest.approx(0.1)
+    assert out["pinball"] == pytest.approx(0.5)
+    assert out["pinball_q90"] == pytest.approx(0.9)

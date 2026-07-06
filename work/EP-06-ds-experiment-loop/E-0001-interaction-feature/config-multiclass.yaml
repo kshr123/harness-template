@@ -1,0 +1,19 @@
+# E-0001 の task 変種（多クラス）＝雛形 train.py の task 分岐スモーク（--test・e2e が毎回実行）。
+# 雛形本体は 1 つ（code/train.py）・task の違いは config で選ぶ：`python code/train.py --config config-multiclass.yaml --variant mc_baseline --test`
+# データは train.py 登録のローカル源 synthetic_multiclass（線形スコア 1.5*x1 − 2.0*x2 + 雑音 std 0.5 を ±1.0 で 3 分割）。
+# thresholds の導出：各クラス約 30〜35%（偶然 ≈ 0.35）・境界雑音の flip 率 ≈ 0.12（上限 ≈ 0.88）→ 0.7 以上で合格。
+# 本規模で回すときは --root を分ける（fold 表 e0001_folds は config.yaml（二値）の分割と別物になるため）。
+seed: 20260706
+n: 2000
+n_folds: 5
+data: { kind: synthetic_multiclass } # train.py が DATA_SOURCES に登録する実験ローカルの合成データ
+target: y # ラベルは 0..2（cv の多クラス契約＝0..k-1 の連番）
+task: multiclass # 閾値選択なし・OOF は (n, k) の proba・評価は argmax の多クラス指標
+model: { kind: logreg, max_iter: 2000 } # logreg は多クラスをそのまま扱う（クラス数は fit 時のラベルで決まる）
+metrics: [accuracy, macro_f1, log_loss_multi]
+variants:
+  mc_baseline:
+    features:
+      - { kind: columns, columns: [x1, x2] }
+test_mode: { n: 240, n_folds: 3 } # --test のときの小さな規模
+thresholds: { accuracy: 0.7, macro_f1: 0.7 } # 偶然 0.35 と雑音上限 0.88 の間（構成から導出）

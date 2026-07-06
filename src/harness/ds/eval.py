@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any, Literal
 
 import numpy as np
@@ -148,8 +149,16 @@ def _r2(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
     return float(r2_score(y_true, y_pred))
 
 
-def _pinball(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
-    return float(mean_pinball_loss(y_true, y_pred, alpha=0.5))
+def pinball(y_true: NDArray[Any], y_pred: NDArray[Any], *, alpha: float = 0.5) -> float:  # noqa: ANN401
+    """ピンボール損失（分位 α の非対称誤差・小さいほど良い）。mean_pinball_loss 素通し（DEC-0006）。
+
+    α は狙う分位（0 < α < 1）：loss = α·max(y−pred, 0) + (1−α)·max(pred−y, 0)。過小予測に α・
+    過大予測に 1−α の重み（α=0.9 は上側分位＝過小予測に重い罰）。α=0.5 は |誤差|/2＝mae/2（中央値の点予測）。
+    代表分位は METRICS に登録済み（pinball=α0.5・pinball_q10・pinball_q90）。その他の α はこの関数を直接呼ぶ。
+    """
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha は 0 より大きく 1 未満（分位。指定値: {alpha}）")
+    return float(mean_pinball_loss(y_true, y_pred, alpha=alpha))
 
 
 # config の thresholds に書ける指標名 → 指標の定義（MetricEntry：input・向き・対応 task つき）。足したら 1 行。
@@ -282,11 +291,27 @@ _register_metric("mape", _mape, "regression", "value", False, "平均絶対百�
 _register_metric("r2", _r2, "regression", "value", True, "決定係数（1 で完全・0 で平均予測並み）")
 _register_metric(
     "pinball",
-    _pinball,
+    pinball,
     "regression",
     "value",
     False,
-    "ピンボール損失 α=0.5 固定（点予測では mae/2。分位回帰の導入時に α の口を足す）",
+    "ピンボール損失 α=0.5（点予測では mae/2＝中央値。他の分位は pinball_q10/q90 か pinball(alpha=) を直接）",
+)
+_register_metric(
+    "pinball_q10",
+    partial(pinball, alpha=0.1),
+    "regression",
+    "value",
+    False,
+    "ピンボール損失 α=0.1（下側 10% 分位・過大予測に重い罰・小さいほど良い）",
+)
+_register_metric(
+    "pinball_q90",
+    partial(pinball, alpha=0.9),
+    "regression",
+    "value",
+    False,
+    "ピンボール損失 α=0.9（上側 90% 分位・過小予測に重い罰・小さいほど良い）",
 )
 
 MetricFn = Callable[[NDArray[np.int_], NDArray[np.float64]], dict[str, float]]
@@ -408,6 +433,42 @@ def passes(metrics: dict[str, float], thresholds: dict[str, float]) -> bool:
     return True
 
 
+def bootstrap_ci(
+    y_true: NDArray[Any],  # noqa: ANN401
+    y_pred: NDArray[Any],  # noqa: ANN401
+    *,
+    metric: str,
+    n_boot: int = 1000,
+    seed: int,
+    alpha: float = 0.05,
+) -> tuple[float, float]:
+    """指標のブートストラップ信頼区間（百分位法）。返り値は (lo, hi)＝百分位 (alpha/2, 1−alpha/2)。
+
+    行を rng.choice で n_boot 回再標本し、指標の計算は METRICS[metric] に委譲する（再発明しない）。
+    leaderboard の変種差が「ノイズか本物か」の目安に使う（OOF 予測で呼ぶ・区間が重ならなければ本物の差とみなしやすい）。
+    y_pred は指標の input に合わせて渡す（score=確率・label=閾値後ラベル・value=回帰の予測値。
+    一覧は `uv run data metrics`）。seed は明示必須・同じ seed なら同じ区間（決定的）。
+    例：lo, hi = bootstrap_ci(y, oof_score, metric="roc_auc", seed=0)
+    """
+    entry = METRICS.resolve(metric)  # 未知の指標名はここで ValueError（候補一覧つき）
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha は 0 より大きく 1 未満（両側の外れ確率。指定値: {alpha}）")
+    if n_boot < 1:
+        raise ValueError(f"n_boot は 1 以上（指定値: {n_boot}）")
+    y = np.asarray(y_true)
+    pred = np.asarray(y_pred)
+    if y.shape[0] == 0 or y.shape[0] != pred.shape[0]:
+        raise ValueError(f"y_true と y_pred は同じ長さで空でないこと（実際: {y.shape[0]} 行と {pred.shape[0]} 行）")
+    rng = np.random.default_rng(seed)
+    n = y.shape[0]
+    stats = np.empty(n_boot, dtype=np.float64)
+    for b in range(n_boot):
+        idx = rng.choice(n, size=n, replace=True)
+        stats[b] = entry.fn(y[idx], pred[idx])
+    lo, hi = np.quantile(stats, [alpha / 2.0, 1.0 - alpha / 2.0])
+    return float(lo), float(hi)
+
+
 def _curve(
     y_true: NDArray[np.int_], y_score: NDArray[np.float64]
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
@@ -462,6 +523,27 @@ def select_threshold_at_precision(y_true: NDArray[np.int_], y_score: NDArray[np.
     if ok.size == 0:
         return float(np.nextafter(np.max(y_score), np.inf))
     return float(thresholds[int(ok.min())])
+
+
+def select_threshold_min_cost(
+    y_true: NDArray[np.int_], y_score: NDArray[np.float64], *, fp_cost: float, fn_cost: float
+) -> tuple[float, float]:
+    """期待費用 fp×fp_cost + fn×fn_cost を最小にする閾値。返り値は (閾値, 最小費用)。同点は大きい方の閾値。
+
+    誤検知（fp）と見逃し（fn）の費用が非対称なときの閾値選択。候補は select_threshold_* 兄弟と同じ
+    スコアの一意な値（_curve）に「全部陰性」（max(y_score) の直上）を加えたもの。数えは threshold_table
+    の累積カウントに相乗り（confusion と同値・O(n log n)）。較正済みスコアなら最適閾値は
+    fp_cost/(fp_cost+fn_cost) の近傍に出る。※選ぶのは valid/OOF で（train は過大評価・test は漏れ）。
+    """
+    if fp_cost <= 0 or fn_cost <= 0:
+        raise ValueError(f"fp_cost・fn_cost は正の費用（指定値: fp_cost={fp_cost}, fn_cost={fn_cost}）")
+    candidates = [float(t) for t in _curve(y_true, y_score)[2]]
+    candidates.append(float(np.nextafter(np.max(y_score), np.inf)))  # 全部陰性（fp=0）も候補に含める
+    tbl = threshold_table(y_true, y_score, thresholds=candidates)
+    cost = tbl["fp"].to_numpy() * fp_cost + tbl["fn"].to_numpy() * fn_cost
+    best = float(cost.min())
+    idx = int(np.flatnonzero(cost == best).max())  # 候補は昇順→最大添字＝大きい方の閾値（max_f1 と同じ規約）
+    return float(tbl["threshold"][idx]), best
 
 
 def confusion(y_true: NDArray[np.int_], y_score: NDArray[np.float64], *, threshold: float = 0.5) -> dict[str, int]:
@@ -565,15 +647,40 @@ def threshold_table(
     """閾値スイープ表。列 = threshold, precision, recall, f1, tp, fp, fn, tn。
 
     省略時の閾値は _curve（precision_recall_curve）のもの＝select_threshold_* と同じ土台（前後を見比べる用）。
-    各行の中身は confusion の再利用（式の二重実装なし）。閾値の「選択」は select_threshold_* が持つ（重複させない）。
+    tp/fp/fn/tn はスコア昇順の累積和から一括算出（閾値ごとに confusion_matrix を回さない＝O(n log n)）。
+    数えは confusion（labels=[0,1]・pred = score >= t）と同値。閾値の「選択」は select_threshold_* が持つ。
     """
     ts = list(thresholds) if thresholds is not None else [float(t) for t in _curve(y_true, y_score)[2]]
-    rows = []
-    for t in ts:
-        c = confusion(y_true, y_score, threshold=t)
-        tp, fp, fn = c["tp"], c["fp"], c["fn"]
-        precision = tp / (tp + fp) if (tp + fp) else 0.0
-        recall = tp / (tp + fn) if (tp + fn) else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
-        rows.append({"threshold": float(t), "precision": precision, "recall": recall, "f1": f1, **c})
-    return pl.DataFrame(rows)
+    if not ts:
+        return pl.DataFrame([])  # 空指定は従来どおり空表（列なし）
+    y = np.asarray(y_true)
+    scores = np.asarray(y_score, dtype=np.float64)
+    order = np.argsort(scores)
+    s_sorted = scores[order]
+    # 先頭 0 番兵つき累積和：cum_pos[i]/cum_neg[i] = スコア昇順で先頭 i 件中の正例/負例数（0/1 以外は数えない）。
+    cum_pos = np.concatenate(([0], np.cumsum(y[order] == 1)))
+    cum_neg = np.concatenate(([0], np.cumsum(y[order] == 0)))
+    ts_arr = np.asarray(ts, dtype=np.float64)
+    below = np.searchsorted(s_sorted, ts_arr, side="left")  # score < t の件数（>= t が陽性＝confusion と同じ境界）
+    fn = cum_pos[below]  # score < t の正例＝見逃し
+    tn = cum_neg[below]
+    tp = cum_pos[-1] - fn
+    fp = cum_neg[-1] - tn
+    pred_pos = tp + fp
+    precision = np.where(pred_pos > 0, tp / np.where(pred_pos > 0, pred_pos, 1), 0.0)
+    actual_pos = tp + fn
+    recall = np.where(actual_pos > 0, tp / np.where(actual_pos > 0, actual_pos, 1), 0.0)
+    denom = precision + recall
+    f1 = np.where(denom > 0, 2 * precision * recall / np.where(denom > 0, denom, 1.0), 0.0)
+    return pl.DataFrame(
+        {
+            "threshold": ts_arr,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "tn": tn.astype(np.int64),
+            "fp": fp.astype(np.int64),
+            "fn": fn.astype(np.int64),
+            "tp": tp.astype(np.int64),
+        }
+    )

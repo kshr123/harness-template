@@ -17,8 +17,29 @@ from numpy.typing import NDArray
 from harness.ds import eval as ev
 from harness.ds.cv import CVResult, _predict
 
-Task = Literal["classification", "regression"]
+# 課題の三値（experiment.Task・eval.metric_fn_for と同じ語彙。"classification"＝二値）。
+Task = Literal["classification", "multiclass", "regression"]
 Predict = Literal["proba", "value"]
+
+
+def _check_score_shape(task: Task, y_score: NDArray[np.float64]) -> None:
+    """task と y_score の形の整合検査。未対応の形を黙って計算しない（fail-loud）。
+
+    multiclass は (n, n_classes) の 2 次元 proba（run_cv の多クラス OOF そのまま）・二値/回帰は 1 次元。
+    取り違え（多クラス proba を二値経路へ・1 次元スコアを多クラス経路へ）は polars/numpy の不透明なエラーや
+    無意味な数値になる前にここで止める。
+    """
+    if task == "multiclass":
+        if y_score.ndim != 2:
+            raise ValueError(
+                f"task='multiclass' の y_score は (n, n_classes) の 2 次元 proba（実際の形: {y_score.shape}）"
+                "＝run_cv の多クラス OOF（cv.oof[oof_mask]）をそのまま渡す"
+            )
+    elif y_score.ndim != 1:
+        raise ValueError(
+            f"task={task!r} の y_score は 1 次元（実際の形: {y_score.shape}）"
+            "＝多クラスの proba 行列は task='multiclass' で渡す"
+        )
 
 
 def segment_metrics(
@@ -32,12 +53,27 @@ def segment_metrics(
 ) -> pl.DataFrame:
     """セグメント（カテゴリ列）別の指標表（列 = segment, count, <指標...>・count 降順）。
 
-    指標の計算は eval の evaluate / evaluate_regression に委譲（polars group_by で回すだけ）。回帰は residual_mean
-    列も足す（予測レンジ別の偏りが見える）。OOF 予測（cv.oof[oof_mask]）で呼ぶこと。連続値で切りたいときは
-    事前に列をビン化して渡す（polars の qcut 1 式・ビン化専用関数は作らない）。
+    指標の計算は eval の evaluate / evaluate_multiclass / evaluate_regression に委譲（polars group_by で回すだけ）。
+    回帰は residual_mean 列も足す（予測レンジ別の偏りが見える）。多クラス（task="multiclass"）は y_score に
+    (n, n_classes) の proba 行列を渡す＝argmax でラベル化したラベルベース指標（accuracy・macro 平均系）になる。
+    OOF 予測（cv.oof[oof_mask]）で呼ぶこと。連続値で切りたいときは事前に列をビン化して渡す
+    （polars の qcut 1 式・ビン化専用関数は作らない）。
     """
-    frame = pl.DataFrame({"segment": segments, "_y": y_true, "_s": y_score})
+    _check_score_shape(task, y_score)
     rows: list[dict[str, Any]] = []
+    if task == "multiclass":
+        # proba 行列は polars の列にせず、行番号で group_by → numpy 側で切り出す（二値/回帰の経路は従来のまま）。
+        if y_score.shape[0] != len(segments) or len(y_true) != len(segments):
+            raise ValueError(
+                f"長さが一致しない：segments={len(segments)}・y_true={len(y_true)}・y_score={y_score.shape[0]} 行"
+            )
+        index = pl.DataFrame({"segment": segments, "_i": np.arange(len(segments), dtype=np.int64)})
+        for key, group in index.group_by("segment"):
+            idx = group["_i"].to_numpy()
+            row = ev.evaluate_multiclass(y_true[idx].astype(np.int_), y_score[idx], metrics=metrics)
+            rows.append({"segment": str(key[0]), "count": group.height, **row})
+        return pl.DataFrame(rows).sort("count", descending=True)
+    frame = pl.DataFrame({"segment": segments, "_y": y_true, "_s": y_score})
     for key, group in frame.group_by("segment"):
         yt, ys = group["_y"].to_numpy(), group["_s"].to_numpy()
         if task == "regression":
@@ -59,9 +95,29 @@ def worst_rows(
 ) -> pl.DataFrame:
     """誤差の大きい行の一覧（df の列＋ y_true, y_score, error・error 降順の上位 n）。
 
-    error は分類＝|y_true − y_score|（確率との差）・回帰＝|y_true − y_pred|。どんな行で外しているかを
-    特徴量追加の仮説にする入り口。
+    error は二値分類＝|y_true − y_score|（確率との差）・回帰＝|y_true − y_pred|。多クラス（task="multiclass"）は
+    y_score に (n, n_classes) の proba 行列を渡す＝argmax の y_pred 列が付き、y_score 列は正解クラスに割いた確率・
+    error＝1 − その確率（argmax の 0/1 正誤と違い連続なので「どれだけ自信を持って外したか」で並ぶ。誤分類行は
+    正解確率が低い＝上位に来る）。ラベルは 0..n_classes-1 が前提（proba の列順と対応＝evaluate_multiclass と同じ契約）。
+    どんな行で外しているかを特徴量追加の仮説にする入り口。
     """
+    _check_score_shape(task, y_score)
+    if task == "multiclass":
+        n_classes = y_score.shape[1]
+        y_int = y_true.astype(np.int_)
+        if ((y_int < 0) | (y_int >= n_classes)).any():
+            raise ValueError(
+                f"y_true のラベルは 0..n_classes-1（0..{n_classes - 1}）が前提（proba の列順と対応）"
+                "＝外れるラベルは呼び手で振り直す"
+            )
+        p_true = y_score[np.arange(len(y_int)), y_int]
+        out = df.with_columns(
+            y_true=pl.Series("y_true", y_int),
+            y_pred=pl.Series("y_pred", y_score.argmax(axis=1).astype("int64")),
+            y_score=pl.Series("y_score", p_true),  # 正解クラスに割いた確率
+            error=pl.Series("error", 1.0 - p_true),
+        )
+        return out.sort("error", descending=True).head(n)
     error = np.abs(y_true.astype(np.float64) - y_score)
     out = df.with_columns(
         y_true=pl.Series("y_true", y_true),

@@ -1,7 +1,8 @@
 ---
 id: ISS-0006
 kind: risk
-state: open
+state: resolved
+promoted_to: T-0047
 found_in: ds-review-2026-07-05
 created: 2026-07-05
 title: 保存の「4作法」が store/models/schema にコピペで重複し、既に乖離している

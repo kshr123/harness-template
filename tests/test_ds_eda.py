@@ -254,6 +254,62 @@ def test_missing_patterns() -> None:
     assert by_cols[("z",)] == 2
 
 
+def test_missing_patterns_deterministic_order_and_top() -> None:
+    # 構成：欠損なし 3 行・a 単独 2 行・b 単独 2 行。count 降順・同数（a と b）は欠損列名の辞書順で決定的。
+    df = pl.DataFrame(
+        {
+            "a": [1, 1, 1, None, None, 4, 5],
+            "b": [1, 2, 3, 4, 5, None, None],
+        }
+    )
+    rows = eda.missing_patterns(df).to_dicts()
+    assert [tuple(r["columns"]) for r in rows] == [(), ("a",), ("b",)]
+    assert [r["count"] for r in rows] == [3, 2, 2]
+    assert rows[0]["ratio"] == pytest.approx(3 / 7)
+    assert rows[1]["ratio"] == pytest.approx(2 / 7)
+    # top は count 降順の上位だけに絞る。
+    top1 = eda.missing_patterns(df, top=1).to_dicts()
+    assert len(top1) == 1 and tuple(top1[0]["columns"]) == ()
+
+
+def test_high_correlation_pairs_from_matrix_construction() -> None:
+    # b=2a（r=1）・d=-a（r=-1）・c は中心化すると a/b/d と直交（r=0）。しきい値 0.99 で 3 ペアだけ。
+    df = pl.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0],
+            "b": [2.0, 4.0, 6.0, 8.0],
+            "c": [1.0, -1.0, -1.0, 1.0],
+            "d": [-1.0, -2.0, -3.0, -4.0],
+        }
+    )
+    rows = eda.high_correlation_pairs(df, threshold=0.99).to_dicts()
+    # |r| が同値（すべて 1.0）のときは (a, b) の昇順＝決定的な整列。
+    assert [(r["a"], r["b"]) for r in rows] == [("a", "b"), ("a", "d"), ("b", "d")]
+    by_pair = {(r["a"], r["b"]): r["correlation"] for r in rows}
+    assert by_pair[("a", "b")] == pytest.approx(1.0)
+    assert by_pair[("a", "d")] == pytest.approx(-1.0)
+    assert by_pair[("b", "d")] == pytest.approx(-1.0)
+
+
+def test_high_correlation_pairs_large_offset_no_catastrophic_cancellation() -> None:
+    # a = 標準正規 + 1e9・b = 2a（完全な比例関係 → r=1 は構成から自明・金メッキでない）。
+    # 相関を「先に中心化せず」平方和で計算すると 1e9 の桁で有効数字が飛び（桁落ち）、
+    # 分散が 0 と誤判定されて r=0.0＝検出漏れになる。中心化してあれば r=1.0 で検出できる。
+    rng = np.random.default_rng(0)
+    base = rng.standard_normal(50)
+    df = pl.DataFrame({"a": base + 1e9, "b": 2.0 * (base + 1e9)})
+    rows = eda.high_correlation_pairs(df, threshold=0.99).to_dicts()
+    assert [(r["a"], r["b"]) for r in rows] == [("a", "b")]
+    assert rows[0]["correlation"] == pytest.approx(1.0)
+
+
+def test_high_correlation_pairs_constant_column_never_flagged() -> None:
+    # 定数列は分散 0 で相関が定義できない → 0.0 扱い（NaN を混ぜない）＝どのペアにも出ない。
+    df = pl.DataFrame({"k": [7.0, 7.0, 7.0, 7.0], "a": [1.0, 2.0, 3.0, 4.0], "b": [2.0, 4.0, 6.0, 8.0]})
+    rows = eda.high_correlation_pairs(df, threshold=0.5).to_dicts()
+    assert [(r["a"], r["b"]) for r in rows] == [("a", "b")]
+
+
 def test_duplicate_columns() -> None:
     df = pl.DataFrame(
         {
@@ -266,6 +322,22 @@ def test_duplicate_columns() -> None:
     assert dups == [("b", "a")]  # c は重複でない
 
 
+def test_duplicate_columns_groups_and_order() -> None:
+    # b=a・y=x・z=x（重複 2 組）。perm は a と同じ値の並べ替え（位置が違う）→ 重複でない。
+    df = pl.DataFrame(
+        {
+            "a": [1, 2, 3, 4],
+            "b": [1, 2, 3, 4],
+            "perm": [4, 3, 2, 1],
+            "x": ["u", "v", None, "w"],
+            "y": ["u", "v", None, "w"],
+            "z": ["u", "v", None, "w"],
+        }
+    )
+    dups = [(r["column"], r["duplicate_of"]) for r in eda.duplicate_columns(df).to_dicts()]
+    assert dups == [("b", "a"), ("y", "x"), ("z", "x")]  # 出力は df の列順＝決定的・duplicate_of は先に現れた列
+
+
 def test_category_target_summary() -> None:
     # A は目的が全 1・B は全 0 → target_mean が 1.0 / 0.0。
     df = pl.DataFrame({"cat": ["A", "A", "A", "B", "B"], "y": [1, 1, 1, 0, 0]})
@@ -273,6 +345,147 @@ def test_category_target_summary() -> None:
     assert rows["A"]["target_mean"] == pytest.approx(1.0)
     assert rows["B"]["target_mean"] == pytest.approx(0.0)
     assert rows["A"]["count"] == 3
+
+
+def test_compare_ks_wasserstein_identical_is_zero() -> None:
+    # 同一分布なら KS 統計量も Wasserstein 距離も 0（構成から自明）。psi 列も従来どおり残る。
+    train = pl.DataFrame({"n": [float(i) for i in range(100)]})
+    row = eda.compare(train, train).numeric.to_dicts()[0]
+    assert row["ks"] == pytest.approx(0.0)
+    assert row["wasserstein"] == pytest.approx(0.0)
+    assert row["psi"] == pytest.approx(0.0, abs=1e-9)  # 既存列は不変
+
+
+def test_compare_ks_wasserstein_shift_monotone() -> None:
+    # 平行移動 d の Wasserstein 距離は d に一致（輸送距離の定義から）。KS は移動が大きいほど単調増で、
+    # 分布の台が完全に離れれば 1.0（経験分布関数の最大差＝全質量）。
+    base = [i / 10 for i in range(100)]  # [0, 9.9] の一様格子
+    train = pl.DataFrame({"n": base})
+    small = eda.compare(train, pl.DataFrame({"n": [v + 1.0 for v in base]})).numeric.to_dicts()[0]
+    large = eda.compare(train, pl.DataFrame({"n": [v + 100.0 for v in base]})).numeric.to_dicts()[0]
+    assert small["wasserstein"] == pytest.approx(1.0)
+    assert large["wasserstein"] == pytest.approx(100.0)
+    assert large["ks"] == pytest.approx(1.0)  # 台が離れる＝完全に見分く
+    assert small["ks"] < large["ks"]  # 移動量で単調増
+
+
+def test_compare_ks_wasserstein_all_null_side_is_none() -> None:
+    # 片側が全欠損＝分布距離を計算できない → None（mean_gap と同じ「測れない」の規約。0.0＝同一と混同しない）。
+    train = pl.DataFrame({"n": [1.0, 2.0, 3.0]})
+    test = pl.DataFrame({"n": pl.Series([None, None, None], dtype=pl.Float64)})
+    row = eda.compare(train, test).numeric.to_dicts()[0]
+    assert row["ks"] is None
+    assert row["wasserstein"] is None
+
+
+def test_mutual_information_nonlinear_dependence() -> None:
+    # y = x²（x は 0 対称の一様）→ 線形相関はほぼ 0 だが MI は正（非線形依存が見える）。独立な noise は MI ≈ 0。
+    rng = np.random.default_rng(0)
+    x = rng.uniform(-1.0, 1.0, 400)
+    noise = rng.uniform(-1.0, 1.0, 400)
+    df = pl.DataFrame({"x": x, "noise": noise, "y": x**2})
+    corr = {r["feature"]: r["correlation"] for r in eda.correlations(df, target="y").to_dicts()}
+    assert abs(corr["x"]) < 0.2  # 線形相関では依存が見えない構成
+    mi = {r["feature"]: r["mi"] for r in eda.mutual_information(df, target="y", task="regression", seed=0).to_dicts()}
+    assert mi["x"] > 0.3  # 決定的な関数関係＝大きな MI
+    assert mi["noise"] < 0.1  # 独立＝ほぼ 0
+    assert mi["x"] > mi["noise"]
+
+
+def test_mutual_information_classification_and_order() -> None:
+    # y = 1(x>0) は x から完全に決まる → MI は y のエントロピー（ln2≈0.693）近くまで届く。独立な noise は低い。
+    rng = np.random.default_rng(2)
+    x = rng.normal(size=300)
+    noise = rng.normal(size=300)
+    df = pl.DataFrame({"x": x, "noise": noise, "y": (x > 0).astype(np.int64)})
+    out = eda.mutual_information(df, target="y", task="classification", seed=0)
+    mi = {r["feature"]: r["mi"] for r in out.to_dicts()}
+    assert mi["x"] > 0.3
+    assert mi["x"] > mi["noise"]
+    assert out["feature"].to_list()[0] == "x"  # mi 降順＝効く列が先頭
+    assert "y" not in mi  # 目的変数自身は出ない
+
+
+def test_mutual_information_deterministic_and_constant_zero() -> None:
+    # 同じ seed なら 2 回呼んで完全一致（決定的）。定数列は依存が定義できない → 0.0。
+    rng = np.random.default_rng(1)
+    df = pl.DataFrame({"x": rng.normal(size=100), "c": [3.0] * 100, "y": rng.normal(size=100)})
+    a = eda.mutual_information(df, target="y", task="regression", seed=7)
+    b = eda.mutual_information(df, target="y", task="regression", seed=7)
+    assert a.to_dicts() == b.to_dicts()
+    assert {r["feature"]: r["mi"] for r in a.to_dicts()}["c"] == 0.0
+
+
+def test_mutual_information_missing_target_errors() -> None:
+    with pytest.raises(ValueError, match="目的変数|列"):
+        eda.mutual_information(pl.DataFrame({"a": [1.0]}), target="nope", task="regression", seed=0)
+
+
+def test_leakage_scan_flags_suspects_with_reasons() -> None:
+    # 仕込み：y のコピー（float・r=1）・y を完全に決めるカテゴリ・id 列・y と内容一致の列。無害列は挙がらない。
+    rng = np.random.default_rng(0)
+    y = np.array([0, 1] * 50, dtype=np.int64)
+    df = pl.DataFrame(
+        {
+            "y_copy": y.astype(np.float64),  # 目的変数のコピー → high_correlation（r=1.0）
+            "pinned": np.where(y == 1, "P", "N"),  # カテゴリの target_mean が 0/1 に張り付く
+            "idcol": np.arange(100),  # 一意数=行数の整数 → id_like
+            "dup": y,  # 目的変数と内容一致（duplicate_columns では後に現れる y 側が column になる向き）
+            "ok_num": rng.normal(size=100),  # 無害な数値
+            "ok_cat": rng.choice(["a", "b", "c"], size=100),  # 無害なカテゴリ（各カテゴリの目的率 ≈ 0.5）
+            "y": y,
+        }
+    )
+    scan = eda.leakage_scan(df, target="y")
+    reasons = {(r["column"], r["reason"]) for r in scan.to_dicts()}
+    assert ("y_copy", "high_correlation") in reasons
+    assert ("pinned", "category_target_pinned") in reasons
+    assert ("idcol", "id_like") in reasons
+    assert ("dup", "duplicate_of_target") in reasons
+    flagged = {c for c, _ in reasons}
+    assert "ok_num" not in flagged and "ok_cat" not in flagged  # 無害な列は挙がらない
+    assert "y" not in flagged  # 目的変数自身は挙がらない
+
+
+def test_leakage_scan_multiple_target_copies_all_flagged() -> None:
+    # 目的変数のコピーが 2 列（s1, s2 とも target より前）。duplicate_columns は代表 1 本に畳むので
+    # 素朴に (column, duplicate_of) を突き合わせると s1 しか挙がらない（推移律漏れ）。文字列 target なので
+    # high_correlation でも救われない → duplicate グループの推移解決で s1・s2 の両方が挙がる必要がある。
+    labels = np.array(["a", "b"] * 50)
+    df = pl.DataFrame({"s1": labels, "s2": labels, "y": labels})
+    reasons = {(r["column"], r["reason"]) for r in eda.leakage_scan(df, target="y", task="classification").to_dicts()}
+    assert ("s1", "duplicate_of_target") in reasons
+    assert ("s2", "duplicate_of_target") in reasons  # 2 つ目のコピーも漏らさない
+
+
+def test_leakage_scan_string_classification_target_mutual_information() -> None:
+    # 文字列ラベルの分類 target。leaker は target を完全に決める数値列（"dog"→1.0/"cat"→0.0）＝MI≈ln2。
+    # high_correlation・pinned は数値 target 限定なので効かない。high_mutual_information（任意 target 型）で拾う。
+    rng = np.random.default_rng(4)
+    labels = np.array(["cat", "dog"] * 50)
+    df = pl.DataFrame(
+        {
+            "leaker": (labels == "dog").astype(np.float64),  # target を完全に決める → MI 大
+            "noise": rng.normal(size=100),  # 独立 → MI≈0
+            "y": labels,
+        }
+    )
+    scan = eda.leakage_scan(df, target="y", task="classification")
+    reasons = {(r["column"], r["reason"]) for r in scan.to_dicts()}
+    assert ("leaker", "high_mutual_information") in reasons
+    assert "noise" not in {c for c, _ in reasons}  # 無害な独立列は挙がらない
+
+
+def test_leakage_scan_clean_data_is_empty() -> None:
+    # 独立な特徴だけ＝疑い列なし → 0 行。数え上げ 1 件だけのカテゴリ（target_mean が自明に 0/1）は根拠にしない。
+    rng = np.random.default_rng(3)
+    df = pl.DataFrame({"x": rng.normal(size=50), "y": (rng.normal(size=50) > 0).astype(np.int64)})
+    assert eda.leakage_scan(df, target="y").height == 0
+
+
+def test_leakage_scan_missing_target_errors() -> None:
+    with pytest.raises(ValueError, match="目的変数|列"):
+        eda.leakage_scan(pl.DataFrame({"a": [1]}), target="nope")
 
 
 def test_notebook_is_thin_view() -> None:

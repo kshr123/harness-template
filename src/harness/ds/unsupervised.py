@@ -137,6 +137,23 @@ CLUSTERERS.register("hdbscan", _hdbscan)
 # クラスタ数を指定する手法だけの「--k → sklearn の引数名」対応（hdbscan は k 不要＝載せない）。
 PARAM_FOR_K: dict[str, str] = {"kmeans": "n_clusters", "gmm": "n_components"}
 
+# silhouette は O(n²)：これを超えたら sample_size で近似する保守的な上限（t-SNE の max_rows=5000 と同じ守り方）。
+SILHOUETTE_MAX_ROWS: int = 10_000
+
+
+def _silhouette(x: NDArray[Any], labels: NDArray[Any], *, seed: int) -> float | None:
+    """前処理後の空間でシルエットを測る。SILHOUETTE_MAX_ROWS 超は sample_size で近似（random_state=seed で決定的）。
+
+    sample_size=n（≤ 上限）のときは全件計算と同一（サンプリング未発動）。抽出後に片方クラスタが 0 件になり
+    sklearn が ValueError を投げる端ケースは None にフォールバック（落とさない＝欠測表現に寄せる）。
+    """
+    from sklearn.metrics import silhouette_score
+
+    try:
+        return float(silhouette_score(x, labels, sample_size=min(len(labels), SILHOUETTE_MAX_ROWS), random_state=seed))
+    except ValueError:  # 抽出後に単一ラベルへ縮退（極端に不均衡な塊）＝採点不能なので None に落とす
+        return None
+
 
 @dataclass(frozen=True)
 class ClusterReport:
@@ -167,6 +184,7 @@ def cluster_summary(
 
     columns 省略時は数値列すべて。全データに当てる探索用途（結論を学習に戻さないこと）。最良 k は自動選択しない
     （k_scan は目安の表・選ぶのは実験側）。カテゴリ列の深掘りは eda.category_target_summary に labels を渡せばよい。
+    silhouette は SILHOUETTE_MAX_ROWS 行を超えたら sample_size で近似（random_state=seed で決定的）。
     """
     factory = CLUSTERERS.resolve(method).factory  # 未知 method の ValueError は Registry.resolve の 1 か所
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
@@ -183,9 +201,7 @@ def cluster_summary(
     uniq = set(labels[keep].tolist())
     silhouette = None
     if len(uniq) >= 2 and int(keep.sum()) > len(uniq):
-        from sklearn.metrics import silhouette_score
-
-        silhouette = float(silhouette_score(transformed[keep], labels[keep]))
+        silhouette = _silhouette(transformed[keep], labels[keep], seed=seed)
 
     profile = (
         df.select(cols)
@@ -214,11 +230,10 @@ def k_scan(
 
     最良 k を自動選択して返す関数は作らない（選ぶのは実験側の判断）。k を要する kmeans/gmm 専用
     （hdbscan は k 不要）。silhouette は大きいほど・inertia/bic は小さいほど良い（向きは呼ぶ側が知る）。
+    silhouette は SILHOUETTE_MAX_ROWS 行を超えたら sample_size で近似（random_state=seed で決定的）。
     """
     if method not in PARAM_FOR_K:
         raise ValueError(f"k_scan は kmeans か gmm のみ（method '{method}' は k を取らない）")
-    from sklearn.metrics import silhouette_score
-
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
     x = df.select(cols).to_numpy()
     rows: list[dict[str, Any]] = []
@@ -226,7 +241,7 @@ def k_scan(
         model = CLUSTERERS[method].factory(seed, **{PARAM_FOR_K[method]: k})
         labels = np.asarray(model.fit_predict(x))
         transformed = model[:-1].transform(x)
-        sil = float(silhouette_score(transformed, labels)) if len(set(labels.tolist())) >= 2 else None
+        sil = _silhouette(transformed, labels, seed=seed) if len(set(labels.tolist())) >= 2 else None
         row: dict[str, Any] = {"k": int(k), "silhouette": sil}
         if method == "kmeans":
             row["inertia"] = float(model[-1].inertia_)

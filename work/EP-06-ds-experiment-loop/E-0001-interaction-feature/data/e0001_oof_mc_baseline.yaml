@@ -1,0 +1,15 @@
+id: e0001_oof_mc_baseline
+description: E-0001 多クラス変種（mc_baseline）の OOF 予測（fold 外の予測クラスと正解。task 分岐スモーク用）
+layer: processed
+scope: E-0001
+role: prediction
+primary_key: [id]
+lineage:
+  inputs: [e0001_folds]
+  code: work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py
+  work: E-0001
+columns:
+  - { name: id, dtype: Int64, nullable: false, unique: true }
+  - { name: fold, dtype: Int64, nullable: false, description: この行が valid だった fold }
+  - { name: y, dtype: Int64, nullable: false, allowed_values: [0, 1, 2] }
+  - { name: oof_score, dtype: Int64, nullable: false, allowed_values: [0, 1, 2], description: OOF の予測クラス（proba 行列の argmax） }

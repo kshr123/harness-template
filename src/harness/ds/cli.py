@@ -147,6 +147,7 @@ def _data_profile(
     table_id: str,
     target: Annotated[str | None, typer.Option(help="目的変数の列名（付けると分布の要約も出す）")] = None,
     task: Annotated[str, typer.Option(help="classification | regression")] = "classification",
+    seed: Annotated[int, typer.Option(help="mutual_information・leakage_scan の乱数種（--target 時のみ使う）")] = 0,
 ) -> None:
     """テーブルの構造化レポートを YAML で出す（store 経由＝検証済みテーブルだけを見る）。"""
     import yaml
@@ -168,6 +169,11 @@ def _data_profile(
         report["target"] = eda.target_summary(df, target=target, task=task)  # type: ignore[arg-type]
         report["category_target"] = eda.category_target_summary(df, target=target).to_dicts()
         report["correlations"] = eda.correlations(df, target=target).to_dicts()  # 目的変数との相関（|r| 降順）
+        # 非線形依存（MI 降順・単位はナット）と、リーク疑いの列（column/reason/detail・0 行＝疑いなし）。
+        mi = eda.mutual_information(df, target=target, task=task, seed=seed)  # type: ignore[arg-type]
+        leakage = eda.leakage_scan(df, target=target, task=task, seed=seed)  # type: ignore[arg-type]
+        report["mutual_information"] = mi.to_dicts()
+        report["leakage"] = leakage.to_dicts()
     typer.echo(yaml.safe_dump(report, allow_unicode=True, sort_keys=False))
 
 
