@@ -109,12 +109,12 @@ def test_rejects_missing_manifest_tampered_and_bad_format(
     (record.path / "model.pkl").write_bytes((record.path / "model.pkl").read_bytes() + b"x")
     with pytest.raises(ValueError, match="指紋"):
         model_store.load_model(proj.root, name="baseline", work="E-0001")
-    # 形式が pickle でない。
+    # 形式が FORMATS に無い（T-0084 で onnx は登録済みになったため、未登録の名前で検査する）。
     manifest = record.path / "manifest.yaml"
     manifest.write_text(
-        manifest.read_text(encoding="utf-8").replace("format: pickle", "format: onnx"), encoding="utf-8"
+        manifest.read_text(encoding="utf-8").replace("format: pickle", "format: feather"), encoding="utf-8"
     )
-    with pytest.raises(NotImplementedError, match="onnx"):
+    with pytest.raises(NotImplementedError, match="feather"):
         model_store.load_model(proj.root, name="baseline", work="E-0001")
     # manifest 無し（版を明示指定）＝壊れた保存は読まない。
     manifest.unlink()
@@ -221,30 +221,51 @@ def test_promotion_rejects_unknown_primary_and_contradicting_direction(
     assert promo.higher_is_better is False
 
 
+def _fitted_with_to_numpy() -> Pipeline:
+    """to_numpy 境界つきの学習済み Pipeline（onnx 形式は境界の尾部だけを変換する＝T-0084）。"""
+    from harness.ds.pipeline import build_estimator, build_model
+
+    df = data.generate_synthetic(n=40, seed=0)
+    y = df["y"].to_numpy().astype(np.float64)
+    est = build_estimator(
+        {"features": [{"kind": "columns", "columns": ["x1", "x2"]}]}, build_model({"kind": "logreg"}, seed=0), seed=0
+    )
+    est.fit(df, y)
+    return est
+
+
 @pytest.mark.parametrize("fmt", sorted(model_store.FORMATS))
 def test_format_roundtrip(fmt: str, make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    # FORMATS の全形式で save→load の往復（skops 未導入なら pickle だけが対象＝条件登録の構成どおり）。
+    # FORMATS の全形式で save→load の往復（optional 未導入ならその形式は対象外＝条件登録の構成どおり）。
     # 実体ファイル名は FORMATS の file_name・manifest の format は指定値、と構成から導ける。
     _clock(monkeypatch, [_T1])
     proj = make_project()
-    est = _fitted(interaction=True)  # FeaturePipeline（自作型）入り＝信頼リスト経路も往復で確かめる
+    if fmt == "onnx":
+        # onnx は to_numpy 境界つきの構成が対象（詳細な契約・エラー系は test_ds_models_onnx.py が担う）。
+        est = _fitted_with_to_numpy()
+    else:
+        est = _fitted(interaction=True)  # FeaturePipeline（自作型）入り＝信頼リスト経路も往復で確かめる
     record = model_store.save_model(proj.root, est, name="baseline", work="E-0001", format=fmt)
     assert record.format == fmt
     assert (record.path / model_store.FORMATS[fmt].file_name).is_file()
     loaded, loaded_record = model_store.load_model(proj.root, name="baseline", work="E-0001")
     assert loaded_record.format == fmt
     df = data.generate_synthetic(n=8, seed=1)
-    np.testing.assert_array_equal(loaded.predict_proba(df), est.predict_proba(df))  # type: ignore[attr-defined]
+    if fmt == "onnx":  # ONNX は同一計算の float32 別表現（同一オブジェクトの復元ではない）＝丸め差まで許容
+        np.testing.assert_allclose(loaded.predict_proba(df), est.predict_proba(df), rtol=1e-3, atol=1e-4)  # type: ignore[attr-defined]
+    else:
+        np.testing.assert_array_equal(loaded.predict_proba(df), est.predict_proba(df))  # type: ignore[attr-defined]
 
 
 def test_unknown_format_is_rejected_with_hint(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # FORMATS に無い形式は保存前に拒否（版ディレクトリも作らない）。skops の導入手順をメッセージで案内する。
+    # （T-0084 で onnx は登録済みになったため、未登録の名前 feather で検査する。）
     _clock(monkeypatch, [_T1])
     proj = make_project()
-    with pytest.raises(ValueError, match=r"onnx.*uv sync --extra skops"):
-        model_store.save_model(proj.root, _fitted(), name="baseline", work="E-0001", format="onnx")
+    with pytest.raises(ValueError, match=r"feather.*uv sync --extra skops"):
+        model_store.save_model(proj.root, _fitted(), name="baseline", work="E-0001", format="feather")
     assert not model_store._model_dir(proj.root, work="E-0001", name="baseline").exists()  # 版ディレクトリ未作成
 
 

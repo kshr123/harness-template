@@ -311,6 +311,19 @@ def _data_metrics() -> None:
     typer.echo("\nthresholds に書くと passes が向き（大/小）を見て合否判定する。本体は sklearn.metrics 素通し。")
 
 
+@data_app.command("formats")
+def _data_formats() -> None:
+    """モデル保存形式の一覧（FORMATS レジストリから生成）。save_model の format に書ける名前。"""
+    from harness.ds.models import FORMATS
+
+    for name, fmt in sorted(FORMATS.items()):  # FORMATS は素の dict＝薄い描画（render_catalog は Registry 用）
+        typer.echo(f"{name}\t{fmt.file_name}\t{fmt.description}")
+    typer.echo(
+        "\n保存は model_store.save_model(..., format=<名前>)。未表示＝未導入："
+        "skops は `uv sync --extra skops`・onnx は `uv sync --extra onnx` で登録される。"
+    )
+
+
 @data_app.command("predict")
 def _data_predict(
     work: Annotated[str, typer.Option(help="モデルの作業単位ID（保存時の work）")],

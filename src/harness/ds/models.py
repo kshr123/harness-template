@@ -153,6 +153,19 @@ if importlib.util.find_spec("skops") is not None:
         description="skops（安全読込）。信頼リスト（TRUSTED_HARNESS_TYPES）に無い型は load で拒否する。",
     )
 
+# ONNX（可搬形式・optional extra `onnx`）。変換＝skl2onnx・読込＝onnxruntime の両方が要る＝両方在るときだけ登録。
+# 実体は onnx_format.py（この核を肥らせない。onnx_format の module top は stdlib＋numpy のみ＝import は軽い）。
+if importlib.util.find_spec("skl2onnx") is not None and importlib.util.find_spec("onnxruntime") is not None:
+    from harness.ds.onnx_format import _onnx_dump, _onnx_load
+
+    FORMATS["onnx"] = ModelFormat(
+        dump=_onnx_dump,
+        load=_onnx_load,
+        file_name="model.onnx",
+        description="ONNX（可搬・読込で任意コード実行なし）。to_numpy 以降の sklearn 尾部のみ変換＝入力は"
+        "特徴量計算済み float32。疎入力（tfidf 等）・lightgbm 尾部・forecast は対象外（dump 時にエラー）。",
+    )
+
 
 @dataclass(frozen=True)
 class ModelRecord:
