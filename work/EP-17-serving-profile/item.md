@@ -1,12 +1,13 @@
 ---
 id: EP-17
 kind: epic
-status: todo
+status: done
 title: 配信プロファイル（serving profile＝可搬 ONNX・sync 配信・release/monitoring テンプレートを今用意する）
-plan: outline
+plan: detailed
 requirements: [REQ-002]
 depends_on: [EP-15, EP-16]
 created: 2026-07-06
+closed: 2026-07-06
 ---
 # EP-17 配信プロファイル（serving profile・Wave 5）
 
@@ -29,14 +30,14 @@ created: 2026-07-06
   将来の別プロファイル。
 
 ## 進め方（各タスク＝1 PR・テスト先書き・独立レビュー（maker≠checker）・verify 緑で done）
-※ 着手（Wave C）で分解＝T 番号を採番する。現状 outline（近い作業＝ds correctness を先に詳しくするため）。
-- **(ONNX 保存形式)**（`ds/onnx_format.py`＋`ds/models.py` の FORMATS に条件登録・extra `onnx`・`data formats` カタログ）。可搬アーティファクトの土台。
-- **(serving プロファイル)**（新 `src/harness/serve/`＝FastAPI app＋`serve` CLI＋予測 JSONL ログ＋`PROFILE`・extra `serve`・`serve` スキル）。
-- **(配信テンプレート＋deploy_lint)**（`templates/serve/`＝Dockerfile/compose/k8s＋`serve/deploy_lint.py` を `PROFILE` に配線＋doclint に `templates/`＋DEC-0013）。
-- **(data monitor)**（`ds/monitor.py`＋`ds/cli.py`＝配信ログ×学習基準の psi/drift 監視表）。
+範囲の線引きは [[DEC-0013]]。土台（onnx/serve extras・serve script・mypy overrides）は導入済み（b1b8b19）。
+- **T-0084 ONNX 保存形式**（`ds/onnx_format.py`＋`ds/models.py` の FORMATS に条件登録・`data formats` カタログ）。可搬アーティファクトの土台。
+- **T-0085 serving プロファイル**（新 `src/harness/serve/`＝FastAPI app＋`serve` CLI＋予測 JSONL ログ＋`PROFILE`・`serve` スキル＋docs/serve.md）。
+- **T-0086 配信テンプレート＋deploy_lint**（`templates/serve/`＝Dockerfile/compose/k8s＋`serve/deploy_lint.py` を `PROFILE` に配線＋doclint に `templates/`＋自リポ config に harness.serve）。
+- **T-0087 data monitor**（`ds/monitor.py`＋`ds/cli.py`＝配信ログ×学習基準の psi/drift 監視表）。
 
 ## 依存順
-(ONNX) と (monitor) は独立。(serve パッケージ) → (テンプレ＋lint は serve/__init__ の PROFILE を拡張)。
+T-0084（ONNX）と T-0087（monitor）は独立。T-0085（serve パッケージ）→ T-0086（テンプレ＋lint は serve/__init__ の PROFILE を拡張）。
 
 ## やらないこと（plan に明記）
 実時間の A-B ルーティング・circuit breaker・load test・async キュー・gRPC・クラウド固有（S3/GCS 実装）・torch/DL。
