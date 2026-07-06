@@ -31,7 +31,9 @@ from harness.ds.cv import (
 )
 from harness.ds.eval import metric_fn_for, passes
 
-Task = Literal["classification", "regression"]
+# 課題の三値（ExperimentSpec.task・final_eval_on_holdout・eval.metric_fn_for と同じ語彙）。
+# eval.EvalTask の "binary" はここでは "classification"（metric_fn_for が二値経路へ割り当てる）。
+Task = Literal["classification", "multiclass", "regression"]
 
 
 class TestMode(BaseModel):
@@ -89,7 +91,7 @@ class ExperimentSpec(BaseModel):
     variants: dict[str, VariantSpec] = Field(min_length=1)
     test_mode: TestMode | None = None
     thresholds: dict[str, Annotated[float, Field(strict=True)]]  # 合否の閾値。文字列の混入は起動時エラー
-    task: Literal["classification", "multiclass", "regression"] = "classification"
+    task: Task = "classification"
     metrics: list[str] | None = None
     stratify_by: str | None = None
     order_by: str | None = None
@@ -135,8 +137,9 @@ def run_experiment(
     """fold を作り、estimator を交差検証し、OOF 指標が閾値を満たすか（passed）まで一気に返す。
 
     estimator は特徴量→モデルの 1 本の Pipeline。run_cv が fold ごとに clone→train で fit するので、
-    特徴量の学習も train でだけ起き、漏れは構造的に起きない。task で分類/回帰を切り替える（指標と予測の種類が
-    task から決まる）。predict 未指定は task から導く（分類=proba・回帰=value）。
+    特徴量の学習も train でだけ起き、漏れは構造的に起きない。task で二値/多クラス/回帰を切り替える（指標と予測の
+    種類が task から決まる）。predict 未指定は task から導く（分類・多クラス=proba・回帰=value。多クラスの OOF は
+    run_cv が (n, n_classes) の proba 行列に切り替える）。
     decision_threshold はスコアをラベルに変える決定境界（分類の label 系指標にだけ効く）＝thresholds（合否の辞書）
     とは別物。order_by を渡すと時間順分割（過去→未来の拡大窓）になる＝時間の順序があるデータで shuffle CV の
     誤用を防ぐ（stratify_by との同時指定はエラー）。fold 0 は学習専用で OOF に入らない。
@@ -229,7 +232,7 @@ def final_eval_on_holdout(
     df_holdout: pl.DataFrame,
     y_holdout: NDArray[np.float64],
     *,
-    task: Literal["classification", "multiclass", "regression"] = "classification",
+    task: Task = "classification",
     decision_threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
     thresholds: Mapping[str, float] | None = None,
