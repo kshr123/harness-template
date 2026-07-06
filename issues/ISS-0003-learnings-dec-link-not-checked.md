@@ -1,9 +1,10 @@
 ---
 id: ISS-0003
 kind: risk
-state: open
+state: resolved
 found_in: 構造レビュー-2026-07
 created: 2026-07-03
+promoted_to: T-0068
 title: 昇格済み learnings が指す DEC の実在を検査していない
 ---
 # ISS-0003 昇格済み learnings が指す DEC の実在を検査していない

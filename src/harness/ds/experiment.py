@@ -10,12 +10,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import numpy as np
 import polars as pl
 import yaml
 from numpy.typing import NDArray
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 from sklearn.base import clone
 
 from harness.ds.cv import (
@@ -31,6 +32,75 @@ from harness.ds.cv import (
 from harness.ds.eval import metric_fn_for, passes
 
 Task = Literal["classification", "regression"]
+
+
+class TestMode(BaseModel):
+    """--test（スモーク）で上書きする小さな規模。書いた項目だけ効く（config.yaml の test_mode 節）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n: int | None = Field(default=None, ge=1)
+    n_folds: int | None = Field(default=None, ge=2)
+
+
+class VariantSpec(BaseModel):
+    """変種 1 つ＝build_estimator の spec（config.yaml の variants の値）。
+
+    features/encode/select の中身（kind・columns・params）は build_estimator／レジストリが検査するので
+    ここでは自由 dict のまま、構造（features は 1 つ以上・未知キー禁止）だけ締める。
+    モデル比較の実験は variant 側に model（kind 必須）を書く（experiment スキル・train.py 雛形が variant 優先で読む）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    features: list[dict[str, Any]] = Field(min_length=1)
+    encode: list[dict[str, Any]] | None = None
+    select: dict[str, Any] | None = None
+    model: dict[str, Any] | None = None
+
+    @field_validator("model")
+    @classmethod
+    def _model_requires_kind(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and "kind" not in value:
+            raise ValueError("variant の model には kind が必須（例 {kind: ridge}・一覧は `uv run data models`）")
+        return value
+
+
+class ExperimentSpec(BaseModel):
+    """実験 config.yaml 全体の型（pydantic v2・extra=forbid）。ISS-0007 の対処。
+
+    train.py 雛形は yaml.safe_load の直後に `ExperimentSpec.model_validate(cfg)` で検証**してから spec を使う**
+    ＝未知キー（typo）・型違い・空の variants を起動時に止める。optional キー
+    （metrics/stratify_by/order_by/id_column）は雛形が run_experiment へ流す（黙って無視されない＝ISS-0007 の要点）。
+    `thresholds`（合否の辞書）は指標名→閾値。**決定境界の float は config キーでなく関数引数**
+    `run_experiment(..., decision_threshold=...)`（既定 0.5）＝雛形は OOF から `select_threshold_max_f1` で選ぶので
+    config に `decision_threshold` は書かない（書くと extra=forbid で起動時エラー＝混同を断つ）。
+    data／model の中身（kind ごとの params）はレジストリ（load_dataset／build_model）が検査する＝kind の存在だけ要求。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int
+    n: int = Field(ge=1)
+    n_folds: int = Field(ge=2)
+    data: dict[str, Any]
+    target: str
+    model: dict[str, Any]
+    variants: dict[str, VariantSpec] = Field(min_length=1)
+    test_mode: TestMode | None = None
+    thresholds: dict[str, Annotated[float, Field(strict=True)]]  # 合否の閾値。文字列の混入は起動時エラー
+    task: Literal["classification", "multiclass", "regression"] = "classification"
+    metrics: list[str] | None = None
+    stratify_by: str | None = None
+    order_by: str | None = None
+    id_column: str = "id"
+
+    @field_validator("data", "model")
+    @classmethod
+    def _requires_kind(cls, value: dict[str, Any], info: ValidationInfo) -> dict[str, Any]:
+        if "kind" not in value:
+            raise ValueError(f"{info.field_name} には kind が必須（例 {{kind: synthetic}}／{{kind: logreg}}）")
+        return value
 
 
 @dataclass(frozen=True)
@@ -58,7 +128,7 @@ def run_experiment(
     stratify_by: str | None = None,
     order_by: str | None = None,
     task: Task = "classification",
-    threshold: float = 0.5,
+    decision_threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
     predict: Literal["proba", "value"] | None = None,
 ) -> ExperimentResult:
@@ -67,14 +137,15 @@ def run_experiment(
     estimator は特徴量→モデルの 1 本の Pipeline。run_cv が fold ごとに clone→train で fit するので、
     特徴量の学習も train でだけ起き、漏れは構造的に起きない。task で分類/回帰を切り替える（指標と予測の種類が
     task から決まる）。predict 未指定は task から導く（分類=proba・回帰=value）。
-    order_by を渡すと時間順分割（過去→未来の拡大窓）になる＝時間の順序があるデータで shuffle CV の誤用を防ぐ
-    （stratify_by との同時指定はエラー）。fold 0 は学習専用で OOF に入らない。
+    decision_threshold はスコアをラベルに変える決定境界（分類の label 系指標にだけ効く）＝thresholds（合否の辞書）
+    とは別物。order_by を渡すと時間順分割（過去→未来の拡大窓）になる＝時間の順序があるデータで shuffle CV の
+    誤用を防ぐ（stratify_by との同時指定はエラー）。fold 0 は学習専用で OOF に入らない。
     """
     if order_by is not None and stratify_by is not None:
         raise ValueError("order_by（時間順）と stratify_by（層化）は同時に使えない")
     if predict is None:
         predict = "value" if task == "regression" else "proba"
-    metric_fn = metric_fn_for(task, threshold=threshold, metrics=metrics)
+    metric_fn = metric_fn_for(task, threshold=decision_threshold, metrics=metrics)
     if order_by is not None:
         folds = make_time_folds(df, n_folds=n_folds, order_by=order_by, id_column=id_column)
         splits = fold_indices(df, folds, id_column=id_column, how="expanding")
@@ -159,7 +230,7 @@ def final_eval_on_holdout(
     y_holdout: NDArray[np.float64],
     *,
     task: Literal["classification", "multiclass", "regression"] = "classification",
-    threshold: float = 0.5,
+    decision_threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
     thresholds: Mapping[str, float] | None = None,
     id_column: str = "id",
@@ -169,9 +240,10 @@ def final_eval_on_holdout(
     段取り：選抜・閾値調整は全行 OOF（`run_experiment`）で済ませ、champion 確定後にこの関数を 1 回だけ呼ぶ。
     holdout は選抜・閾値調整に**使わない**（使うとリーク）。estimator は clone してから **df_fit だけ**で fit する
     （run_cv と同じ流儀・渡した estimator は汚さない）。予測種別は task から導く（回帰=value・分類/多クラス=proba）。
-    指標は eval.metric_fn_for（多クラスは task="multiclass" で evaluate_multiclass 経路）。thresholds を渡すと
-    `passes` で合否も返す。df_fit と df_holdout の id が重なっていたら ValueError（黙って評価しない＝リーク・ガード）。
-    test の取り分けは `data.fixed_split`（id ハッシュの安定分割）が使える。
+    指標は eval.metric_fn_for（多クラスは task="multiclass" で evaluate_multiclass 経路）。decision_threshold は
+    OOF で選んだ決定境界（スコア→ラベル・二値の label 系指標にだけ効く）＝thresholds（合否の辞書）とは別物。
+    thresholds を渡すと `passes` で合否も返す。df_fit と df_holdout の id が重なっていたら ValueError
+    （黙って評価しない＝リーク・ガード）。test の取り分けは `data.fixed_split`（id ハッシュの安定分割）が使える。
     """
     fit_ids, holdout_ids = df_fit[id_column], df_holdout[id_column]
     # 型が違うと set の重なり検出が黙って無効になる（int 30 と str "30" は別物扱い＝同じ行を見逃す）。
@@ -196,7 +268,7 @@ def final_eval_on_holdout(
         raise ValueError(f"df_holdout の行数 {df_holdout.height} と y_holdout の長さ {len(y_holdout)} が一致しない")
     predict: Literal["proba", "value"] = "value" if task == "regression" else "proba"
     # y は run_cv と同じく元の dtype のまま渡す（分類の int 化は evaluate 側が担う）＝cv.MetricFn の契約で受ける。
-    metric_fn: MetricFn = metric_fn_for(task, threshold=threshold, metrics=metrics)
+    metric_fn: MetricFn = metric_fn_for(task, threshold=decision_threshold, metrics=metrics)
     fitted = clone(estimator)
     fitted.fit(df_fit, y_fit)
     holdout_metrics = metric_fn(y_holdout, _predict(fitted, df_holdout, predict))

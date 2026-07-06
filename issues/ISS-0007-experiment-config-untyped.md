@@ -1,9 +1,10 @@
 ---
 id: ISS-0007
 kind: risk
-state: open
+state: resolved
 found_in: ds-review-2026-07-05
 created: 2026-07-05
+promoted_to: T-0067
 title: 実験 config が型無しで、threshold と thresholds を取り違えても検知できない
 ---
 # ISS-0007 実験 config が型無し（ExperimentSpec が無い）

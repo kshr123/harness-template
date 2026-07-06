@@ -7,7 +7,7 @@ description: DS の実験（仮説検証・モデル比較・特徴量の効果�
 
 ## 手順
 1. 仮説を 1 つ決め、`work/…/E-xxxx-<短い説明>/` を作る（item.md は kind: experiment、SPEC.md に仮説と判定基準＝どの指標がいくつ動いたら採択）。
-2. 直近の実験フォルダ（無ければ `work/EP-06-ds-experiment-loop/E-0001-interaction-feature/`）を丸ごとコピーし、**config.yaml だけを書き換える**。変種は variants 節（features / encode）で持つ。入力は `data` 節（`{kind: synthetic}` か `{kind: table, table_id: <ID>}`）・目的変数は `target`・モデルは `model` 節（`{kind: logreg, ...params}`）で選ぶ。モデル比較の実験は variant 側に `model` を書く。**回帰の実験**は `task: regression`・`model: {kind: ridge}`・`thresholds: {rmse: ...}` にする（`run_experiment(task=)` が指標と予測の種類を切り替える。分類の閾値選択・保存の後処理は回帰では雛形をコピーして外す）。
+2. 直近の実験フォルダ（無ければ `work/EP-06-ds-experiment-loop/E-0001-interaction-feature/`）を丸ごとコピーし、**config.yaml だけを書き換える**。config は `ExperimentSpec`（pydantic v2・extra=forbid・`harness.ds.experiment`）が型の正本で、train.py が起動時に検証する＝**未知キー（typo）・型違い・空の variants は起動時エラー**。`thresholds`（指標名→合否の閾値の辞書）は config キー。**決定境界の float は config キーでなく関数引数** `run_experiment(..., decision_threshold=...)`（既定 0.5）＝雛形は OOF から `select_threshold_max_f1` で選ぶので config に `decision_threshold` は書かない（書くと extra=forbid で起動時エラー）。`metrics`/`stratify_by`/`order_by`/`id_column` は optional な config キーで、雛形が run_experiment へそのまま流す（黙って無視されない）。変種は variants 節（features / encode）で持つ。入力は `data` 節（`{kind: synthetic}` か `{kind: table, table_id: <ID>}`）・目的変数は `target`・モデルは `model` 節（`{kind: logreg, ...params}`）で選ぶ。モデル比較の実験は variant 側に `model` を書く。**回帰の実験**は `task: regression`・`model: {kind: ridge}`・`thresholds: {rmse: ...}` にする（`run_experiment(task=)` が指標と予測の種類を切り替える。分類の閾値選択・保存の後処理は回帰では雛形をコピーして外す）。
 3. 特徴量・エンコーダ・モデルは `uv run data blocks` / `data encoders` / `data models`（実データは `data list`）の一覧から kind を選んで config に書く。一覧に無い特徴量は features スキルへ。
 4. code/train.py は**触らない**：config → `load_dataset` → `build_model` → `build_estimator` → `run_experiment` → store 保存 → results/ を一気通貫で回す雛形（e2e が毎回実行する正本）。入力・モデルも config で選ぶので手を入れる必要はない。
 5. `python code/train.py --variant <名> --test` でスモーク → e2e テスト 1 本（subprocess で train.py を叩く）を足し、item の verified_by に明記して verify に接続。
@@ -34,7 +34,7 @@ description: DS の実験（仮説検証・モデル比較・特徴量の効果�
 - **閾値の選び方**：既定は `eval.select_threshold_max_f1`。運用の目標があるなら `eval.select_threshold_at_recall(..., target=)`（見逃し上限を決める）／`select_threshold_at_precision(..., target=)`（誤検知上限を決める）。**どれも OOF/valid で選ぶ**（train・test では選ばない）。
 - **champion への昇格**：採択したら `models.promote_model(root, work=, name=, version=, thresholds=, primary=, higher_is_better=)`。絶対関門（`passes`）かつ相対関門（現 champion に primary で勝つ）を満たすときだけ champion を更新する（負けても保存は残る）。現状の一覧は `uv run data saved`（champion に ★）。
 - **保存モデルを読む**：`models.load_model(root, name=, work=, version=None)`（再評価・推論。指紋・形式・依存版を検査してから読む）。version 未指定は最新。
-- **最終評価（holdout）**：選抜・閾値調整は全行 OOF で済ませ、champion 確定後に**触っていない test（holdout）で一度だけ** `experiment.final_eval_on_holdout(estimator, df_fit, y_fit, df_test, y_test, task=, threshold=, thresholds=)` を呼び、結果を results/ に記録する（呼び出し例は雛形 train.py）。test の取り分けは `data.fixed_split`（id ハッシュの安定分割）。holdout は選抜・閾値調整に使わない（df_fit と id が重なると ValueError）。
+- **最終評価（holdout）**：選抜・閾値調整は全行 OOF で済ませ、champion 確定後に**触っていない test（holdout）で一度だけ** `experiment.final_eval_on_holdout(estimator, df_fit, y_fit, df_test, y_test, task=, decision_threshold=, thresholds=)` を呼び、結果を results/ に記録する（呼び出し例は雛形 train.py）。test の取り分けは `data.fixed_split`（id ハッシュの安定分割）。holdout は選抜・閾値調整に使わない（df_fit と id が重なると ValueError）。
 
 ## してはいけないこと
 - CV・漏れ対策・メトリクス・保存・閾値選択を実験コードに再実装しない（run_experiment / run_cv / eval / store が正本）。

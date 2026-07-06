@@ -15,7 +15,16 @@ import frontmatter
 import pytest
 import yaml
 
-from harness.testing import unmarked
+from harness.testing import SKIP_MARKERS, skips_without_iss, unmarked
+
+
+def _marker_reason(mark: pytest.Mark) -> str:
+    """skip 系マーカーの理由文字列を集める（位置引数の文字列＋reason= キーワード。無ければ空）。"""
+    parts = [a for a in mark.args if isinstance(a, str)]
+    reason = mark.kwargs.get("reason")
+    if isinstance(reason, str):
+        parts.append(reason)
+    return " ".join(parts)
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -23,10 +32,18 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """ピラミッドの目印（unit/integration/e2e）が無いテストは collect でエラーにする（迷子テストを塞ぐ）。
 
     -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れを止める。
+    あわせて skip/skipif/xfail の reason に課題参照（ISS-<番号>）が無いテストも collect でエラーにする
+    （理由の無い skip 禁止＝AGENTS・ISS-0002。判定は harness.testing.skips_without_iss）。
     """
     bad = unmarked((item.nodeid, {m.name for m in item.iter_markers()}) for item in items)
     if bad:
         raise pytest.UsageError("ピラミッドの目印(unit/integration/e2e)が無いテスト: " + ", ".join(bad))
+    bad_skips = skips_without_iss(
+        (item.nodeid, [(m.name, _marker_reason(m)) for m in item.iter_markers() if m.name in SKIP_MARKERS])
+        for item in items
+    )
+    if bad_skips:
+        raise pytest.UsageError("skip/skipif/xfail の reason に課題参照(ISS-…)が無いテスト: " + ", ".join(bad_skips))
 
 
 # 既定の置き場設定（ローカルのみ）。config.py の既定と同じ形にしておく。

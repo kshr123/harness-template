@@ -29,7 +29,7 @@ import yaml
 from harness.ds import data, store
 from harness.ds import eval as ev
 from harness.ds import models as model_store
-from harness.ds.experiment import final_eval_on_holdout, run_experiment
+from harness.ds.experiment import ExperimentSpec, final_eval_on_holdout, run_experiment
 from harness.ds.pipeline import build_estimator, build_model
 
 HERE = Path(__file__).resolve().parent
@@ -95,8 +95,9 @@ def save_folds(root: Path, folds: pl.DataFrame) -> str:
 
 def main() -> int:
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))  # --variant の選択肢は config の variants キーから導く
+    spec = ExperimentSpec.model_validate(cfg)  # 型の正本。未知キー・型違いを起動時に止め、以後は spec から読む
     parser = argparse.ArgumentParser()
-    parser.add_argument("--variant", default=next(iter(cfg["variants"])), choices=list(cfg["variants"]))
+    parser.add_argument("--variant", default=next(iter(spec.variants)), choices=list(spec.variants))
     parser.add_argument("--test", action="store_true", help="小さな規模でスモークする")
     parser.add_argument(
         "--root", type=Path, default=None, help="store の置き場（既定＝リポ根／--test は一時ディレクトリ）"
@@ -104,16 +105,25 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None, help="results の書き出し先")
     args = parser.parse_args()
 
-    seed = int(cfg["seed"])
-    n = int(cfg["test_mode"]["n"] if args.test else cfg["n"])
-    n_folds = int(cfg["test_mode"]["n_folds"] if args.test else cfg["n_folds"])
-    variant_spec = cfg["variants"][args.variant]  # build_estimator の spec（features / encode）
-    thresholds = cfg["thresholds"]
-    target = cfg.get("target", "y")  # 目的変数の列名（config で選ぶ）
-    task = cfg.get("task", "classification")  # classification / regression（モデル種との整合を検査）
-    data_spec = cfg.get("data", {"kind": "synthetic"})  # 入力源（synthetic / table）
-    # モデルは variant 優先→experiment 既定→logreg（モデル比較実験は variant に model を書く）。
-    model_spec = variant_spec.get("model") or cfg.get("model") or {"kind": "logreg"}
+    tm = spec.test_mode
+    seed = spec.seed
+    n = tm.n if (args.test and tm is not None and tm.n is not None) else spec.n
+    n_folds = tm.n_folds if (args.test and tm is not None and tm.n_folds is not None) else spec.n_folds
+    variant_spec = cfg["variants"][args.variant]  # build_estimator の spec（features / encode / select）＝検証済み構造
+    variant = spec.variants[args.variant]
+    thresholds = spec.thresholds
+    target = spec.target  # 目的変数の列名（config で選ぶ）
+    task = spec.task  # classification / multiclass / regression（モデル種との整合を検査）
+    data_spec = spec.data  # 入力源（synthetic / table）
+    # モデルは variant 優先→experiment 既定（モデル比較実験は variant に model を書く）。
+    model_spec = variant.model or spec.model
+    # 層化：分類は既定で目的変数（クラス比を保つ）。config の stratify_by で上書き。order_by・回帰は層化しない。
+    if spec.order_by is not None:
+        stratify_by = None
+    elif spec.stratify_by is not None:
+        stratify_by = spec.stratify_by
+    else:
+        stratify_by = target if task != "regression" else None
 
     root = prepare_root(test=args.test, root=args.root)
     # --test の既定 out は root 側へ（試走が本物の results/ を上書きしないように）。--out の明示指定は常に優先。
@@ -127,7 +137,19 @@ def main() -> int:
     y = df[target].to_numpy().astype("float64")
     y_test = df_test[target].to_numpy().astype("float64")
     estimator = build_estimator(variant_spec, build_model(model_spec, seed=seed, task=task), seed=seed)
-    result = run_experiment(df, y, estimator, n_folds=n_folds, seed=seed, thresholds=thresholds, stratify_by=target)
+    result = run_experiment(
+        df,
+        y,
+        estimator,
+        n_folds=n_folds,
+        seed=seed,
+        thresholds=thresholds,
+        task=task,
+        stratify_by=stratify_by,
+        order_by=spec.order_by,
+        metrics=spec.metrics,
+        id_column=spec.id_column,
+    )
 
     if not result.cv.oof_mask.all():
         raise SystemExit("OOF が全行を覆っていない（この実験は全行 CV 前提。分割を見直すこと）")
@@ -168,7 +190,16 @@ def main() -> int:
 
     # 最終評価：OOF で選抜・閾値決定を終えた後、触っていない test（holdout）で一度だけ測る（選抜には使わない）。
     holdout = final_eval_on_holdout(
-        estimator, df, y, df_test, y_test, task=task, threshold=threshold, thresholds=thresholds
+        estimator,
+        df,
+        y,
+        df_test,
+        y_test,
+        task=task,
+        decision_threshold=threshold,
+        thresholds=thresholds,
+        metrics=spec.metrics,
+        id_column=spec.id_column,
     )
 
     out.mkdir(parents=True, exist_ok=True)
