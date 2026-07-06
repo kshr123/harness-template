@@ -61,6 +61,15 @@ def _agent_metrics() -> None:
     typer.echo("\nthresholds に書くと passes が向き（大/小）を見て合否判定する（NaN は不合格＝fail closed）。")
 
 
+@agent_app.command("tools")
+def _agent_tools() -> None:
+    """ツールの一覧（TOOLS レジストリから生成）。AgentSpec の tools に書ける kind。"""
+    from harness.agent.tools import TOOLS
+
+    render_catalog(TOOLS)
+    typer.echo("\nツールは純関数（無ネットワーク・決定的）。宣言の tools[] は agent lint が実在を検査する。")
+
+
 @agent_app.command("run")
 def _agent_run(
     spec: Annotated[Path | None, typer.Option("--spec", help="AgentSpec の宣言 YAML")] = None,
@@ -70,8 +79,9 @@ def _agent_run(
     ] = False,
     seed: Annotated[int, typer.Option(help="乱数種（dummy の応答導出に混ぜる・明示必須の規約）")] = 0,
 ) -> None:
-    """AgentSpec で 1 応答を出す。--test は --spec/--input を使わず組み込みスモークを回す。"""
-    from harness.agent.providers import PROVIDERS, build_messages, reply_text
+    """AgentSpec で 1 実行（ツール往復ループ）。--test は --spec/--input を使わず組み込みスモークを回す。"""
+    from harness.agent.providers import PROVIDERS
+    from harness.agent.runtime import run_agent
 
     if test:
         from harness.agent.experiment import run_agent_eval
@@ -91,6 +101,27 @@ def _agent_run(
         typer.echo(f"exact_match={result.metrics['exact_match']:.3f}\tpassed={result.passed}\tn={result.n}")
         if not result.passed:
             raise typer.Exit(1)
+
+        # ツール往復のスモーク：台本 dummy が calculator(add, 2, 3) を呼び、tool_result "5" を受けて答える
+        # （2 ターン・期待は台本の構成から導ける。無ネットワークのまま往復ループを一巡する）。
+        tool_spec = AgentSpec(
+            name="smoke-tools",
+            provider="dummy",
+            model="dummy-model",
+            system_prompt="計算はツールで行う",
+            tools=("calculator",),
+        )
+        tool_provider = PROVIDERS.resolve("dummy").factory(
+            seed,
+            replies={
+                "2と3を足して": {"tool_use": {"name": "calculator", "input": {"a": 2, "b": 3, "op": "add"}}},
+                "tool_result:5": "答えは 5",  # 2+3=5 の結果を受けた続きの台本
+            },
+        )
+        run = run_agent(tool_spec, "2と3を足して", provider=tool_provider, seed=seed)
+        typer.echo(f"tool_loop: turns={run.turns}\ttools_used={','.join(run.tools_used)}\toutput={run.output}")
+        if run.stop_reason != "end_turn" or run.tools_used != ("calculator",):
+            raise typer.Exit(1)
         return
 
     if spec is None or input_text is None:
@@ -101,8 +132,10 @@ def _agent_run(
     agent_spec = load_agent_spec(spec)
     entry = PROVIDERS.resolve(agent_spec.provider)  # 未知 provider はここで候補一覧つき ValueError
     provider = entry.factory(seed)
-    reply = provider.reply(messages=build_messages(input_text), tools=(), spec=agent_spec)
-    typer.echo(reply_text(reply))
+    run = run_agent(agent_spec, input_text, provider=provider, seed=seed)
+    typer.echo(run.output)
+    # 実行の来歴は stderr（stdout は応答テキストだけ＝パイプで使える）。
+    typer.echo(f"stop_reason={run.stop_reason}\tturns={run.turns}\ttools_used={','.join(run.tools_used)}", err=True)
 
 
 @agent_app.command("promote")

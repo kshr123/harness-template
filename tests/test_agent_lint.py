@@ -85,12 +85,42 @@ def test_missing_provider_key_is_an_error(tmp_path: Path) -> None:
     assert "provider" in problems[0].message
 
 
+@pytest.mark.unit
+def test_unregistered_tool_is_an_error(tmp_path: Path) -> None:
+    # tools[] の実在検査（T-0091）：未登録のツール名は error でファイルとツール名を名指しする。
+    _write_raw(tmp_path, "name: demo\nprovider: dummy\nmodel: dummy-model\nsystem_prompt: x\ntools: [no_such_tool]\n")
+    problems = lint.run_checks(tmp_path)
+    assert len(problems) == 1
+    assert problems[0].level == "error"
+    assert "no_such_tool" in problems[0].message
+    assert "demo.yaml" in problems[0].message
+
+
+@pytest.mark.unit
+def test_registered_tool_passes(tmp_path: Path) -> None:
+    # 実在するツール（TOOLS 登録済み）だけを指す宣言は無指摘（空 tools が無指摘なのは既存テストが担う）。
+    _write_raw(tmp_path, "name: demo\nprovider: dummy\nmodel: dummy-model\nsystem_prompt: x\ntools: [calculator]\n")
+    assert lint.run_checks(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_tools_not_a_list_is_an_error(tmp_path: Path) -> None:
+    # tools が並びでない宣言は error（str を黙って 1 文字ずつ舐めるような誤検査をしない）。
+    _write_raw(tmp_path, "name: demo\nprovider: dummy\nmodel: dummy-model\nsystem_prompt: x\ntools: calculator\n")
+    problems = lint.run_checks(tmp_path)
+    assert len(problems) == 1
+    assert problems[0].level == "error"
+    assert "tools" in problems[0].message
+
+
 @pytest.mark.integration
 def test_import_harness_agent_stays_light() -> None:
     # 素の Python で import harness.agent しても重い依存は読み込まれない（PROFILE 経路の軽さを固定）。
     code = (
         "import sys\n"
         "import harness.agent\n"
+        "import harness.agent.runtime\n"
+        "import harness.agent.tools\n"
         "from harness.agent import lint\n"
         "assert harness.agent.PROFILE.name == 'agent', harness.agent.PROFILE\n"
         "assert harness.agent.PROFILE.pm_checks == (lint.run_checks,), harness.agent.PROFILE\n"

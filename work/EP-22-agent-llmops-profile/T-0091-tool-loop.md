@@ -1,7 +1,7 @@
 ---
 id: T-0091
 kind: task
-status: todo
+status: done
 title: ツール往復ループ（TOOLS＋runtime.step/run_agent＋AGENT_LOG_FIELDS・input_fingerprint を core へ）
 created: 2026-07-06
 depends_on: [T-0089]
@@ -66,6 +66,10 @@ dummy provider がツール呼び出しを決定的に台本化できるよう�
 - 期待値は台本・payload の構成から導く（金メッキ禁止）。`uv run verify` 全体緑。`verified_by` の名がテストに実在。
 
 ## 独立レビュー（maker≠checker・差分のみ・実測・変異）
-（レビュー後に記入。観点：往復ループが max_turns で確実に止まる＝変異で無限ループ/打ち切り漏れを検出・
-input_fingerprint 移設で serve 出力がバイト不変・tools のスキーマ検証が実際に効く・run_agent がネットワークを一切触らない・
-AGENT_LOG_FIELDS のキー集合ドリフトを build_log_row が止める・profile 軽 import 維持）
+実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。
+- **往復ループの打ち切り＝変異で確認**：`stop_reason="max_turns"` を `"end_turn"` に変異 → `test_run_agent_max_turns_terminates` が RED（上限到達を必ず明示することをテストが捕捉）。`max_turns<1` は ValueError。turns＝provider 呼び出し回数で単調。
+- **ツールのスキーマ検証＝変異で確認**：`run_tool` の `if missing or unknown` を無効化 → `test_run_tool_unknown_name_and_schema_mismatch` が RED（required 欠け・未宣言キーを実行前に止めることを捕捉）。
+- **ログ契約のドリフト＝変異で確認**：`build_log_row` のキー集合照合を無効化 → `test_build_log_row_matches_contract` が RED（契約と行のキー集合ずれを止める・serve と同じ規律。テストは契約側/行側の両方向で確認）。3 変異ともバイト同一に復元。
+- **input_fingerprint の core 移設**：`harness.fingerprint` に集約。serve は同一関数を再輸出（`serve_runtime.input_fingerprint is input_fingerprint`＝指紋が割れない）。agent は serve を import せず `harness.fingerprint` を使う＝`import harness.agent.runtime` で `harness.serve` は未ロード（プロファイル境界を実測）。
+- **無ネットワーク**：`run_agent`/tools は socket を塞いだテスト（`_cut_network`）で往復・打ち切り・ログ生成が通る。`import harness.agent` で anthropic/fastapi/uvicorn/polars/sklearn 未ロード（軽 import 維持）。
+- 期待値は台本・payload の構成から導出（2+3=5・正準 JSON）。**verify 全体緑**（`成功（すべて通過）`）。指摘なし。

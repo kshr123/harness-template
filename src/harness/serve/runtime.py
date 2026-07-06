@@ -9,12 +9,15 @@ JSONL 予測ログの行スキーマ（キー・型）は PREDICTION_LOG_FIELDS 
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+# 中核へ移設（T-0091・DEC-0009）。`as` 付きで明示的に再輸出する＝serve の呼び手（app.py・テスト・
+# docs/serve.md）は従来どおり `runtime.input_fingerprint(features)` で再計算できる（指紋の値も不変）。
+from harness.fingerprint import input_fingerprint as input_fingerprint
 
 if TYPE_CHECKING:  # 型だけ。実行時は関数内の遅延 import（このモジュールの取り込みを軽く保つ）
     import numpy as np
@@ -81,16 +84,6 @@ def predict_frame(model: object, df: pl.DataFrame) -> tuple[NDArray[np.float64],
             return proba, "proba"
         return proba, "multiclass_proba"  # 多クラス＝クラス数ぶんの確率列（陽性 1 列に潰さない）
     return np.asarray(cv._predict(model, df, "value"), dtype=np.float64), "value"
-
-
-def input_fingerprint(features: Mapping[str, Any]) -> str:
-    """入力 1 行（features）の指紋＝正準 JSON（キー昇順・区切り最小・非 ASCII 素通し）の sha256。
-
-    同じ features からは必ず同じ指紋になる（監視・重複検出が行単位で照合できる）。値は JSON 由来
-    （/predict の本文）である前提＝JSON にできない値はここで明示的に失敗する。
-    """
-    canonical = json.dumps(dict(features), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def log_path(root: Path, *, name: str, log_dir: Path | None = None, when: datetime | None = None) -> Path:

@@ -3,16 +3,17 @@
 LLMOps/AgentOps プロファイル（EP-22・DEC-0015）。中核アーティファクトは **1 エージェント＝1 宣言
 （AgentSpec＝prompt＋model＋tools＋方針）**。ライフサイクルは ML と同型：宣言 → golden set → 採点 →
 合否 → 保存 → 昇格（配信・監視は後続タスク）。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
-プロバイダ抽象・eval.py＝採点器と合否・experiment.py＝評価の一巡・store.py＝保存と昇格・
-lint.py＝宣言の構造 lint・cli.py＝入口）。
+プロバイダ抽象・tools.py＝ツール（TOOLS）・runtime.py＝往復ループとログ契約・eval.py＝採点器と合否・
+experiment.py＝評価の一巡・store.py＝保存と昇格・lint.py＝宣言の構造 lint・cli.py＝入口）。
 
 ## 使い方
 
 ```
 uv run agent providers                 # プロバイダ一覧（AgentSpec の provider に書ける kind）
 uv run agent metrics                   # 採点器一覧（thresholds に書ける名前・向きつき）
-uv run agent run --spec <yaml> --input "<発話>"   # 宣言で 1 応答（骨組みは dummy のみ）
-uv run agent run --test                # 合成 spec＋合成 cases のスモーク（無ネットワーク・verify 用）
+uv run agent tools                     # ツール一覧（AgentSpec の tools に書ける kind）
+uv run agent run --spec <yaml> --input "<発話>"   # 宣言で 1 実行（ツール往復ループ・骨組みは dummy のみ）
+uv run agent run --test                # 合成 spec のスモーク（評価＋ツール往復・無ネットワーク・verify 用）
 ```
 
 実プロバイダ（Anthropic SDK）は `uv sync --extra agent`（骨組みでは未使用・T-0092 で結線）。
@@ -28,13 +29,51 @@ uv run agent run --test                # 合成 spec＋合成 cases のスモー
 | `provider` | str | PROVIDERS の kind（一覧は `uv run agent providers`） |
 | `model` | str | モデル名（既定方針：`claude-opus-4-8`・高頻度は `claude-sonnet-5`＝DEC-0015） |
 | `system_prompt` | str | システムプロンプト |
-| `tools` | list[str]（省略可・既定 []） | TOOLS の kind（レジストリは T-0091。骨組みでは空が前提） |
+| `tools` | list[str]（省略可・既定 []） | TOOLS の kind（一覧は `uv run agent tools`・lint が実在を検査） |
 | `effort` | low/medium/high/xhigh/max（既定 medium） | 推論の深さ。**宣言に固定**＝再現性の軸 |
-| `max_turns` | int（既定 8） | ツール往復の上限（ループは T-0091） |
+| `max_turns` | int（既定 8） | ツール往復の上限（到達で `stop_reason="max_turns"` に打ち切り） |
 | `output_schema` | mapping（省略可） | 構造化出力の JSON Schema（検証は T-0093） |
 
 **`temperature` は書けない**（現行モデルはパラメータごと廃止＝送ると 400・DEC-0015）。書くと専用の
 エラーで effort＋cassette への移行を案内する。
+
+## ツールと往復ループ（TOOLS → run_agent・`agent/{tools,runtime}.py`）
+
+1 ツール＝名前＋`input_schema`（JSON Schema）＋**純粋・決定的な** Python 関数（`fn(**args) -> str`）。
+レジストリは `TOOLS`（骨組みは `calculator` のみ・一覧は `uv run agent tools`）。ネットワーク・ファイル
+I/O をするツールは書かない（verify の無ネットワーク契約＝DEC-0015）。
+
+- `to_provider_tools(names)`：provider へ渡す tool 宣言（`{"name","description","input_schema"}` の並び）。
+- `run_tool(name, args)`：1 回実行して文字列を返す。未登録名・スキーマ不一致（required 欠け・未宣言キー）は
+  ValueError（黙って捨てず実行前に止める）。
+- `run_agent(spec, user_input, provider=, seed=, max_turns=None) -> AgentRun`：**ツールを呼ぶ→結果を渡す→
+  また考える** を stop_reason に従って繰り返す純関数。`tool_use` の間は tool_result を messages に積んで継続、
+  `end_turn` で停止。上限（`spec.max_turns`・引数は上書き口）到達は `stop_reason="max_turns"` で必ず打ち切る。
+  結果は `AgentRun`（output・stop_reason・turns・tools_used・usage 合算・messages 全履歴）。
+- dummy provider は replies の値に `{"tool_use": {"name","input"}}` を仕込むと tool_use を台本化できる
+  （tool_result 後の続きは鍵 `"tool_result:<結果文字列>"`）＝往復ループを無ネットワークでテストできる。
+
+## ログ契約（AGENT_LOG_FIELDS・1 実行＝JSONL 1 行）
+
+正本は `agent/runtime.py` の `AGENT_LOG_FIELDS`（`serve.PREDICTION_LOG_FIELDS` と同型の「キー集合ドリフトを
+止める」規律＝`build_log_row(run, spec=, request_id=, time=)` がキー集合の一致を検査する）。後続の監視
+（T-0093）はこの契約だけに依存する。
+
+| キー | 型・意味 |
+| --- | --- |
+| `time` | str（ISO 8601・UTC） |
+| `request_id` | str（uuid4 hex） |
+| `agent` | dict（name・provider・model・prompt_fingerprint＝system_prompt の sha256） |
+| `input_fingerprint` | str（`{"input": 入力テキスト}` の正準 JSON の sha256。`harness.fingerprint.input_fingerprint` で再計算できる） |
+| `input` | str（ユーザ入力＝messages 先頭の user テキストから復元） |
+| `output` | str（最終応答テキスト） |
+| `stop_reason` | str（end_turn ｜ max_turns＝上限打ち切り ｜ その他 provider の stop_reason） |
+| `turns` | int（provider 呼び出し回数） |
+| `tools_used` | list[str]（呼んだツール名・呼んだ順） |
+| `usage` | dict（input_tokens・output_tokens＝全ターンの合算） |
+
+`input_fingerprint` は中核 `harness/fingerprint.py`（serve の予測ログと同じ関数を共有＝T-0091 で
+`serve/runtime.py` から移設・DEC-0009）。agent は serve を import しない（プロファイル境界）。
 
 ## 評価と合否（golden set → passes）
 
@@ -69,6 +108,6 @@ uv run agent experiments --results work/…/results           # 変種比較（m
 
 ## 宣言の構造 lint（verify に接続）
 
-`docs/agents/**/*.yaml` を yaml で読むだけ（実行しない）で、`provider` が PROVIDERS に実在するかを検査する
-（`src/harness/agent/lint.py`・serve の deploy_lint と同型）。`docs/agents/` が無いプロジェクトでは何も
-指摘しない。`tools[]` の実在検査は TOOLS レジストリ（T-0091）と同時に足す。
+`docs/agents/**/*.yaml` を yaml で読むだけ（実行しない）で、`provider` が PROVIDERS に・`tools[]` が
+TOOLS に実在するかを検査する（`src/harness/agent/lint.py`・serve の deploy_lint と同型）。`docs/agents/`
+が無いプロジェクトでは何も指摘しない（tools 無し・空も無指摘）。

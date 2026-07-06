@@ -51,6 +51,24 @@ def build_messages(text: str) -> list[dict[str, Any]]:
     return [{"role": "user", "content": [{"type": "text", "text": text}]}]
 
 
+def _dummy_script_key(messages: Sequence[Mapping[str, Any]]) -> str:
+    """dummy の台本（replies）を引く鍵。通常は最後の user テキスト・直近が tool_result なら "tool_result:<結果>"。
+
+    tool_result 後の続き（text でも tool_use でも）を replies で台本化できるようにする（run_agent の
+    往復テスト・max_turns 打ち切りテストの土台）。鍵は結果文字列から決まる＝構成から導出できる。
+    """
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, Sequence) and not isinstance(content, str):
+            for block in content:
+                if isinstance(block, Mapping) and block.get("type") == "tool_result":
+                    return "tool_result:" + str(block.get("content", ""))
+        break  # 最後の user が tool_result でなければ通常経路（テキストの鍵）
+    return _last_user_text(messages)
+
+
 def _last_user_text(messages: Sequence[Mapping[str, Any]]) -> str:
     """最後の user メッセージのテキスト（str 直書きでも content block の並びでも取り出せる）。"""
     for message in reversed(messages):
@@ -70,10 +88,14 @@ def _last_user_text(messages: Sequence[Mapping[str, Any]]) -> str:
 
 @dataclass(frozen=True)
 class DummyProvider:
-    """決定的なダミー応答。replies に最後の user テキストが在ればその応答、無ければハッシュ由来の文字列。"""
+    """決定的なダミー応答。replies の値が str なら text 応答・{"tool_use": …} なら tool_use 応答。
+
+    鍵は _dummy_script_key（通常＝最後の user テキスト・直近が tool_result なら "tool_result:<結果>"）。
+    どちらの経路も仕込みが無ければハッシュ由来のテキスト（決定的・グローバル種に依らない）。
+    """
 
     seed: int
-    replies: Mapping[str, str]
+    replies: Mapping[str, Any]
 
     def reply(
         self,
@@ -82,8 +104,22 @@ class DummyProvider:
         tools: Sequence[Mapping[str, Any]],
         spec: AgentSpec,
     ) -> ProviderReply:
-        last_user = _last_user_text(messages)
-        text = self.replies.get(last_user)
+        scripted = self.replies.get(_dummy_script_key(messages))
+        if isinstance(scripted, Mapping) and "tool_use" in scripted:
+            block = dict(scripted["tool_use"])  # {"name": …, "input": …, "id"?: …}
+            return ProviderReply(
+                stop_reason="tool_use",
+                content=(
+                    {
+                        "type": "tool_use",
+                        "id": str(block.get("id", "tool_0")),
+                        "name": str(block["name"]),
+                        "input": dict(block["input"]),
+                    },
+                ),
+                usage={"input_tokens": 0, "output_tokens": 0},
+            )
+        text = scripted if isinstance(scripted, str) else None
         if text is None:
             # 正準 JSON（キー昇順）の sha256 ＝同じ入力・同じ seed なら常に同じ応答（グローバル種に依らない）。
             payload = json.dumps(
@@ -97,10 +133,12 @@ class DummyProvider:
         )
 
 
-def dummy(seed: int, *, replies: Mapping[str, str] | None = None) -> DummyProvider:
+def dummy(seed: int, *, replies: Mapping[str, Any] | None = None) -> DummyProvider:
     """決定的なダミー応答（無ネットワーク・課金ゼロ）。verify のスモークとテストの土台。
 
     replies={"入力": "応答"} で既知の応答を仕込める（exact_match の期待を構成から導くため）。
+    値に {"tool_use": {"name", "input", "id"?}} を仕込むと tool_use 応答（往復ループの台本化）。
+    tool_result 後の続きは鍵 "tool_result:<結果文字列>" で仕込む（無ければハッシュ由来のテキスト）。
     仕込みが無い入力には正準 JSON ハッシュ由来の "dummy:<hex16>" を返す（決定的・期待と衝突しない）。
     """
     return DummyProvider(seed=seed, replies=dict(replies or {}))

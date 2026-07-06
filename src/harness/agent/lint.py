@@ -1,9 +1,9 @@
 """エージェント宣言（docs/agents/**/*.yaml）の構造 lint（参照整合を verify で守る）。
 
-実行しない・ネットワークも使わない。宣言の `provider` が PROVIDERS に実在するかだけを静的に検査する
-（serve の deploy_lint と同じ思想＝実行できない資産の参照整合・DEC-0009）。
+実行しない・ネットワークも使わない。宣言の `provider` が PROVIDERS に・`tools[]` が TOOLS に実在するかを
+静的に検査する（serve の deploy_lint と同じ思想＝実行できない資産の参照整合・DEC-0009）。
 `docs/agents/` が無いプロジェクトでは何も指摘しない（誤検知しない）。
-依存は stdlib＋pyyaml＋agent.providers（軽い）のみ。yaml は関数内で遅延取り込みする
+依存は stdlib＋pyyaml＋agent.{providers,tools}（軽い）のみ。yaml は関数内で遅延取り込みする
 （プロファイルのモジュールを軽く保つ規約＝DEC-0013）。
 """
 
@@ -19,6 +19,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
     import yaml
 
     from harness.agent.providers import PROVIDERS
+    from harness.agent.tools import TOOLS
 
     base = root / "docs" / "agents"
     if not base.exists():
@@ -43,5 +44,18 @@ def run_checks(root: Path) -> list[pm.Problem]:
                     f"{rel}: provider '{provider}' が PROVIDERS に無い（一覧は `uv run agent providers`）",
                 )
             )
-        # tools[] の実在検査は TOOLS レジストリの導入（T-0091）と同時に足す（骨組みでは tools 空が前提）。
+        tools = doc.get("tools")
+        if tools is None:
+            continue  # tools 無し（既定＝空）は無指摘
+        if not isinstance(tools, list):
+            problems.append(pm.Problem("error", f"{rel}: tools はツール名（str）の並びであること"))
+            continue
+        for tool in tools:
+            if not isinstance(tool, str) or tool not in TOOLS:
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"{rel}: tool '{tool}' が TOOLS に無い（一覧は `uv run agent tools`）",
+                    )
+                )
     return problems
