@@ -20,6 +20,8 @@ JSONL 行スキーマ）の正本は docs/serve.md（監視 data monitor はこ�
    追記される（行スキーマは docs/serve.md）。
 5. コンテナ・K8s で配るときは `templates/serve/` の雛形をコピーして案件側で調整する（T-0086 で追加。
    実行基盤は利用者環境の関心）。
+6. 配信後の分布ずれを見張る：`uv run data monitor --baseline <学習基準の表 id> [--auc] [--since YYYY-MM-DD]`
+   （予測 JSONL×学習基準の psi/band。門番にせず band で読む＝exit 0。ログの正本は docs/serve.md の行スキーマ）。
 
 ## してはいけないこと
 - 昇格していない版を既定で配らない（champion が正本。--version は緊急・検証用の明示に限る）。
