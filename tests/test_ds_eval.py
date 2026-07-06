@@ -359,6 +359,93 @@ def test_threshold_table_matches_confusion_and_selector() -> None:
     assert max_row["threshold"] == pytest.approx(best_t)
 
 
+def test_threshold_table_rows_from_construction() -> None:
+    # y=[0,0,0,1,1], s=[.1,.4,.6,.6,.9]。明示閾値ごとに pred=(s>=t) を手で数えて tp/fp/fn/tn・P/R/F1 を導出。
+    y = np.array([0, 0, 0, 1, 1], dtype="int64")
+    s = np.array([0.1, 0.4, 0.6, 0.6, 0.9], dtype="float64")
+    tbl = ev.threshold_table(y, s, thresholds=[0.0, 0.5, 0.6, 0.7, 1.0])
+    assert tbl.columns == ["threshold", "precision", "recall", "f1", "tn", "fp", "fn", "tp"]  # 列名・順序は不変
+    rows = tbl.to_dicts()
+    # t=0.0: 全部陽性 → tp=2, fp=3, fn=0, tn=0, P=2/5, R=1, F1=2·(2/5)·1/(2/5+1)=4/7
+    assert (rows[0]["tp"], rows[0]["fp"], rows[0]["fn"], rows[0]["tn"]) == (2, 3, 0, 0)
+    assert rows[0]["precision"] == pytest.approx(2 / 5)
+    assert rows[0]["recall"] == 1.0
+    assert rows[0]["f1"] == pytest.approx(4 / 7)
+    # t=0.5: pred=[0,0,1,1,1] → tp=2, fp=1, fn=0, tn=2, P=2/3, R=1, F1=4/5
+    assert (rows[1]["tp"], rows[1]["fp"], rows[1]["fn"], rows[1]["tn"]) == (2, 1, 0, 2)
+    assert rows[1]["precision"] == pytest.approx(2 / 3)
+    assert rows[1]["f1"] == pytest.approx(4 / 5)
+    # t=0.6: 同値スコアは >= で陽性側 → t=0.5 と同じ数え（境界の包含を固定）。
+    assert (rows[2]["tp"], rows[2]["fp"], rows[2]["fn"], rows[2]["tn"]) == (2, 1, 0, 2)
+    # t=0.7: pred=[0,0,0,0,1] → tp=1, fp=0, fn=1, tn=3, P=1, R=1/2, F1=2/3
+    assert (rows[3]["tp"], rows[3]["fp"], rows[3]["fn"], rows[3]["tn"]) == (1, 0, 1, 3)
+    assert rows[3]["recall"] == pytest.approx(1 / 2)
+    assert rows[3]["f1"] == pytest.approx(2 / 3)
+    # t=1.0: 全部陰性 → tp=fp=0 → P=R=F1=0（0 割しない）。
+    assert (rows[4]["tp"], rows[4]["fp"], rows[4]["fn"], rows[4]["tn"]) == (0, 0, 2, 3)
+    assert (rows[4]["precision"], rows[4]["recall"], rows[4]["f1"]) == (0.0, 0.0, 0.0)
+
+
+def test_threshold_table_matches_definition_oracle_on_random_data() -> None:
+    # 定義から独立に数える oracle（pred=(s>=t) の集計と P/R/F1 の定義式）と、全行・全列が一致する性質テスト。
+    # 期待値は実装出力の写経ではなく、混同行列の定義そのものから導く（金メッキ禁止）。
+    rng = np.random.default_rng(42)
+    y = (rng.random(200) < 0.3).astype("int64")
+    s = rng.random(200)
+
+    def oracle(t: float) -> tuple[int, int, int, int, float, float, float]:
+        pred = s >= t
+        tp = int(((y == 1) & pred).sum())
+        fp = int(((y == 0) & pred).sum())
+        fn = int(((y == 1) & ~pred).sum())
+        tn = int(((y == 0) & ~pred).sum())
+        p = tp / (tp + fp) if tp + fp else 0.0
+        r = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * p * r / (p + r) if p + r else 0.0
+        return tp, fp, fn, tn, p, r, f1
+
+    # 既定スイープ（_curve の閾値）と明示指定の両経路を検査。
+    default_tbl = ev.threshold_table(y, s)
+    assert len(default_tbl) == len(ev._curve(y, s)[2])  # 行数＝pr 曲線の閾値数（従来と同じ土台）
+    explicit_ts = [0.0, 0.25, 0.5, 0.75, 1.0]
+    explicit_tbl = ev.threshold_table(y, s, thresholds=explicit_ts)
+    assert explicit_tbl["threshold"].to_list() == explicit_ts  # 指定順を保つ
+    for tbl in (default_tbl, explicit_tbl):
+        for r_ in tbl.to_dicts():
+            tp, fp, fn, tn, p, rec, f1 = oracle(r_["threshold"])
+            assert (r_["tp"], r_["fp"], r_["fn"], r_["tn"]) == (tp, fp, fn, tn)
+            assert r_["precision"] == pytest.approx(p)
+            assert r_["recall"] == pytest.approx(rec)
+            assert r_["f1"] == pytest.approx(f1)
+
+
+def test_threshold_table_degenerate_inputs_no_division_error() -> None:
+    # 退化：全陽性・全陰性・単一スコア。既定スイープは両クラス必須（_curve）なので明示閾値で通す。0 割しない。
+    # 全陽性 y=[1,1], s=[.2,.8], t=.5 → tp=1, fn=1, fp=tn=0 → P=1, R=1/2, F1=2/3。
+    all_pos = ev.threshold_table(
+        np.array([1, 1], dtype="int64"), np.array([0.2, 0.8], dtype="float64"), thresholds=[0.5]
+    ).to_dicts()[0]
+    assert (all_pos["tp"], all_pos["fp"], all_pos["fn"], all_pos["tn"]) == (1, 0, 1, 0)
+    assert all_pos["precision"] == 1.0
+    assert all_pos["recall"] == pytest.approx(1 / 2)
+    assert all_pos["f1"] == pytest.approx(2 / 3)
+    # 全陰性 y=[0,0] → tp=fn=0（正例なし）→ P=R=F1=0.0（nan にしない）。
+    all_neg = ev.threshold_table(
+        np.array([0, 0], dtype="int64"), np.array([0.2, 0.8], dtype="float64"), thresholds=[0.5]
+    ).to_dicts()[0]
+    assert (all_neg["tp"], all_neg["fp"], all_neg["fn"], all_neg["tn"]) == (0, 1, 0, 1)
+    assert (all_neg["precision"], all_neg["recall"], all_neg["f1"]) == (0.0, 0.0, 0.0)
+    # 単一スコア（全行 0.5）：t=0.5 で全部陽性（>= の境界）・t=0.6 で全部陰性。
+    y_one = np.array([0, 1, 0, 1], dtype="int64")
+    s_one = np.full(4, 0.5, dtype="float64")
+    single = ev.threshold_table(y_one, s_one, thresholds=[0.5, 0.6]).to_dicts()
+    assert (single[0]["tp"], single[0]["fp"], single[0]["fn"], single[0]["tn"]) == (2, 2, 0, 0)
+    assert single[0]["precision"] == pytest.approx(1 / 2)
+    assert single[0]["recall"] == 1.0
+    assert (single[1]["tp"], single[1]["fp"], single[1]["fn"], single[1]["tn"]) == (0, 0, 2, 2)
+    assert (single[1]["precision"], single[1]["recall"], single[1]["f1"]) == (0.0, 0.0, 0.0)
+
+
 def test_brier_from_construction() -> None:
     # brier = mean((score - y)²)（brier_score_loss の定義）。期待値はテストデータの構成から厳密に導く。
     # proba=1.0 で y=1（完全確信で正解）→ (1-1)²=0 の平均 = 0（最良）。

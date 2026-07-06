@@ -5,7 +5,8 @@
 - エンコード段（encode）：sklearn のエンコーダ（`ENCODERS`）を `ColumnTransformer` に入れる。**再発明しない**
   （DEC-0008）が「必要なときに確実に使える」よう、**落ちない・漏れない・決定的**に関わる既定だけ焼き込む：
   OneHot は未知カテゴリでエラーを出さない・Ordinal は未知/欠損を -1・TargetEncoder は非推奨 shuffle/random_state を
-  使わず `cv=KFold(seed)` で決定的な OOF・KBins/PCA は NaN で落ちるので中央値埋めを前置・Tfidf は null を空文字に。
+  使わず分類=StratifiedKFold(seed)・回帰=KFold(seed) で決定的な OOF（task は model から知る＝is_classifier）・
+  KBins/PCA は NaN で落ちるので中央値埋めを前置・Tfidf は null を空文字に。
   性能の好み（分割数・語彙サイズ等）は焼かず sklearn 既定のまま（config の params で上書き）。工場は「既定 | params →
   sklearn クラスにそのまま渡す」薄さで、パラメタを写経しない（再発明でない）。
   例外的に OneHot の `sparse_output=False`・KBins の `encode="ordinal"` は「表現の既定」（列名を追いやすく・下流の
@@ -22,6 +23,7 @@ from typing import Any, Literal
 
 import numpy as np
 import polars as pl
+from sklearn.base import is_classifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
@@ -34,6 +36,7 @@ from sklearn.feature_selection import (
     f_classif,
     f_regression,
     mutual_info_classif,
+    mutual_info_regression,
 )
 from sklearn.impute import MissingIndicator, SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -67,10 +70,21 @@ def _ordinal(seed: int, **params: Any) -> object:  # noqa: ANN401
     return OrdinalEncoder(**{**defaults, **params})
 
 
-def _target(seed: int, *, cv: int = 5, **params: Any) -> object:  # noqa: ANN401
-    """TargetEncoder（平滑化平均）。内部 cross-fitting(OOF) を cv=KFold(seed) で決定化。高カーディナリティ向け。"""
-    # 漏れない＋決定的：内部 cross-fitting(OOF) を KFold(seed) で固定（shuffle/random_state は 1.9 非推奨）。
-    return TargetEncoder(cv=KFold(n_splits=cv, shuffle=True, random_state=seed), **params)
+def _target(seed: int, *, cv: int = 5, task: str | None = None, **params: Any) -> object:  # noqa: ANN401
+    """TargetEncoder（平滑化平均・高カーディナリティ向け）。内部 OOF を分類=StratifiedKFold・回帰=KFold(seed) で決定化。
+
+    task は build_estimator が model から注入する（is_classifier・config に二重に書かせない）。分類は層化＝
+    不均衡でも内側の各 fold がクラス比を保つ（sklearn の cv=int 既定と同じ振る舞いを seed で決定化したもの）。
+    未指定（None）は従来どおり KFold（連続 y でも落ちない側に倒す・ENCODERS.build を直接使う経路の互換）。
+    """
+    # 漏れない＋決定的：内部 cross-fitting(OOF) の分割を seed で固定（shuffle/random_state は 1.9 非推奨）。
+    if task in ("binary", "multiclass", "classification"):
+        inner: KFold | StratifiedKFold = StratifiedKFold(n_splits=cv, shuffle=True, random_state=seed)
+    elif task is None or task == "regression":
+        inner = KFold(n_splits=cv, shuffle=True, random_state=seed)
+    else:  # typo を黙って非層化に落とさない（fail-loud）
+        raise ValueError(f"未知の task '{task}'（binary | multiclass | classification | regression のいずれか）")
+    return TargetEncoder(cv=inner, **params)
 
 
 def _bins(seed: int, **params: Any) -> object:  # noqa: ANN401
@@ -230,23 +244,28 @@ _SCORE_FUNCS: dict[str, Any] = {
     "f_classif": f_classif,
     "f_regression": f_regression,
     "mutual_info_classif": mutual_info_classif,
+    "mutual_info_regression": mutual_info_regression,
 }
 
 
 def _selectkbest(seed: int, *, score_func: str = "f_classif", k: int = 10, **params: Any) -> object:  # noqa: ANN401
-    """単変量スコア上位 k 列を選ぶ（SelectKBest）。score_func="f_classif"（既定）/"f_regression"/"mutual_info_classif"。
+    """単変量スコア上位 k 列を選ぶ（SelectKBest）。score_func は f_classif（既定）/f_regression/mutual_info_*。
 
+    score_func は文字列で選ぶ：分類＝"f_classif"/"mutual_info_classif"・回帰＝"f_regression"/"mutual_info_regression"。
     y を使うが Pipeline が fit(y) を伝えるので追加配線は不要（run_cv が fold の train の y を渡す＝リークなし）。
-    mutual_info_classif は乱数を使うので seed を配線して決定化（f_classif/f_regression は決定的＝seed 不使用）。
+    mutual_info_* は乱数を使うので seed を配線して決定化（f_classif/f_regression は決定的＝seed 不使用）。
     注意：k（既定 10）が特徴数より多いと sklearn は警告のみで全列を返す（no-op）＝特徴数に合わせて k を決める。
     """
     if score_func not in _SCORE_FUNCS:
         raise ValueError(f"未知の score_func '{score_func}'（{sorted(_SCORE_FUNCS)} のいずれか）")
     fn = _SCORE_FUNCS[score_func]
-    if score_func == "mutual_info_classif":  # 決定的：乱数を使う score_func だけ seed を焼く
+    if score_func in (
+        "mutual_info_classif",
+        "mutual_info_regression",
+    ):  # 決定的：乱数を使う score_func だけ seed を焼く
         from functools import partial
 
-        fn = partial(mutual_info_classif, random_state=seed)
+        fn = partial(fn, random_state=seed)
     return SelectKBest(score_func=fn, k=k, **params)
 
 
@@ -536,6 +555,8 @@ def build_estimator(spec: Mapping[str, Any], model: SklearnLike, *, seed: int) -
             "select":   {kind, ...params}}                          # 任意・1 個の dict（SELECTORS・T-0064）
     encode の columns は ColumnTransformer の対象列（Tfidf だけ文字列 1 本・他はリスト）。生のカテゴリ列は
     features 段の columns ブロックで通しておくこと（encode がそれを受ける）。
+    encode 段の task（分類/回帰）は model から知る（is_classifier）＝config に二重に書かせない。task 引数を持つ
+    工場（target 等）にだけ注入する（_build_block の seed 注入と同じ流儀・encode 節に task を明示すればそれが優先）。
     select があれば to_numpy と model の間に選択段を挿す（無ければ steps は従来どおり）。選択の fit も
     run_cv の clone-per-fold で fold の train でだけ起きる＝リークなし（encode と同じ構造的担保）。
     """
@@ -551,10 +572,15 @@ def build_estimator(spec: Mapping[str, Any], model: SklearnLike, *, seed: int) -
         dups = sorted({n for n in names if names.count(n) > 1})
         if dups:
             raise ValueError(f"encode の name が重複: {dups}（同じ kind を複数使うときは name を明示）")
+        task = "classification" if is_classifier(model) else "regression"
         transformers = []
         for e in encode:
+            # task 引数を持つ工場（target 等）にだけ model 由来の task を注入する（明示指定があればそれが優先）。
+            enc_spec: Mapping[str, Any] = e
+            if "task" in inspect.signature(ENCODERS.resolve(e["kind"]).factory).parameters and "task" not in e:
+                enc_spec = {**e, "task": task}
             # kind/name/columns 以外の params を工場へ素通し（Registry.build の既定 drop と同じ配線キー）。
-            transformers.append((e.get("name", e["kind"]), ENCODERS.build(e, seed=seed), e["columns"]))
+            transformers.append((e.get("name", e["kind"]), ENCODERS.build(enc_spec, seed=seed), e["columns"]))
         steps.append(
             ("encode", ColumnTransformer(transformers, remainder="passthrough", verbose_feature_names_out=False))
         )

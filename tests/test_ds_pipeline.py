@@ -13,11 +13,11 @@ import pytest
 import scipy.sparse as sp
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.model_selection import KFold, RandomizedSearchCV, StratifiedKFold
 
 from harness.ds import cv
-from harness.ds.pipeline import MODELS, SELECTORS, _to_numpy, build_estimator, build_model
+from harness.ds.pipeline import ENCODERS, MODELS, SELECTORS, _to_numpy, build_estimator, build_model
 
 _COLS = {"kind": "columns", "columns": ["c"]}
 
@@ -64,11 +64,54 @@ def test_onehot_safe_default_and_override() -> None:
 
 @pytest.mark.unit
 def test_target_encoder_cv_is_seeded_kfold() -> None:
+    # 回帰（Ridge）：従来どおり非推奨 shuffle/random_state を使わず cv=KFold(seed)（連続 y は層化できない）。
+    spec = {"features": [_COLS], "encode": [{"kind": "target", "columns": ["c"], "cv": 3}]}
+    te = build_estimator(spec, Ridge(), seed=7).named_steps["encode"].transformers[0][1]
+    kfold = te.get_params()["cv"]
+    assert type(kfold) is KFold  # 回帰＝非層化（StratifiedKFold は連続 y で落ちる）
+    assert kfold.get_n_splits() == 3
+    assert (kfold.shuffle, kfold.random_state) == (True, 7)  # seed 配線（決定的な OOF）
+
+
+@pytest.mark.unit
+def test_target_encoder_cv_is_stratified_for_classification() -> None:
+    # 分類（logreg）：内側 OOF の分割が StratifiedKFold(shuffle=True, random_state=seed)。task は encode 節に
+    # 書かせず model から知る（build_estimator が is_classifier で注入・sklearn の cv=int 既定と同じ振る舞いを決定化）。
     spec = {"features": [_COLS], "encode": [{"kind": "target", "columns": ["c"], "cv": 3}]}
     te = build_estimator(spec, _model(), seed=7).named_steps["encode"].transformers[0][1]
-    kfold = te.get_params()["cv"]
-    assert kfold.get_n_splits() == 3  # 非推奨 shuffle/random_state を使わず cv=KFold(seed)
-    assert kfold.random_state == 7  # seed 配線（決定的な OOF）
+    inner = te.get_params()["cv"]
+    assert type(inner) is StratifiedKFold  # 分類＝層化（不均衡でも内側 fold がクラス比を保つ）
+    assert inner.get_n_splits() == 3
+    assert (inner.shuffle, inner.random_state) == (True, 7)  # seed 明示で決定的（グローバル種なし）
+
+
+@pytest.mark.unit
+def test_target_encoder_unknown_task_fails_loud() -> None:
+    # task の typo は黙って KFold に落とさない（ENCODERS.build から直接使う経路の fail-loud）。
+    with pytest.raises(ValueError, match="未知の task"):
+        ENCODERS.build({"kind": "target", "columns": ["c"], "task": "nope"}, seed=0)
+
+
+@pytest.mark.integration
+def test_target_encoder_classification_inner_folds_keep_class_ratio() -> None:
+    # 構成：100 行＝カテゴリ 10 種 × 10 行・陽性 20 行（陽性率 0.2・seed 固定の並べ替え）。層化の定義から、
+    # 内側 5 fold の各 valid（20 行）に陽性はちょうど 20/5=4 行（クラス比 0.2 を厳密に保つ・構成から導出）。
+    # 非層化 KFold ではこの均等配分は保証されない（G2：不均衡で内側エンコーディングが静かに劣化する、の核心）。
+    rng = np.random.default_rng(3)
+    df = pl.DataFrame({"c": [f"c{k}" for k in range(10)] * 10})
+    y = rng.permutation(np.array([1.0] * 20 + [0.0] * 80))
+    spec = {"features": [{"kind": "columns", "columns": ["c"]}], "encode": [{"kind": "target", "columns": ["c"]}]}
+    te = build_estimator(spec, _model(), seed=11).named_steps["encode"].transformers[0][1]
+    inner = te.get_params()["cv"]
+    assert type(inner) is StratifiedKFold
+    for _, valid in inner.split(np.zeros(len(y)), y):
+        assert len(valid) == 20
+        assert y[valid].sum() == 4.0  # 各 fold の陽性 4/20 ＝クラス比 0.2 を厳密に保つ
+    # 決定性：同じ seed で 2 回組み直して fit → OOF エンコード結果が完全一致（seed 固定で 2 回同一）。
+    out_a = np.asarray(build_estimator(spec, _model(), seed=11)[:2].fit_transform(df, y))
+    out_b = np.asarray(build_estimator(spec, _model(), seed=11)[:2].fit_transform(df, y))
+    np.testing.assert_array_equal(out_a, out_b)
+    assert out_a.shape == (100, 1)  # target 1 列だけがエンコードされて届く
 
 
 @pytest.mark.unit
@@ -350,6 +393,30 @@ def test_selectkbest_picks_correlated_column() -> None:
     assert list(sel.get_support()) == [True, False]
     with pytest.raises(ValueError, match="未知の score_func"):  # typo は黙って既定に落とさない（fail-loud）
         SELECTORS.build({"kind": "selectkbest", "score_func": "nope"}, seed=0)
+
+
+@pytest.mark.unit
+def test_selectkbest_mutual_info_regression_registered_and_seeded() -> None:
+    # G9：mutual_info_regression が score_func 文字列で選べる（回帰の MI 特徴選択を config から）。
+    # 構成：列0 は y と決定的な単調関係（y=x0³ ＝ MI 大）・列1 は y と独立の seed 固定乱数（MI ≈ 0）
+    # → k=1 で選ばれるのは列0（構成から導出・実装出力のコピペではない）。
+    from functools import partial
+
+    from sklearn.feature_selection import mutual_info_regression
+
+    rng = np.random.default_rng(0)
+    x0 = np.linspace(0.0, 1.0, 60)
+    x = np.column_stack([x0, rng.normal(size=60)])
+    y = x0**3  # 連続値（回帰）＝列0 の決定的な単調変換
+    sel = SELECTORS.build({"kind": "selectkbest", "k": 1, "score_func": "mutual_info_regression"}, seed=7)
+    sel.fit(x, y)
+    assert list(sel.get_support()) == [True, False]
+    # seed 決定化を構造で確認（2 回一致は非決定の証明にならない＝タイ破りノイズが順序を変えないことがある）。
+    # 登録 score_func は mutual_info_regression を random_state=seed で焼き込んだ partial＝seed 配線を外すと必ず崩れる。
+    score_func = sel.score_func
+    assert isinstance(score_func, partial)
+    assert score_func.func is mutual_info_regression
+    assert score_func.keywords == {"random_state": 7}  # seed が焼き込まれている（決定化の構造的担保）
 
 
 @pytest.mark.unit

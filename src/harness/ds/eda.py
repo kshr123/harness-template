@@ -209,36 +209,53 @@ def missing_patterns(df: pl.DataFrame, *, top: int = 20) -> pl.DataFrame:
     """欠損の同時発生パターン（列 = columns（欠損列名の list）, count, ratio・count 降順・上位 top）。
 
     「どの列がまとまって欠けるか」（同一原因の欠損・結合漏れ）を行単位で見る。全列非欠損の行は columns=[]。
+    集計は polars の group_by 1 パス（Python 行ループ無し）。count 同数のパターンは欠損列名の並び
+    （df の列順で作った list の辞書順）で決定的に整列する。
     """
-    cols = df.columns
-    null_flags = df.select([pl.col(c).is_null() for c in cols])
-    patterns: dict[tuple[str, ...], int] = {}
-    for row in null_flags.iter_rows():
-        key = tuple(c for c, is_null in zip(cols, row, strict=True) if is_null)
-        patterns[key] = patterns.get(key, 0) + 1
-    n = df.height
-    ordered = sorted(patterns.items(), key=lambda kv: kv[1], reverse=True)[:top]
-    rows = [{"columns": list(k), "count": v, "ratio": (v / n if n else 0.0)} for k, v in ordered]
     schema: dict[str, Any] = {"columns": pl.List(pl.String), "count": pl.Int64, "ratio": pl.Float64}
-    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    if df.height == 0 or df.width == 0:
+        return pl.DataFrame(schema=schema)
+    n = df.height
+    # 元の列名（count/columns/ratio と同名の列があり得る）との衝突を避けるため位置ベースの別名で持つ。
+    flag_names = [f"__null_{i}__" for i in range(df.width)]
+    flags = df.select(pl.col(c).is_null().alias(a) for c, a in zip(df.columns, flag_names, strict=True))
+    pattern = pl.concat_list(
+        pl.when(pl.col(a)).then(pl.lit(c, dtype=pl.String)) for c, a in zip(df.columns, flag_names, strict=True)
+    ).list.drop_nulls()
+    return (
+        flags.group_by(flag_names)
+        .agg(pl.len().cast(pl.Int64).alias("count"))
+        .with_columns(columns=pattern, ratio=pl.col("count") / n)
+        .sort(["count", pl.col("columns").list.join("\x1f")], descending=[True, False])
+        .head(top)
+        .select("columns", "count", "ratio")
+    )
 
 
 def duplicate_columns(df: pl.DataFrame) -> pl.DataFrame:
     """内容が同一の列ペア（列 = column, duplicate_of（先に現れた列名））。0 行なら重複なし。
 
     null 同士は等しいとみなす（eq_missing）。列内容のハッシュで候補を絞ってから全比較（総当たりを避ける）。
+    指紋＝行位置を混ぜた行ハッシュの総和（polars/numpy の 1 パス・Python 行ループ無し）。uint64 のラップ和で
+    決定的・並べ替えただけの列は別指紋になる。衝突しても eq_missing の全比較で確定するので結果は正しい。
     片方を落とす判断はエージェント/実験側（ここは事実の報告だけ）。
     """
+    schema: dict[str, Any] = {"column": pl.String, "duplicate_of": pl.String}
+    if df.width == 0:
+        return pl.DataFrame(schema=schema)
+    row_index = pl.int_range(pl.len(), dtype=pl.UInt32)
+    hashed = df.select(
+        pl.struct(index=row_index, value=pl.col(c)).hash(seed=0).alias(f"__h_{i}__") for i, c in enumerate(df.columns)
+    )
+    fingerprints = hashed.to_numpy().sum(axis=0, dtype=np.uint64)
     buckets: dict[int, list[str]] = {}
     rows: list[dict[str, Any]] = []
-    for c in df.columns:
-        fingerprint = hash(tuple(df[c].hash().to_list()))  # 内容＋null 位置が同じなら同じ指紋
+    for c, fingerprint in zip(df.columns, fingerprints.tolist(), strict=True):
         match = next((p for p in buckets.get(fingerprint, []) if bool(df[c].eq_missing(df[p]).all())), None)
         if match is not None:
             rows.append({"column": c, "duplicate_of": match})
         else:
             buckets.setdefault(fingerprint, []).append(c)
-    schema: dict[str, Any] = {"column": pl.String, "duplicate_of": pl.String}
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
@@ -317,24 +334,52 @@ def correlations(df: pl.DataFrame, *, target: str, columns: Sequence[str] | None
     return out.sort(pl.col("correlation").abs(), descending=True)
 
 
+def _pairwise_corr_matrix(x: np.ndarray) -> np.ndarray:
+    """ピアソン相関行列（pairwise-complete）。規約は _corr と同じ：共通有効行 2 未満・分散 0 のペアは 0.0。
+
+    全ペアを行列積の 1 パスで計算する（Python のペアループ無し）。列ごとの有限平均で先に中心化する
+    （Pearson は列の平行移動に不変・大きなオフセットの桁落ちを防ぐ）。共通行での和・積和はマスク行列との
+    積で得る（非有限は 0 に置いて積和に寄与させない）。
+    """
+    m = np.isfinite(x)
+    mf = m.astype(np.float64)
+    counts = mf.sum(axis=0)
+    sums = np.where(m, x, 0.0).sum(axis=0)
+    means = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
+    xc = np.where(m, x - means, 0.0)
+    n_ab = mf.T @ mf  # ペアごとの共通有効行数
+    sx = xc.T @ mf  # 共通行での x の和（共通行の平均は列平均と一般に異なるので補正項に使う）
+    sxx = (xc * xc).T @ mf  # 共通行での x^2 の和
+    cov = n_ab * (xc.T @ xc) - sx * sx.T
+    varx = n_ab * sxx - sx * sx  # n^2 × 分散（[a,b] = a 側・転置が b 側）
+    denom = np.sqrt(np.maximum(varx * varx.T, 0.0))
+    r: np.ndarray = np.zeros_like(cov)
+    np.divide(cov, denom, out=r, where=(n_ab >= 2) & (denom > 0))
+    np.clip(r, -1.0, 1.0, out=r)  # 丸めで ±1 をわずかに超えた値を潰す（np.corrcoef と同じ規約）
+    return r
+
+
 def high_correlation_pairs(
     df: pl.DataFrame, *, threshold: float = 0.99, columns: Sequence[str] | None = None
 ) -> pl.DataFrame:
-    """相関の高い列ペア（列 = a, b, correlation・|r| 降順）。既定 0.99＝リーク/重複疑い。
+    """相関の高い列ペア（列 = a, b, correlation・|r| 降順・同値は (a, b) 昇順＝決定的）。既定 0.99＝リーク/重複疑い。
 
     0.8 に下げれば多重共線性の点検にも使える（引数で外から）。定数列は相関が定義できないので除く。
+    相関は行列 1 パス（_pairwise_corr_matrix・欠損は pairwise-complete）で計算し閾値抽出する。
     """
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
-    vals = {c: df[c].to_numpy().astype(np.float64) for c in cols}
-    rows = []
-    for i, a in enumerate(cols):
-        for b in cols[i + 1 :]:
-            r = _corr(vals[a], vals[b])
-            if abs(r) >= threshold:
-                rows.append({"a": a, "b": b, "correlation": r})
     schema: dict[str, Any] = {"a": pl.String, "b": pl.String, "correlation": pl.Float64}
+    if len(cols) < 2:
+        return pl.DataFrame(schema=schema)
+    r = _pairwise_corr_matrix(df.select(pl.col(c).cast(pl.Float64) for c in cols).to_numpy())
+    iu, ju = np.triu_indices(len(cols), k=1)
+    keep = np.abs(r[iu, ju]) >= threshold
+    rows = [
+        {"a": cols[i], "b": cols[j], "correlation": float(r[i, j])}
+        for i, j in zip(iu[keep].tolist(), ju[keep].tolist(), strict=True)
+    ]
     out = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
-    return out.sort(pl.col("correlation").abs(), descending=True)
+    return out.sort([pl.col("correlation").abs(), "a", "b"], descending=[True, False, False])
 
 
 def psi(train: pl.Series, test: pl.Series, *, bins: int = 10) -> float:

@@ -565,15 +565,40 @@ def threshold_table(
     """閾値スイープ表。列 = threshold, precision, recall, f1, tp, fp, fn, tn。
 
     省略時の閾値は _curve（precision_recall_curve）のもの＝select_threshold_* と同じ土台（前後を見比べる用）。
-    各行の中身は confusion の再利用（式の二重実装なし）。閾値の「選択」は select_threshold_* が持つ（重複させない）。
+    tp/fp/fn/tn はスコア昇順の累積和から一括算出（閾値ごとに confusion_matrix を回さない＝O(n log n)）。
+    数えは confusion（labels=[0,1]・pred = score >= t）と同値。閾値の「選択」は select_threshold_* が持つ。
     """
     ts = list(thresholds) if thresholds is not None else [float(t) for t in _curve(y_true, y_score)[2]]
-    rows = []
-    for t in ts:
-        c = confusion(y_true, y_score, threshold=t)
-        tp, fp, fn = c["tp"], c["fp"], c["fn"]
-        precision = tp / (tp + fp) if (tp + fp) else 0.0
-        recall = tp / (tp + fn) if (tp + fn) else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
-        rows.append({"threshold": float(t), "precision": precision, "recall": recall, "f1": f1, **c})
-    return pl.DataFrame(rows)
+    if not ts:
+        return pl.DataFrame([])  # 空指定は従来どおり空表（列なし）
+    y = np.asarray(y_true)
+    scores = np.asarray(y_score, dtype=np.float64)
+    order = np.argsort(scores)
+    s_sorted = scores[order]
+    # 先頭 0 番兵つき累積和：cum_pos[i]/cum_neg[i] = スコア昇順で先頭 i 件中の正例/負例数（0/1 以外は数えない）。
+    cum_pos = np.concatenate(([0], np.cumsum(y[order] == 1)))
+    cum_neg = np.concatenate(([0], np.cumsum(y[order] == 0)))
+    ts_arr = np.asarray(ts, dtype=np.float64)
+    below = np.searchsorted(s_sorted, ts_arr, side="left")  # score < t の件数（>= t が陽性＝confusion と同じ境界）
+    fn = cum_pos[below]  # score < t の正例＝見逃し
+    tn = cum_neg[below]
+    tp = cum_pos[-1] - fn
+    fp = cum_neg[-1] - tn
+    pred_pos = tp + fp
+    precision = np.where(pred_pos > 0, tp / np.where(pred_pos > 0, pred_pos, 1), 0.0)
+    actual_pos = tp + fn
+    recall = np.where(actual_pos > 0, tp / np.where(actual_pos > 0, actual_pos, 1), 0.0)
+    denom = precision + recall
+    f1 = np.where(denom > 0, 2 * precision * recall / np.where(denom > 0, denom, 1.0), 0.0)
+    return pl.DataFrame(
+        {
+            "threshold": ts_arr,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "tn": tn.astype(np.int64),
+            "fp": fp.astype(np.int64),
+            "fn": fn.astype(np.int64),
+            "tp": tp.astype(np.int64),
+        }
+    )

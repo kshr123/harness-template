@@ -15,10 +15,12 @@ import importlib.util
 from collections.abc import Mapping
 from typing import Any
 
+from sklearn.base import is_classifier
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401  HalvingRandomSearchCV の有効化に必須
 from sklearn.model_selection import (
     GridSearchCV,
     HalvingRandomSearchCV,
+    KFold,
     RandomizedSearchCV,
     StratifiedKFold,
 )
@@ -100,8 +102,9 @@ def build_tuned(model: SklearnLike, tune_spec: Mapping[str, Any], *, seed: int, 
     tune_spec = {"tuner": "random"（既定）,
                  "param_grid" か "param_distributions": {パラメタ名: 候補},   # どちらか必須（両方は誤り）
                  ...残りは SearchCV へ素通し（n_iter・scoring 等）}
-    内側 cv は `StratifiedKFold(n_splits=inner_cv, shuffle=True, random_state=seed)`＝seed 付きで決定的。
-    当面は**分類前提**（回帰でチューニングが要るときは KFold を渡す枝を足す＝拡張点）。
+    内側 cv は task で分岐：分類＝`StratifiedKFold`・回帰＝`KFold`（どちらも n_splits=inner_cv, shuffle=True,
+    random_state=seed＝決定的）。task は model から知る（is_classifier）＝config に二重に書かせない
+    （回帰モデル＋tune が内側の層化で "continuous label" に落ちない）。
     param 名はモデル自身のパラメタ名（例 "C"）。model を素で包むので step 接頭辞（model__C）は不要。
     """
     spec = dict(tune_spec)
@@ -110,6 +113,9 @@ def build_tuned(model: SklearnLike, tune_spec: Mapping[str, Any], *, seed: int, 
     dist = spec.pop("param_distributions", None)
     if (grid is None) == (dist is None):  # 両方 or どちらも無し
         raise ValueError("tune 節には param_grid か param_distributions のどちらか一方が必要（{パラメタ名: 候補}）")
-    inner = StratifiedKFold(n_splits=inner_cv, shuffle=True, random_state=seed)
+    if is_classifier(model):  # 分類＝層化（fold ごとのクラス比を保つ）・回帰＝連続 y は層化できないので KFold
+        inner: StratifiedKFold | KFold = StratifiedKFold(n_splits=inner_cv, shuffle=True, random_state=seed)
+    else:
+        inner = KFold(n_splits=inner_cv, shuffle=True, random_state=seed)
     tuned: SklearnLike = entry.factory(seed, estimator=model, params=grid if dist is None else dist, cv=inner, **spec)
     return tuned

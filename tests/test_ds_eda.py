@@ -254,6 +254,62 @@ def test_missing_patterns() -> None:
     assert by_cols[("z",)] == 2
 
 
+def test_missing_patterns_deterministic_order_and_top() -> None:
+    # 構成：欠損なし 3 行・a 単独 2 行・b 単独 2 行。count 降順・同数（a と b）は欠損列名の辞書順で決定的。
+    df = pl.DataFrame(
+        {
+            "a": [1, 1, 1, None, None, 4, 5],
+            "b": [1, 2, 3, 4, 5, None, None],
+        }
+    )
+    rows = eda.missing_patterns(df).to_dicts()
+    assert [tuple(r["columns"]) for r in rows] == [(), ("a",), ("b",)]
+    assert [r["count"] for r in rows] == [3, 2, 2]
+    assert rows[0]["ratio"] == pytest.approx(3 / 7)
+    assert rows[1]["ratio"] == pytest.approx(2 / 7)
+    # top は count 降順の上位だけに絞る。
+    top1 = eda.missing_patterns(df, top=1).to_dicts()
+    assert len(top1) == 1 and tuple(top1[0]["columns"]) == ()
+
+
+def test_high_correlation_pairs_from_matrix_construction() -> None:
+    # b=2a（r=1）・d=-a（r=-1）・c は中心化すると a/b/d と直交（r=0）。しきい値 0.99 で 3 ペアだけ。
+    df = pl.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0],
+            "b": [2.0, 4.0, 6.0, 8.0],
+            "c": [1.0, -1.0, -1.0, 1.0],
+            "d": [-1.0, -2.0, -3.0, -4.0],
+        }
+    )
+    rows = eda.high_correlation_pairs(df, threshold=0.99).to_dicts()
+    # |r| が同値（すべて 1.0）のときは (a, b) の昇順＝決定的な整列。
+    assert [(r["a"], r["b"]) for r in rows] == [("a", "b"), ("a", "d"), ("b", "d")]
+    by_pair = {(r["a"], r["b"]): r["correlation"] for r in rows}
+    assert by_pair[("a", "b")] == pytest.approx(1.0)
+    assert by_pair[("a", "d")] == pytest.approx(-1.0)
+    assert by_pair[("b", "d")] == pytest.approx(-1.0)
+
+
+def test_high_correlation_pairs_large_offset_no_catastrophic_cancellation() -> None:
+    # a = 標準正規 + 1e9・b = 2a（完全な比例関係 → r=1 は構成から自明・金メッキでない）。
+    # 相関を「先に中心化せず」平方和で計算すると 1e9 の桁で有効数字が飛び（桁落ち）、
+    # 分散が 0 と誤判定されて r=0.0＝検出漏れになる。中心化してあれば r=1.0 で検出できる。
+    rng = np.random.default_rng(0)
+    base = rng.standard_normal(50)
+    df = pl.DataFrame({"a": base + 1e9, "b": 2.0 * (base + 1e9)})
+    rows = eda.high_correlation_pairs(df, threshold=0.99).to_dicts()
+    assert [(r["a"], r["b"]) for r in rows] == [("a", "b")]
+    assert rows[0]["correlation"] == pytest.approx(1.0)
+
+
+def test_high_correlation_pairs_constant_column_never_flagged() -> None:
+    # 定数列は分散 0 で相関が定義できない → 0.0 扱い（NaN を混ぜない）＝どのペアにも出ない。
+    df = pl.DataFrame({"k": [7.0, 7.0, 7.0, 7.0], "a": [1.0, 2.0, 3.0, 4.0], "b": [2.0, 4.0, 6.0, 8.0]})
+    rows = eda.high_correlation_pairs(df, threshold=0.5).to_dicts()
+    assert [(r["a"], r["b"]) for r in rows] == [("a", "b")]
+
+
 def test_duplicate_columns() -> None:
     df = pl.DataFrame(
         {
@@ -264,6 +320,22 @@ def test_duplicate_columns() -> None:
     )
     dups = [(r["column"], r["duplicate_of"]) for r in eda.duplicate_columns(df).to_dicts()]
     assert dups == [("b", "a")]  # c は重複でない
+
+
+def test_duplicate_columns_groups_and_order() -> None:
+    # b=a・y=x・z=x（重複 2 組）。perm は a と同じ値の並べ替え（位置が違う）→ 重複でない。
+    df = pl.DataFrame(
+        {
+            "a": [1, 2, 3, 4],
+            "b": [1, 2, 3, 4],
+            "perm": [4, 3, 2, 1],
+            "x": ["u", "v", None, "w"],
+            "y": ["u", "v", None, "w"],
+            "z": ["u", "v", None, "w"],
+        }
+    )
+    dups = [(r["column"], r["duplicate_of"]) for r in eda.duplicate_columns(df).to_dicts()]
+    assert dups == [("b", "a"), ("y", "x"), ("z", "x")]  # 出力は df の列順＝決定的・duplicate_of は先に現れた列
 
 
 def test_category_target_summary() -> None:
