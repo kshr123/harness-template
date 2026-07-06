@@ -17,16 +17,18 @@ pytestmark = pytest.mark.unit
 
 
 def test_load_profiles_returns_ds_profile_for_this_repo() -> None:
-    # このリポジトリの config は profiles = ["harness.ds", "harness.serve"]。ds と serve が載る。
+    # このリポジトリの config は profiles = ["harness.ds", "harness.serve", "harness.agent"]。3 つとも載る。
     root = Path(__file__).resolve().parents[1]
     loaded = profiles.load_profiles(root)
-    assert [p.name for p in loaded] == ["ds", "serve"]
+    assert [p.name for p in loaded] == ["ds", "serve", "agent"]
+    from harness.agent import lint as agent_lint
     from harness.ds import schema
     from harness.serve import deploy_lint
 
     by_name = {p.name: p for p in loaded}
     assert schema.data_lint in by_name["ds"].pm_checks  # テーブル定義の検査が verify に繋がる
     assert deploy_lint.run_checks in by_name["serve"].pm_checks  # 配信テンプレートの構造 lint が繋がる
+    assert agent_lint.run_checks in by_name["agent"].pm_checks  # エージェント宣言の構造 lint が繋がる
 
 
 def test_empty_profiles_means_core_only(tmp_path: Path) -> None:

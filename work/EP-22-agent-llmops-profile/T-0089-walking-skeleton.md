@@ -1,7 +1,7 @@
 ---
 id: T-0089
 kind: task
-status: todo
+status: done
 title: harness.agent 歩く骨組み（宣言→dummy→採点→合否→検証が一巡・ネットワーク0）
 created: 2026-07-06
 depends_on: [T-0084]

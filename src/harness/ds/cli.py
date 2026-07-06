@@ -12,7 +12,8 @@ from typing import Annotated, Any
 
 import typer
 
-from harness.registry import MetricEntry, Registry
+# render_catalog は harness/registry.py へ引き上げた（agent CLI と共用・二重管理を作らない＝DEC-0009）。
+from harness.registry import render_catalog
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
 # クロスプラットフォームの前提（make 非依存と同じ理由）。
@@ -27,30 +28,6 @@ def _root() -> Path:
 
 
 data_app = typer.Typer(help="テーブル定義（データのメタデータ）", add_completion=False)
-
-
-def render_catalog(
-    registry: Registry[Any], *, show_task: bool = False, show_params: bool = False, prefix: str = ""
-) -> None:
-    """レジストリを 1 行 1 項目（タブ区切り）で出す共通レンダラ（全カタログコマンドが使う）。
-
-    列は kind［・task］［・向き（指標のみ）］［・引数一覧］・説明文。説明文はレジストリが登録時に
-    docstring 1 行目から確定させている（空は登録できない＝DEC-0009）。prefix は data unsupervised の
-    グループ名（dimred/cluster/anomaly）用。
-    """
-    import inspect
-
-    for kind, entry in sorted(registry.items()):
-        parts: list[str] = [prefix, kind] if prefix else [kind]
-        if show_task:
-            parts.append(entry.task or "-")
-        if isinstance(entry, MetricEntry):  # 指標だけ合否の向きを併記（passes が読む属性）
-            parts.append("大きいほど良い" if entry.higher_is_better else "小さいほど良い")
-        if show_params:
-            params = [p for p in inspect.signature(entry.factory).parameters if p != "self"]
-            parts.append(f"({', '.join(params)})")
-        parts.append(entry.description)
-        typer.echo("\t".join(parts))
 
 
 @data_app.command("lint")
