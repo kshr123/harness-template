@@ -27,8 +27,10 @@ date: 2026-07-06
   **deploy_lint**（参照整合の構造検査）を PROFILE に載せ verify で守る（DEC-0009 の「入口＝lint＋スキル」拡張）。
 - **data monitor**：既存 eda.psi/drift_auc を配信ログ×学習基準に適用する監視表。
 
-将来に回す（配信基盤側の関心＝学習ハーネスの外）：A/B・shadow ルーティング・prediction cache・edge・circuit breaker・
-load test・async キュー・gRPC・クラウド固有（S3/GCS 実装）・model_db（関係 DB のレジストリ＝当リポは file manifest＋指紋で代替）。
+将来に回す（**対象外ではなく未着手の将来プロファイル＝順序の問題**。根拠は [[DEC-0014]]）：A/B・shadow ルーティング・
+prediction cache・edge・circuit breaker・load test・async キュー・gRPC・クラウド固有（S3/GCS 実装）・model_db（関係 DB の
+レジストリ＝当リポは file manifest＋指紋で代替）。※本行は当初「配信基盤側の関心＝学習ハーネスの外」と書いていたが、
+その線引きは誤り（DEC-0014 で是正）。
 
 **規約の昇格**（DEC-0012＝即昇格）：プロファイルのモジュール（`ds/__init__`・`serve/__init__`）は PROFILE の再 export だけを持ち
 **重い依存を module top で import しない**（fastapi は app/cli 内で遅延 import）。`.harness/config.toml` の profiles に

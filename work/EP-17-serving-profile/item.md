@@ -25,9 +25,10 @@ closed: 2026-07-06
 - **release patterns**（model-in-image／model-load）→ `templates/serve/`（Dockerfile.serve・docker-compose・k8s manifests）。
   実体は「利用者がコピーして使うテンプレート」。当リポは**構造 lint**（deploy_lint）で参照整合を verify で守る。
 - **prediction monitoring**（配信の分布ドリフト監視）→ `data monitor`（既存 eda.psi/drift_auc を配信ログ×学習基準に適用）。
-- **不採用**（当リポ対象外・ノイズ）：sync/async・prediction cache・edge・circuit breaker・load test・online/shadow A-B ルーティング・
-  model_db（関係 DB のレジストリ＝当リポは file manifest＋指紋で代替済み）・cifar10（DL・torch 前提）。実行時ルーティング/耐障害は
-  将来の別プロファイル。
+- **この EP では未着手（対象外ではない・順序の問題＝[[DEC-0014]]）**：prediction cache・edge・circuit breaker・load test・
+  online/shadow A-B ルーティング・async キュー・gRPC・クラウド固有（S3/GCS）。実行時ルーティング/耐障害は将来のプロファイル
+  （ops 系）で順次作る。model_db（関係 DB のレジストリ）は当リポが file manifest＋指紋で代替済みなので作らない（重複回避）。
+  cifar10（DL・torch 前提）はサンプル題材なので取り込まない。
 
 ## 進め方（各タスク＝1 PR・テスト先書き・独立レビュー（maker≠checker）・verify 緑で done）
 範囲の線引きは [[DEC-0013]]。土台（onnx/serve extras・serve script・mypy overrides）は導入済み（b1b8b19）。
@@ -39,6 +40,7 @@ closed: 2026-07-06
 ## 依存順
 T-0084（ONNX）と T-0087（monitor）は独立。T-0085（serve パッケージ）→ T-0086（テンプレ＋lint は serve/__init__ の PROFILE を拡張）。
 
-## やらないこと（plan に明記）
+## この EP の範囲外（＝将来のプロファイルで順次作る・対象外ではない）
 実時間の A-B ルーティング・circuit breaker・load test・async キュー・gRPC・クラウド固有（S3/GCS 実装）・torch/DL。
-これらは配信基盤側の関心で、学習ハーネスの対象外（将来プロファイル）。
+これらは本ハーネスの**対象**だが、この EP では未着手（順序の問題）。ハーネスは学習“から”始めるだけで学習に限らない
+＝[[DEC-0014]]。実行時基盤は利用者環境に委ね、ハーネス側は抽象＋テンプレ＋構造 lint＋スキルで担保する（DEC-0013 の思想）。
