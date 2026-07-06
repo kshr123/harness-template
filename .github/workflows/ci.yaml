@@ -8,7 +8,13 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Linux と Windows の両方で走らせる（Windows は cp932 コンソール・パス区切り等の OS 差を検出＝cli.py の
+    # UTF-8 再設定やクロスプラットフォームの前提が本当に効くかを CI で止める）。
+    strategy:
+      fail-fast: false # 片方が落ちても他方の結果を見たい（OS 固有の切り分け）
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: uv をセットアップ

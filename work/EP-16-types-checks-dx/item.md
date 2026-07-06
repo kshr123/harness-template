@@ -1,7 +1,7 @@
 ---
 id: EP-16
 kind: epic
-status: in-progress
+status: done
 title: 型・機械検査・DX（ExperimentSpec・doclint・conventions lint・property テスト・複製DX）
 plan: detailed
 requirements: [REQ-001]
@@ -22,8 +22,12 @@ created: 2026-07-06
 - **T-0067 ExperimentSpec**（pydantic・extra=forbid）：実験 config を型付け・`threshold`→`decision_threshold`・
   run_experiment を型付き spec 受けに（threshold/thresholds の取り違えを型で止める・ISS-0007）。
 - **T-0069 conventions lint**（ISS-0002）：グローバル種検出・実験 `--test` 必須・skip/xfail の ISS 参照必須（conftest/検査拡張）。
-- **T-0071 CliRunner スモーク＋カバレッジ・ラチェット**（CI 別ジョブ）／**T-0072 template-init**（複製の機械化＋複製後 verify）／
-  **T-0073 Windows CI ジョブ**／status --next。
+- **T-0071 CliRunner スモーク**（data サブコマンドを typer 経由で end-to-end）。**T-0073 Windows CI ジョブ**（OS matrix＋meta-test）。
+
+## 分離（設計判断つきで後続へ＝[[ISS-0013]]）
+template-init（複製の機械化＝train.py の識別子ハードコードの設計が先）・coverage ratchet（pytest-cov 新依存＋baseline・新規
+テンプレに床は時期尚早）・status --next（着手順は plan/依存で足りる小拡張）は本エピックから分離。中核（機械検査・型・CLI・
+Windows）は完了。
 
 ## やらないこと
 skops 既定化（次のテンプレ複製時・owner 判断）。過度な型付け（config の自由度を殺さない範囲で）。
