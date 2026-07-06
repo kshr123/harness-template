@@ -69,6 +69,34 @@ def test_agent_run_test_flag_is_wired_and_offline(
     assert "passed=True" in out
 
 
+def test_agent_lifecycle_save_promote_champion_no_network(make_project: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ライフサイクルの一巡：宣言→run_agent_eval→save_agent→promote_agent→champion（ネットワーク 0）。
+    # metrics は cases の構成から 2/3（上のスモークと同じ導出）＝閾値 0.5 の絶対関門を通り初回昇格する。
+    _cut_network(monkeypatch)
+    from harness.agent import store
+
+    proj = make_project()
+    spec = AgentSpec(name="smoke", provider="dummy", model="dummy-model", system_prompt="そのまま返す")
+    provider = PROVIDERS.resolve(spec.provider).factory(0, replies=_REPLIES)
+    result = run_agent_eval(
+        spec, _CASES, provider=provider, metrics=("exact_match",), thresholds={"exact_match": 0.5}, seed=0
+    )
+    assert result.passed
+    record = store.save_agent(proj.root, spec, work="E-9900", name=spec.name, metrics=result.metrics)
+    promo = store.promote_agent(
+        proj.root,
+        work="E-9900",
+        name=spec.name,
+        version=record.version,
+        thresholds={"exact_match": 0.5},
+        primary="exact_match",
+    )
+    assert promo.previous_version is None  # 初回昇格（champion 不在→絶対関門のみ）
+    champ = store.champion(proj.root, work="E-9900", name=spec.name)
+    assert champ is not None and champ.version == record.version
+    assert champ.metrics["exact_match"] == pytest.approx(2 / 3)  # 仕込んだ 2 件だけ一致（構成から導出）
+
+
 def test_dummy_provider_is_deterministic(monkeypatch: pytest.MonkeyPatch) -> None:
     # 同じ入力・同じ seed → 同じ応答／seed を変えると応答が変わる（グローバル種に依存しない決定性）。
     _cut_network(monkeypatch)

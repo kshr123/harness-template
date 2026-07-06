@@ -2,8 +2,9 @@
 
 LLMOps/AgentOps プロファイル（EP-22・DEC-0015）。中核アーティファクトは **1 エージェント＝1 宣言
 （AgentSpec＝prompt＋model＋tools＋方針）**。ライフサイクルは ML と同型：宣言 → golden set → 採点 →
-合否 →（昇格・配信・監視は後続タスク）。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
-プロバイダ抽象・eval.py＝採点器と合否・experiment.py＝評価の一巡・lint.py＝宣言の構造 lint・cli.py＝入口）。
+合否 → 保存 → 昇格（配信・監視は後続タスク）。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
+プロバイダ抽象・eval.py＝採点器と合否・experiment.py＝評価の一巡・store.py＝保存と昇格・
+lint.py＝宣言の構造 lint・cli.py＝入口）。
 
 ## 使い方
 
@@ -42,6 +43,29 @@ uv run agent run --test                # 合成 spec＋合成 cases のスモー
   （向きつき・NaN は不合格＝fail closed）。fold は無い（golden set 全体に 1 回）。
 - 乱数は明示 `seed=` のみ（グローバル種禁止）。dummy provider は入力＋seed の正準 JSON ハッシュから
   決定的に応答する（ネットワーク・課金ゼロ）。
+
+## 保存→昇格→champion→experiments（LLMOps のライフサイクル・`agent/store.py`）
+
+ML の `ds/models.py` と同型だがプロファイル独立（`ds` を import しない・`harness.storage` のみ再利用）。
+**非対称**：agent の実体は宣言そのもの＝バイナリが無いので保存形式（FORMATS）は無く、manifest 1 枚
+（spec を config として畳み込み＋metrics＋`prompt_fingerprint`＝system_prompt の sha256＋git 来歴）が保存の全体。
+
+- `save_agent(root, spec, work=, name=, metrics=)`：評価済み宣言を版（UTC タイムスタンプ・再利用しない）として
+  `work/<work>/agents/<name>/<version>/manifest.yaml` に保存。保存は常に許す（負の結果も記録）。
+- `promote_agent(root, work=, name=, version=, thresholds=, primary=)`：**絶対関門**（`agent.eval.passes`＝
+  向きつき・NaN 不合格）かつ**相対関門**（現 champion に primary で勝つ・同点/負けは昇格しない）を満たす
+  ときだけ `promotions/<decided>.yaml` を追記。primary の向きの正本は AGENT_METRICS（引数では受けない）。
+- `champion(root, work=, name=)`：昇格記録の最新が指す版（無ければ None）。`load_agent`/`list_agents` も対で用意。
+
+```
+uv run agent promote --work E-0101 --name helper --version 20260706T090000000000Z \
+    --primary exact_match --threshold exact_match=0.8      # 関門で落ちたら非ゼロ終了（メッセージに理由）
+uv run agent champion --work E-0101 --name helper           # 現 champion（版＋metrics＋prompt_fingerprint）
+uv run agent experiments --results work/…/results           # 変種比較（metrics_*.yaml の leaderboard）
+```
+
+`agent experiments` は `ds.experiment.leaderboard`（polars＋yaml の純関数）を CLI 内で遅延 import して
+再利用する（結果記録の形式 `metrics_<variant>.yaml` は ML の実験と共通＝比較の作法を二重化しない）。
 
 ## 宣言の構造 lint（verify に接続）
 

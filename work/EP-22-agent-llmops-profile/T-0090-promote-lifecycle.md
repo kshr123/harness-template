@@ -1,7 +1,7 @@
 ---
 id: T-0090
 kind: task
-status: todo
+status: done
 title: 評価スコアで昇格するライフサイクル（agent/store.py＝save/champion/promote_agent）
 created: 2026-07-06
 depends_on: [T-0089]
@@ -67,5 +67,12 @@ ML の `ds/models.py`（champion/promote_model）と**同じ形**だが、プロ
 - 期待値は metrics の構成から導く（金メッキ禁止）。`uv run verify` 全体緑。`verified_by` の名がテストに実在。
 
 ## 独立レビュー（maker≠checker・差分のみ・実測・変異）
-（レビュー後に記入。観点：相対関門の向きが AGENT_METRICS 由来で正しいか＝変異で劣位版が昇格しないこと・
-save の atomic 性・prompt_fingerprint が実際に効くか・ds を import していない＝プロファイル境界・experiments の leaderboard 再利用が ds 出力と整合）
+実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。
+- **相対関門の向き（最重要）＝変異で確認**：`store.py` の相対判定を 2 通り変異（`>`→`>=`／`if direction` 反転）。
+  どちらも `test_promote_agent_absolute_and_relative_gates` が RED（劣位版・同点版が昇格しないことをテストが実際に捕捉）。
+  変異は毎回バイト同一に復元。向きは `AGENT_METRICS[primary].higher_is_better` 由来で引数に無い＝呼び手の思い違いで劣位版が昇格する事故を構造的に排除。
+- **絶対関門＋fail-closed**：閾値未達（0.6<0.7）で相対比較前に ValueError。NaN・primary 欠落も不合格（passes は T-0089 で fail-closed 確認済み）。
+- **save の atomic 性・版の非再利用**：実体ファイルは無く manifest（write_manifest＝tmp→replace）が唯一かつ最後の書き込み＝存在が完了の印。同版は `exist_ok=False` で拒否（`test_same_version_is_rejected`）。時刻は `_utcnow` を monkeypatch で固定（グローバル種・実時刻レースに依らない）。
+- **prompt_fingerprint**：`sha256(system_prompt)` の定義から導出（写経でない）。prompt を変えると必ず変わることを構成から確認。
+- **プロファイル境界**：`store.py` に `harness.ds` の実行時 import なし（docstring 言及のみ）。ds 再利用は `agent experiments` CLI 内の遅延 import 1 箇所だけ。`import harness.agent.store` で anthropic/fastapi/uvicorn/polars/sklearn は未ロード（軽 import 維持）。
+- **verify 全体緑**（`成功（すべて通過）`）。指摘なし。
