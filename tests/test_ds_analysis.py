@@ -22,6 +22,38 @@ def test_segment_metrics_classification() -> None:
     assert out["A"]["count"] == 2
 
 
+def test_segment_metrics_multiclass_argmax_accuracy_from_construction() -> None:
+    # A は 3 行とも argmax＝正解ラベル（accuracy=1.0）。B は全行 argmax=0 → y=0 の 1 行だけ正解（1/3）。
+    seg = pl.Series("s", ["A", "A", "A", "B", "B", "B"])
+    y = np.array([0, 1, 2, 0, 1, 2], dtype="int64")
+    proba = np.array(
+        [
+            [0.8, 0.1, 0.1],
+            [0.1, 0.8, 0.1],
+            [0.1, 0.1, 0.8],
+            [0.8, 0.1, 0.1],
+            [0.8, 0.1, 0.1],
+            [0.8, 0.1, 0.1],
+        ],
+        dtype="float64",
+    )
+    out = {r["segment"]: r for r in analysis.segment_metrics(seg, y, proba, task="multiclass").to_dicts()}
+    assert out["A"]["accuracy"] == 1.0
+    assert out["B"]["accuracy"] == pytest.approx(1 / 3)
+    assert out["A"]["count"] == 3
+    assert out["B"]["count"] == 3
+
+
+def test_segment_metrics_fail_loud_on_score_shape() -> None:
+    seg = pl.Series("s", ["A", "B"])
+    y = np.array([0, 1], dtype="int64")
+    proba = np.array([[0.7, 0.2, 0.1], [0.1, 0.8, 0.1]], dtype="float64")
+    with pytest.raises(ValueError, match="2 次元"):  # 多クラスに 1 次元スコアは不可
+        analysis.segment_metrics(seg, y, np.array([0.5, 0.5]), task="multiclass")
+    with pytest.raises(ValueError, match="1 次元"):  # 既定（二値）に proba 行列は不可
+        analysis.segment_metrics(seg, y, proba)
+
+
 def test_segment_metrics_regression_residual_mean() -> None:
     seg = pl.Series("s", ["A", "A", "B", "B"])
     yt = np.array([2.0, 3.0, 5.0, 6.0])
@@ -39,6 +71,43 @@ def test_worst_rows_orders_by_error() -> None:
     assert top["id"].to_list()[0] == 2  # 最大誤差の行
     assert top.height == 2
     assert "error" in top.columns
+
+
+def test_worst_rows_multiclass_orders_by_true_class_proba() -> None:
+    # error＝1 − 正解クラスに割いた確率（構成から厳密）：0.1, 0.3, 0.9, 0.7 → 上位 2 行は id=2, 3。
+    df = pl.DataFrame({"id": [0, 1, 2, 3]})
+    y = np.array([0, 1, 2, 0], dtype="int64")
+    proba = np.array(
+        [
+            [0.9, 0.05, 0.05],  # p_true=0.9・argmax=0（正解）
+            [0.1, 0.7, 0.2],  # p_true=0.7・argmax=1（正解）
+            [0.5, 0.4, 0.1],  # p_true=0.1・argmax=0（外し）
+            [0.3, 0.4, 0.3],  # p_true=0.3・argmax=1（外し）
+        ],
+        dtype="float64",
+    )
+    top = analysis.worst_rows(df, y, proba, n=2, task="multiclass")
+    assert top["id"].to_list() == [2, 3]
+    assert top["y_pred"].to_list() == [0, 1]  # argmax ラベル
+    assert top["y_score"].to_list() == pytest.approx([0.1, 0.3])  # 正解クラスに割いた確率
+    assert top["error"].to_list() == pytest.approx([0.9, 0.7])
+
+
+def test_worst_rows_multiclass_rejects_out_of_range_labels() -> None:
+    df = pl.DataFrame({"id": [0, 1]})
+    proba = np.array([[0.5, 0.3, 0.2], [0.2, 0.5, 0.3]], dtype="float64")
+    with pytest.raises(ValueError, match="0..n_classes-1"):  # ラベル 3 は proba の列（0..2）を指せない
+        analysis.worst_rows(df, np.array([0, 3], dtype="int64"), proba, task="multiclass")
+
+
+def test_worst_rows_fail_loud_on_score_shape() -> None:
+    df = pl.DataFrame({"id": [0, 1]})
+    y = np.array([0, 1], dtype="int64")
+    proba = np.array([[0.7, 0.2, 0.1], [0.1, 0.8, 0.1]], dtype="float64")
+    with pytest.raises(ValueError, match="1 次元"):  # 既定（二値）に proba 行列は不可
+        analysis.worst_rows(df, y, proba)
+    with pytest.raises(ValueError, match="2 次元"):  # 多クラスに 1 次元スコアは不可
+        analysis.worst_rows(df, y, np.array([0.5, 0.5]), task="multiclass")
 
 
 def test_residual_summary_from_construction() -> None:
