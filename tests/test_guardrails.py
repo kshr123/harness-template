@@ -14,6 +14,7 @@ verify が落ちる**こと（fail closed）だけを検査する。
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -259,3 +260,21 @@ def test_audit_reason_check_rejects_reasonless_second_entry(tmp_path: Path) -> N
         "CVE-2099-0001",
         "CVE-2099-0002",
     ]
+
+
+def test_core_docs_link_profile_entrypoints() -> None:
+    """AGENTS.md のコマンド節がプロファイル CLI 入口（`uv run <cmd>`）への導線を持つ（T-0103）。
+
+    期待トークンは `pyproject.toml` の `[project.scripts]` から導出する：entry point が core モジュール
+    （`harness.cli`）以外を指すスクリプト名＝プロファイル CLI（現状 data・serve・agent）。3 トークンの
+    ハードコードでなく scripts から導くので、プロファイル CLI の増減にそのまま追従する（二重実装なし。
+    coverage_lint は「コマンド→スキル/docs の到達可能性」を守り、ここは「最初に読む正本 AGENTS.md からの
+    見つけやすさ」という別の関心を守る）。
+    """
+    pyproject = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    scripts: dict[str, str] = pyproject["project"]["scripts"]
+    profile_cmds = sorted(name for name, entry in scripts.items() if not entry.startswith("harness.cli:"))
+    assert profile_cmds, "[project.scripts] にプロファイル CLI が無い（構成が変わったらこの検査を見直す）"
+    agents_text = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    missing = [cmd for cmd in profile_cmds if f"uv run {cmd}" not in agents_text]
+    assert not missing, f"AGENTS.md にプロファイル入口の導線が無い: {missing}"

@@ -1,7 +1,7 @@
 ---
 id: T-0103
 kind: task
-status: todo
+status: done
 title: コア文書からプロファイル入口への導線（AGENTS のコマンド節に data・serve・agent の各 1 行）
 created: 2026-07-07
 depends_on: [T-0102]

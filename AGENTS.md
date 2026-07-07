@@ -38,6 +38,9 @@ Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを�
 - `uv run task-lint` … 作業単位の検査（ID の重複・depends_on の指す先が無い、を失敗にする）
 - `uv run commit-msg-lint <メッセージファイル>` … コミットメッセージ冒頭に `work/` 実在の作業単位 ID（例 `EP-20 T-0101：…`）があるか検査（commit-msg フックの実体。Merge/Revert/fixup!/squash! は免除）。
   有効化には `pre-commit install --hook-type commit-msg` が必要（既定の `pre-commit install` では commit-msg ステージは入らず素通りになる）。
+- `uv run data --help` … DS プロファイルの入口（テーブル・特徴量・実験・モデルのカタログ。使い方は eda / experiment / features スキル）
+- `uv run serve --help` … 配信プロファイルの入口（champion の FastAPI 配信。正本は `docs/serve.md`）
+- `uv run agent --help` … LLMOps プロファイルの入口（AgentSpec の評価・カタログ。正本は `docs/agent.md`）
 
 ## してはいけないこと
 - `STATUS.md` を手で編集しない（自動生成のファイル）。
