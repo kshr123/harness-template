@@ -34,6 +34,64 @@ config で差し替えるのは**モデルの種類**と**保存形式**だけ�
 このほかの部品：教師なし学習（クラスタリング・埋め込み・異常検知）は
 `uv run data unsupervised` / `cluster` / `embed` / `anomaly`。時系列予測は `src/harness/ds/forecast.py`。
 
+## ディレクトリ構成（`src/harness/ds/`）
+
+各ファイルは 1 つの役割を持つ（上の「学習の流れ」の段と対応）。中身を読まなくても、どこを見れば・どこに
+足せばよいかが分かるようにしておく。
+
+**入力・定義**
+- `schema.py` … テーブル定義（列・型・キー）の YAML を読み、静的検査と実データ検証を組み立てる（`data lint`）。
+- `data.py` … データ源（合成データ・テーブル）の読み込みと固定分割（学習/テストの取り違えを防ぐ）。
+- `store.py` … データ実体の保存・読み込み（検証を通ったものだけ保存する）。
+
+**探索**
+- `eda.py` … 探索の構造化レポート（`data profile`＝1 表の要約 / `data compare`＝2 群の比較）。
+- `analysis.py` … 学習後の深掘り（グループ別の指標・誤差の大きい行・特徴の効き方・回帰の残差）。
+
+**特徴量・モデルの組み立て**
+- `features.py` … 特徴量ブロックの枠組み（レジストリ `BLOCKS`）。
+- `pipeline.py` … 特徴量→エンコード→モデルの scikit-learn パイプラインを組み立てる中核（`ENCODERS`/`SELECTORS`/`MODELS`）。
+- `cv.py` … 交差検証と固定分割（fold 割当・学習外予測(OOF)・`run_cv`。データ漏れの無い評価）。
+- `tune.py` … ハイパラ探索（レジストリ `TUNERS`＝`*SearchCV` でモデルを包む）。
+
+**評価・実験**
+- `eval.py` … 指標の算出と、宣言した閾値による合否（レジストリ `METRICS`・`passes`）。
+- `experiment.py` … 実験の一気通貫（設定→学習→評価→保存をつなぐ薄い接着＝`run_experiment`）。
+
+**保存・採用（champion）**
+- `models.py` … 学習済みモデルの保存・読み込み・一覧・昇格（`promote_model`・保存形式 `FORMATS`）。
+- `onnx_format.py` … 可搬な ONNX 保存形式（`FORMATS` の "onnx"）。
+
+**別バックボーン経路**
+- `forecast.py` … 古典時系列（ARIMA/SARIMA/ETS＝statsmodels。sklearn 経路とは別・レジストリ `TS_MODELS`）。
+- `unsupervised.py` … 教師なし学習（次元圧縮・クラスタリング・異常検知＝`DIMRED`/`CLUSTERERS`/`ANOMALY`）。
+
+**運用・配線**
+- `monitor.py` … 配信ログ×学習基準テーブルの分布監視（`data monitor` の中身）。
+- `cli.py` … `uv run data <サブコマンド>` の入口（typer）。
+- `profile.py` … DS プロファイルの宣言。中核は config（`profiles = ["harness.ds"]`）経由でだけこれを知り、
+  `data lint` を verify に載せる。
+
+## 拡張のしかた（新しい部品はレジストリに 1 行）
+
+差し替え口はすべて**レジストリ**（機械可読のカタログ）。新しい部品は下の該当ファイルのレジストリに 1 行
+登録すると、一覧コマンドに自動で載り、config から名前で選べるようになる（一覧を手で書かない＝実装と常に
+一致する）。登録時に docstring の 1 行目が説明文になるので必ず書く（無いとエラーで登録できない）。手順は
+features / experiment スキル。「作るか、sklearn で足りるか」の判断も features スキルにある。
+
+| 足したいもの | どこに（ファイル: レジストリ） | 一覧コマンド | config での選び方 |
+| --- | --- | --- | --- |
+| 特徴量ブロック | `features.py`: `BLOCKS` | `data blocks` | `features` 節 |
+| エンコーダ（値の変換） | `pipeline.py`: `ENCODERS` | `data encoders` | `encode` 節 |
+| モデルの種類 | `pipeline.py`: `MODELS` | `data models` | `model` 節 |
+| 特徴選択 | `pipeline.py`: `SELECTORS` | `data selectors` | `select` 節 |
+| ハイパラ探索 | `tune.py`: `TUNERS` | `data tuners` | `model` 節の `tune:` |
+| 評価指標 | `eval.py`: `METRICS` | `data metrics` | `thresholds` |
+| データ源 | `data.py`: `DATA_SOURCES` | `data sources` | `data` 節 |
+| 保存形式 | `models.py`/`onnx_format.py`: `FORMATS` | `data formats` | `save_model` の `format` |
+| 時系列モデル | `forecast.py`: `TS_MODELS` | `data models`（[timeseries] 群） | `model` 節（`task: timeseries`） |
+| 教師なし（圧縮/クラスタ/異常） | `unsupervised.py`: `DIMRED`/`CLUSTERERS`/`ANOMALY` | `data unsupervised` | 各コマンドの引数 |
+
 ## もっと知りたいとき（各正本への案内）
 
 - **進め方・考え方**（端まで通る最小の実装を先に作る、実験の回し方の思想）… `docs/method.md`。
