@@ -28,6 +28,37 @@ jobs:
       - name: 共通の検証コマンド（完了判定）
         run: uv run verify
 
+  audit:
+    # 依存脆弱性監査（T-0102）。エージェントが自律的に extra を足す運用のため、部分環境でなく
+    # 全部入り（uv sync --all-extras）で同期したロック済み環境そのものを pip-audit で監査する
+    # （部分監査は「入れていない extra」の脆弱性を見逃す死角になる）。依存の脆弱性は OS 非依存なので
+    # ubuntu のみ（Windows matrix に増やさない）。verify とは独立ジョブ＝verify の実行時間に影響させない。
+    # blocking：脆弱性が見つかったら CI 赤（continue-on-error は付けない・退行は tests/test_guardrails.py が検査）。
+    # まずバージョン更新で直し、更新できないもの・誤陽性だけを .pip-audit-ignore に理由コメント＋見直し期限
+    # つきで載せる。**理由の無い ignore は追加禁止**（test_audit_exemptions_require_reason が verify で弾く）。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: uv をセットアップ
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: 依存を同期（全部入り＝optional 依存も監査対象に含める）
+        run: uv sync --all-extras
+      - name: 依存脆弱性監査（pip-audit・同期済みのロック環境そのものを走査）
+        # `uv run --with pip-audit` は同期済みのプロジェクト環境に pip-audit を重ねて実行するため、
+        # 監査対象はロック済みの全部入り環境そのもの（別の一時環境ではない。pip-audit 自身の依存も
+        # 監査に含まれる＝許容）。--ignore-vuln は .pip-audit-ignore（理由必須の allowlist）から組み立てる。
+        run: |
+          # grep が「一致行なし」で返す非ゼロ終了は process substitution 内なので step を落とさない
+          # （set -eo pipefail 下でも実測で確認）。監査コマンドの非ゼロ終了を握り潰すガードは付けない
+          # （blocking を無効化しないため。test_ci_has_dependency_audit_job が握り潰しを禁止）。
+          ignores=()
+          while IFS= read -r vuln_id; do
+            ignores+=(--ignore-vuln "$vuln_id")
+          done < <(grep -vE '^[[:space:]]*(#|$)' .pip-audit-ignore)
+          uv run --with pip-audit pip-audit --progress-spinner off "${ignores[@]}"
+
   secrets:
     # 秘密情報スキャン。ローカル（pre-commit）と同じ入口＝同じフック（gitleaks・dir モード）を
     # pre-commit 経由で回す（CI だけ別ツールにしない）。作業ツリー全走査なので履歴の fetch は不要。

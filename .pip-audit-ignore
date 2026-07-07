@@ -1,0 +1,14 @@
+# 依存脆弱性監査（pip-audit）の免除リスト（.gitleaksignore・coverage_lint の _EXEMPT と同型・理由必須）。
+# CI の audit ジョブ（.github/workflows/ci.yaml）がこのファイルから --ignore-vuln を組み立てる。
+#
+# 書式：免除する脆弱性 ID（GHSA-…／CVE-…／PYSEC-…／OSV-…）を 1 行 1 件。**直前の行**に
+# `# なぜ免除するか（誤陽性 or 修正待ちの根拠）と見直し期限（YYYY-MM）` のコメントが必須。
+# 理由の無い免除は tests/test_guardrails.py::test_audit_exemptions_require_reason が verify で失敗させる。
+# 免除に載せる前に、まずバージョン更新（pyproject の下限引き上げ＋ uv lock）で直すことを検討する。
+#
+# 記入例（実在しないダミー ID）：
+#   # requests の CVE-2099-0001 は当リポの使い方（ローカル実行のみ・外部入力なし）では踏めない。2026-09 に再確認
+#   CVE-2099-0001
+#
+# 現在の免除：なし（空＝最善の状態。2026-07-07 時点で pip-audit は既知脆弱性ゼロ）
+

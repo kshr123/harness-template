@@ -1,7 +1,7 @@
 ---
 id: T-0102
 kind: task
-status: todo
+status: done
 title: 依存脆弱性監査の CI ジョブ（uv sync --all-extras から pip-audit・理由必須の ignore）
 created: 2026-07-07
 depends_on: [T-0101]
