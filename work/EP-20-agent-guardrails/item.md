@@ -3,7 +3,7 @@ id: EP-20
 kind: epic
 status: todo
 title: エージェント運用のガードレール（秘密情報・破壊的操作・依存監査・来歴を機械で守る）
-plan: outline
+plan: detailed
 requirements: [REQ-001]
 depends_on: [EP-19]
 created: 2026-07-06
@@ -35,3 +35,9 @@ created: 2026-07-06
 T：破壊的 git deny＋秘密情報検出（settings.json＋pre-commit）／T：依存脆弱性監査（CI ジョブ）／T：commit-msg の作業単位 ID 検査／
 T：コア文書の入口導線（AGENTS/README 1 行）。各々小粒度・既存ツール（pre-commit/CI/settings）の追加が中心で新規 src 資産は少。
 EP-19 の coverage_lint 導入後に着手（新コマンド/文書の導線忘れを自動で止められる状態で進める）。
+
+分解（detailed 化・2026-07-07）：
+- T-0100 破壊的 git deny＋秘密情報検出（settings＋pre-commit＋CI 同一入口。エピックの骨組み＝「執行点＋配線の常在検査」の型を確立）
+- T-0101 commit-msg の作業単位 ID 検査（pm.load_tree の ID を再利用・二重管理なし・免除は理由必須の接頭辞のみ）
+- T-0102 依存脆弱性監査の CI ジョブ（all-extras→pip-audit・blocking＋理由必須 ignore・Linux のみ）
+- T-0103 コア文書からプロファイル入口への導線（AGENTS コマンド節に data/serve/agent の各 1 行・docs のみ）
