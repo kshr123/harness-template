@@ -14,7 +14,7 @@
   「1 リポジトリ＝1 案件」で丸ごと複製して使う（手順は [docs/template-copy.md](docs/template-copy.md)）。
 - **正本** … ある事実・ルールの「唯一の正」とする置き場のこと。同じ内容を
   2 か所に書かない。設計・進め方の正本はこのリポジトリ内に置く：`docs/charter.md`（立ち上げ）・
-  `docs/method.md`（開発の進め方）・`docs/decisions/`（決定 DEC）。案件固有の外部設計文書があれば
+  `docs/method.md`（開発の進め方）。案件固有の外部設計文書があれば
   `docs/charter.md` から参照する（README はテンプレートとして複製されるので、複製先に無いリポ外パスは書かない）。
 - **profile** … 中核（core）に領域別の部品と検査を足す束のこと。
   ds（データサイエンス）・serve（配信）・agent（LLM）・ops（運用）があり、`.harness/config.toml` で有効化する。
@@ -34,7 +34,7 @@ uvx pre-commit run --all-files   # コミット直前の検査
 ```
 
 ## 構成（意味のある 1 まとまり＝1 ディレクトリ）
-- `docs/` … 案件レベルの文書：`README.md`（索引）／`charter.md`（立ち上げ）／`requirements/`（要件 REQ）／`data/`（テーブル定義の正本 YAML）／`decisions/`（決定 DEC・不変）／`learnings.md`（気づき）／`DoD.md`（完了の定義）
+- `docs/` … 案件レベルの文書：`README.md`（索引）／`charter.md`（立ち上げ）／`requirements/`（要件 REQ）／`data/`（テーブル定義の正本 YAML）／`learnings.md`（気づき）／`DoD.md`（完了の定義）
 - `issues/` … 課題（発見された問題・リスク・疑問 ISS。置き場がローカルのときだけ実体を持つ）
 - `work/` … 作業単位（エピック・タスク・調査・実験）。**親はフォルダ**。1 まとまりのもの（説明・SPEC・コード・結果・メモ）を同居させる。
   - `work/<エピック>/item.md` … エピックの目的と計画の詳しさ

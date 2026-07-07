@@ -25,7 +25,6 @@
 | `T` | タスク（1 つの変更。1 PR で完結。例 `T-0007`） |
 | `E` | 実験（1 つの仮説の検証。例 `E-0001`） |
 | `INV` | 調査（結論を出すための調べもの。例 `INV-0001`） |
-| `DEC` | 決定の記録（なぜそう決めたか。`docs/decisions/`。例 ） |
 | `ISS` | 課題（見つかった問題・リスク・疑問。`issues/`。例 `ISS-0003`） |
 | `REQ` | 要件（`docs/requirements/`。例 `REQ-001`） |
 
@@ -55,7 +54,6 @@
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
 | [template-copy.md](template-copy.md) | How-to | この基盤を次の案件へ複製する手順 |
 | [learnings.md](learnings.md) | Explanation | 作業で得た気づきの記録（ルールにルール化する前の材料） |
-| [decisions/](decisions/) | Explanation | 決定の記録（DEC）。1 決定＝1 ファイル・確定後は書き換えない |
 | [requirements/](requirements/) | Reference | 案件の要件（REQ） |
 | [data/](data/) | Reference | テーブル定義の正本（YAML） |
 | `../.claude/skills/` | How-to | セッション中の作業手順（実験・レビュー・検証など） |

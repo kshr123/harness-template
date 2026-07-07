@@ -13,7 +13,7 @@
 ## 残す（基盤そのもの・触らない）
 - `src/harness/` … 中核（pm・issues・checks・config・testing）と DS プロファイル（`src/harness/ds/`）。
 - `tests/` … 上記の検査（e2e は `templates/experiment/` を叩くので複製で直す箇所は無い。T-0140）。
-- `docs/decisions/`（DEC・不変の決定）・`docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）。
+- `docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）。
 - `.claude/skills/`（スキル）・`AGENTS.md`・`CLAUDE.md`・`pyproject.toml`・`checks.toml`・`.pre-commit-config.yaml`。
 - `docs/data/` のテーブル定義の仕組み（中身は案件のデータに合わせて入れ替える）。
 - `templates/experiment/`（実験正本雛形＝train.py・config*.yaml・data/*.yaml（テーブル定義。T-0141 で持ち歩く）。
@@ -25,7 +25,7 @@
 - `docs/requirements/REQ-*.md` … 前案件の要件。**消す**（新案件の REQ を書く）。
 - `issues/ISS-*.md` … 前案件の課題。**消す**（`ISS-0002`〜`0005` のように基盤側の未実装約束を引き継ぐ場合だけ残す）。
 - `docs/charter.md` … 立ち上げ文書。**新案件の内容に書き直す**（外部設計文書があればここから参照する）。
-- `docs/learnings.md` … 気づき。**空にする**（ルール化済みで正本が DEC に移ったものは消してよい）。
+- `docs/learnings.md` … 気づき。**空にする**（ルール化済みで正本が AGENTS/検査に移ったものは消してよい）。
 - `docs/structure-review-*.md` … 基盤のレビュー記録。**消してよい**（履歴）。
 - `data/` の実体・保存済みモデル（`data/**/models/`）… コミットしない生成物。**消す**。
 

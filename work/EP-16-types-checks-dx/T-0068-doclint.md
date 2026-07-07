@@ -6,14 +6,13 @@ title: doclint＝正本ドキュメントが参照する DEC/ISS/パス/コマ�
 created: 2026-07-06
 depends_on: [T-0046]
 verified_by:
-  - tests/test_doclint.py::test_missing_dec_reference_is_error
-  - tests/test_doclint.py::test_dec_number_must_match_exactly_not_by_prefix
+  - tests/test_doclint.py::test_dec_like_string_is_not_checked_and_decisions_dir_absent_is_ok
   - tests/test_doclint.py::test_missing_iss_reference_is_error
   - tests/test_doclint.py::test_iss_check_skipped_on_github_backend
   - tests/test_doclint.py::test_missing_path_is_error
   - tests/test_doclint.py::test_globs_placeholders_and_bare_words_are_not_flagged
   - tests/test_doclint.py::test_known_command_is_ok_and_unknown_is_info
-  - tests/test_doclint.py::test_skills_and_decisions_are_scanned_but_templates_are_not
+  - tests/test_doclint.py::test_skills_are_scanned
   - tests/test_doclint.py::test_real_repo_docs_have_no_dead_links
 ---
 # T-0068 doclint（正本ドリフトの機械検査）

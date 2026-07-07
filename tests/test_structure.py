@@ -15,8 +15,8 @@ def test_new_structure_layout() -> None:
     assert Path("docs/charter.md").is_file()
     assert Path("docs/requirements").is_dir()
     assert Path("docs/data").is_dir()
-    assert Path("docs/decisions").is_dir()
     assert Path("issues").is_dir()
+    # docs/decisions/（決定記録 DEC）は EP-26 で廃止＝現在のルールに畳んだ（経緯は git）。
     assert Path(".harness/config.toml").is_file()
     # projects/ の層は廃止した。
     assert not Path("projects").exists()

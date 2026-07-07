@@ -1,4 +1,4 @@
-"""doclint のテスト：正本ドキュメントの参照（DEC/ISS/パス/コマンド）実在検査。
+"""doclint のテスト：正本ドキュメントの参照（ISS/パス/コマンド）実在検査。
 
 期待値はすべて一時プロジェクトの構成（何を置き・何を置かないか）から導く。
 最後の 1 本は現リポの実 docs に対する回帰の番人（正本の参照が全部実在すること）。
@@ -32,26 +32,14 @@ def _infos(root: Path) -> list[str]:
     return [p.message for p in doclint.run_checks(root) if p.level == "info"]
 
 
-# --- DEC 参照 ---
+# --- DEC は検査対象でない（EP-26 で決定記録を廃止＝現在のルールに畳んだ） ---
 
 
-def test_existing_dec_reference_is_ok(tmp_path: Path) -> None:
-    _doc(tmp_path, "docs/decisions/DEC-0001-x.md", "決定の本文。")
-    _doc(tmp_path, "AGENTS.md", "DEC-0001 を参照。")
-    assert _errors(tmp_path) == []
-
-
-def test_missing_dec_reference_is_error(tmp_path: Path) -> None:
-    _doc(tmp_path, "AGENTS.md", "DEC-9999 を参照。")
-    errors = _errors(tmp_path)
-    assert any("AGENTS.md" in m and "DEC-9999" in m for m in errors)
-
-
-def test_dec_number_must_match_exactly_not_by_prefix(tmp_path: Path) -> None:
-    # DEC-00012 が在っても DEC-0001 の実体にはならない（番号の前方一致では通さない）。
-    _doc(tmp_path, "docs/decisions/DEC-00012-y.md", "別の決定。")
-    _doc(tmp_path, "AGENTS.md", "DEC-0001 を参照。")
-    assert any("DEC-0001" in m for m in _errors(tmp_path))
+def test_dec_like_string_is_not_checked_and_decisions_dir_absent_is_ok(tmp_path: Path) -> None:
+    # docs/decisions/ を持たないプロジェクトで、DEC- 風の文字列があっても doclint は何も指摘しない
+    # （DEC 参照の実在検査は撤去済み）。ISS・パス・コマンドの検査は従来どおり働く。
+    _doc(tmp_path, "AGENTS.md", "旧様式の DEC-9999 のような語があっても検査しない。")
+    assert doclint.run_checks(tmp_path) == []
 
 
 # --- ISS 参照 ---
@@ -95,7 +83,7 @@ def test_globs_placeholders_and_bare_words_are_not_flagged(tmp_path: Path) -> No
     # glob（*）・変数（{}）・プレースホルダ（<>・XXXX）・拡張子なしの語は保守的に拾わない。
     text = (
         "`src/*.py` を集める。`docs/{name}.md` を作る。`work/<ID>-x.md` に置く。\n"
-        "`tests/test_*.py` が対象。docs/decisions/DEC-XXXX-思想.md の形式。docs のどこか。\n"
+        "`tests/test_*.py` が対象。`docs/notes/XXXX-思想.md` の形式。docs のどこか。\n"
     )
     _doc(tmp_path, "AGENTS.md", text)
     assert doclint.run_checks(tmp_path) == []
@@ -128,12 +116,10 @@ def test_known_commands_derived_from_pyproject_scripts(tmp_path: Path) -> None:
 # --- 対象ファイルの範囲 ---
 
 
-def test_skills_and_decisions_are_scanned_but_templates_are_not(tmp_path: Path) -> None:
-    _doc(tmp_path, ".claude/skills/foo/SKILL.md", "DEC-9999 を参照。")
-    _doc(tmp_path, "docs/decisions/_template.md", "DEC-0000 の形式で書く。")
-    errors = _errors(tmp_path)
-    assert any(".claude/skills/foo/SKILL.md" in m and "DEC-9999" in m for m in errors)
-    assert not any("DEC-0000" in m for m in errors)
+def test_skills_are_scanned(tmp_path: Path) -> None:
+    # スキルも走査対象＝存在しない課題参照は死にリンクとして拾う。
+    _doc(tmp_path, ".claude/skills/foo/SKILL.md", "課題 ISS-9999 を参照。")
+    assert any(".claude/skills/foo/SKILL.md" in m and "ISS-9999" in m for m in _errors(tmp_path))
 
 
 # --- 回帰の番人：現リポの正本 ---

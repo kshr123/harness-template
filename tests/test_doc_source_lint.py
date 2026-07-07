@@ -34,7 +34,7 @@ def test_durable_doc_referencing_work_item_is_error(tmp_path: Path) -> None:
     errors = _errors(tmp_path)
     assert any("work/EP-21-ops-profile" in m and "docs/ops.md:1" in m for m in errors)
     # DEC 参照・本文説明に直すと消える。
-    _write(tmp_path, "docs/ops.md", "理由は本文のとおり（詳細は `docs/decisions/DEC-0014`）。\n")
+    _write(tmp_path, "docs/ops.md", "理由は本文のとおり（詳細は `docs/method.md`）。\n")
     assert _errors(tmp_path) == []
 
 
@@ -70,9 +70,9 @@ def test_template_copy_is_exempt(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_decisions_and_archive_subdirs_are_not_scanned(tmp_path: Path) -> None:
-    # docs 直下のみが対象。決定の記録・保管庫（下層）は履歴なので対象外。
-    _write(tmp_path, "docs/decisions/DEC-0018-x.md", "実装は `work/EP-23-loops/item.md`。\n")
+def test_docs_subdirs_are_not_scanned(tmp_path: Path) -> None:
+    # docs 直下のみが対象。下層（保管庫・メモ等）は履歴なので対象外。
+    _write(tmp_path, "docs/notes/old.md", "実装は `work/EP-23-loops/item.md`。\n")
     _write(tmp_path, "docs/archive/note.md", "当時の `work/EP-06-ds-experiment-loop/item.md`。\n")
     assert _errors(tmp_path) == []
 

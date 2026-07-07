@@ -1,7 +1,7 @@
 """正本ドキュメントの参照実在検査（doclint）。
 
-AGENTS.md・CLAUDE.md・docs/method.md・docs/learnings.md・docs/template-copy.md・.claude/skills/**/*.md・
-docs/decisions/*.md が持つ参照（DEC-XXXX・ISS-XXXX・相対パス・`uv run <サブコマンド>`）の実在を検査する。
+AGENTS.md・CLAUDE.md・docs/method.md・docs/learnings.md・docs/template-copy.md・.claude/skills/**/*.md
+が持つ参照（ISS-XXXX・相対パス・`uv run <サブコマンド>`）の実在を検査する。
 対象が消える／改名されると黙って死にリンクになる問題（ISS-0003）を機械で止める。core の検査（プロファイル非依存）。
 stdlib のみに依存。
 
@@ -32,7 +32,6 @@ from harness import issues, pm
 # 固定の対象（存在するものだけ読む）。glob の対象は _target_files を参照。
 _FIXED_FILES = ("AGENTS.md", "CLAUDE.md", "docs/method.md", "docs/learnings.md", "docs/template-copy.md")
 
-_DEC_RE = re.compile(r"\bDEC-\d+\b")
 _ISS_RE = re.compile(r"\bISS-\d+\b")
 # 相対パス：既知の先頭ディレクトリで始まり、パスに使う文字だけが続く語。直前がパスの一部なら拾わない。
 _PATH_RE = re.compile(r"(?<![\w./-])((?:docs|src|work|tests|templates|\.claude)/[\w./-]*[\w/])")
@@ -41,8 +40,7 @@ _CMD_RE = re.compile(r"\buv run ([A-Za-z0-9][\w-]*)")
 _FALLBACK_COMMANDS = frozenset({"verify", "status", "task-lint", "data"})
 # この文字が直後に続く一致は、glob・プレースホルダの途中で切れた断片なので捨てる。
 _GLOBBY = "*{<"
-# 型録表記（例 DEC-XXXX・DEC-xxxx・ISS-0000 の説明用連番）を含むパスはプレースホルダとみなして拾わない。
-# 大文字小文字を区別しない：docs は小文字 `DEC-xxxx` も使う（大文字限定だと latent な誤検出になる）。
+# 型録表記（例 ISS-0000 の説明用連番）を含むパスはプレースホルダとみなして拾わない。
 _PLACEHOLDER_RE = re.compile(r"XXXX|0000", re.IGNORECASE)
 
 
@@ -52,10 +50,6 @@ def _target_files(root: Path) -> list[Path]:
     skills = root / ".claude" / "skills"
     if skills.is_dir():
         out.extend(sorted(skills.rglob("*.md")))
-    decisions = root / "docs" / "decisions"
-    if decisions.is_dir():
-        # `_` 始まり（_template.md 等）は雛形＝型録表記（DEC-0000 等）を含む正本外なので対象にしない。
-        out.extend(sorted(p for p in decisions.glob("*.md") if not p.name.startswith("_")))
     return out
 
 
@@ -73,7 +67,7 @@ def _known_commands(root: Path) -> set[str]:
 
 
 def _ref_file_exists(directory: Path, ref: str) -> bool:
-    """ID 参照（DEC-0001 等）の実体＝その番号で始まる .md がその置き場に在るか。"""
+    """ID 参照（ISS-0001 等）の実体＝その番号で始まる .md がその置き場に在るか。"""
     if not directory.is_dir():
         return False
     return any(p.name == f"{ref}.md" or p.name.startswith(f"{ref}-") for p in directory.glob(f"{ref}*.md"))
@@ -98,19 +92,12 @@ def _path_refs(text: str) -> set[str]:
 def run_checks(root: Path) -> list[pm.Problem]:
     """正本ドキュメントの参照実在検査。死にリンク＝error、未知コマンド＝warn。"""
     problems: list[pm.Problem] = []
-    dec_dir = root / "docs" / "decisions"
     iss_dir = issues.local_dir(root)  # github: backend のときは None＝ISS 検査を行わない
     known_commands = _known_commands(root)
 
     for path in _target_files(root):
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
-
-        for ref in sorted(set(_DEC_RE.findall(text))):
-            if not _ref_file_exists(dec_dir, ref):
-                problems.append(
-                    pm.Problem("error", f"{rel}: '{ref}' の決定記録（docs/decisions/{ref}-*.md）が見つからない")
-                )
 
         if iss_dir is not None:
             iss_rel = iss_dir.relative_to(root).as_posix()
@@ -128,7 +115,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
 
         for name in sorted(set(_CMD_RE.findall(text))):
             if name not in known_commands:
-                # 死にリンク（DEC/ISS/パス）は error、未知コマンドは info（pm.Problem の "error"|"info" 規約に沿う。
+                # 死にリンク（ISS/パス）は error、未知コマンドは info（pm.Problem の "error"|"info" 規約に沿う。
                 # コマンド既知集合は環境（.venv）由来で偽陽性がありうるため合否には効かせない）。
                 problems.append(pm.Problem("info", f"{rel}: 'uv run {name}' が既知のコマンドに無い（タイポの可能性）"))
 

@@ -41,7 +41,7 @@ class StopDecision:
     （閉じた集合にすると新しい stop 理由を足すたびに型を直す羽目になる＝YAGNI）。
 
     元は core `harness.loops` の型（DEC-0017）。実消費が本ファイルの 1 つだけだったため DEC-0020 で
-    agent へ畳み込んだ（trigger×stop×policy の 4 類型の分類そのものは docs/decisions/DEC-0017 の記述が正本）。
+    agent へ畳み込んだ（trigger×stop×policy の 4 類型の分類そのものは docs/agent.md の loops 節が正本）。
     """
 
     stop: bool

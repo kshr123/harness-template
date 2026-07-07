@@ -10,7 +10,7 @@
 方針（誤検知を避ける＝高精度・低取りこぼし）:
 - 対象は**恒久の読み手向けドキュメント**：`README.md`・`AGENTS.md`・`docs/*.md`（直下のみ）。ただし
   `docs/template-copy.md` は除く（複製手順そのものが「前案件の `work/` を消す」と説明する＝正当）。
-  `docs/decisions/`・`docs/archive/`（履歴の記録）は直下でないので対象外。
+  `docs/archive/` 等の下層（履歴の記録）は直下でないので対象外。
 - 禁じるのは**具体的な作業単位への参照**だけ：`work/EP-<番号>` / `work/T-…` / `work/E-…` / `work/INV-…`。
   プレースホルダ（`work/<エピック>/…`）は ID を持たないので拾わない（テンプレートの構成例は正当）。
 - `artifacts/`・`results/`・`data/` は**契約のパス型**（`artifacts/serve/predictions/<名>/<日付>.jsonl` 等）で
