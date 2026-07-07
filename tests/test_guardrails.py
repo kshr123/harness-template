@@ -161,6 +161,22 @@ def test_workflow_lint_wired() -> None:
         f"check-jsonschema フックの args に {CHECK_JSONSCHEMA_BUILTIN_SCHEMA!r} が無い（実際: {args!r}）。"
         "GitHub Actions workflow の schema 準拠を検査する builtin schema 指定を外さないこと"
     )
+    # (d) CI（.github/workflows/ci.yaml）が同じ 2 フックを pre-commit 経由・`--all-files` 付きで回すこと
+    # （test_secrets_scan_wired の CI 検査部と同型。自前 lint から汎用層を削る前提＝CI 被覆が必須。
+    # 自前 lint だけ削って CI 配線を後回しにすると被覆の総和が「verify/CI で走らないローカルフック」に
+    # 痩せる＝keep-green-while-replacing 違反）。
+    ci = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yaml").read_text(encoding="utf-8"))
+    runs = [step.get("run", "") for job in ci["jobs"].values() for step in job.get("steps", [])]
+    for hook_id in WORKFLOW_LINT_HOOK_IDS:
+        matching = [run for run in runs if "pre-commit run" in run and hook_id in run]
+        assert matching, (
+            f"CI（.github/workflows/ci.yaml）が workflow lint フック '{hook_id}' を pre-commit 経由で"
+            "回していない。ローカルと CI は同じ入口（`uvx pre-commit run <hook-id> --all-files`）を使う"
+        )
+        assert any("--all-files" in run for run in matching), (
+            f"CI の '{hook_id}' 実行に `--all-files` が無い（実際: {matching!r}）。変更ファイルが無いと"
+            "no-op になる空振り（vacuous pass）を避けるため全走査する"
+        )
 
 
 def _exemption_entries_with_reason_check(path: Path, reason_hint: str) -> list[str]:

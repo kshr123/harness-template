@@ -68,14 +68,18 @@ def test_missing_required_file_is_error(tmp_path: Path) -> None:
     assert any("README.md" in m and "必須" in m for m in _errors(root))
 
 
-# --- YAML が壊れている ---
+# --- YAML が壊れている（妥当性は actionlint/check-jsonschema へ委譲・自前では報告しない） ---
 
 
 @pytest.mark.unit
-def test_broken_yaml_is_error(tmp_path: Path) -> None:
+def test_broken_yaml_does_not_crash_and_is_not_self_reported(tmp_path: Path) -> None:
+    # YAML 妥当性の自前検査は削った（DEC-0021：actionlint/check-jsonschema が同じ壊し方を RED にする）。
+    # 壊れた YAML でもクラッシュしない（run_checks が例外を投げたらこのテスト自体が失敗する）ことと、
+    # 「YAML として読めない」という自己申告 error がもう出ないことを確かめる。
     root = _copy_templates(tmp_path)
     (root / "templates" / "schedule" / "monitor.yml").write_text("on: [unclosed\n", encoding="utf-8")
-    assert any("monitor.yml" in m and "YAML" in m for m in _errors(root))
+    errors = _errors(root)
+    assert not any("YAML" in m for m in errors)
 
 
 # --- trigger（schedule.cron・workflow_dispatch） ---
@@ -96,32 +100,36 @@ def test_missing_workflow_dispatch_is_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_cron_wrong_field_count_is_error(tmp_path: Path) -> None:
+def test_cron_syntax_is_delegated_not_self_checked(tmp_path: Path) -> None:
+    # cron の構文（フィールド数）検査は actionlint へ委譲した（自前では on.schedule に cron が
+    # *存在する* ことだけを見る）。フィールド数を壊しても自前の「5 フィールドでない」error はもう出ない。
     root = _copy_templates(tmp_path)
     _mutate(root, "monitor.yml", '"17 6 * * 1"', '"17 6 * * 1 *"')
     errors = _errors(root)
-    assert any("cron" in m and "5" in m for m in errors)
+    assert not any("cron" in m and "5" in m for m in errors)
 
 
-# --- stop 宣言（停止コメント＋停止見出し） ---
+# --- stop 宣言（言語非依存の `# stop:` マーカー＋見出し） ---
 
 
 @pytest.mark.unit
-def test_missing_stop_comment_is_error(tmp_path: Path) -> None:
+def test_missing_stop_marker_is_error(tmp_path: Path) -> None:
+    # 停止宣言の検出を言語非依存の構造マーカー（`# stop:`）へ進化させた後も、マーカーが消えたら
+    # error のまま（意味論＝「止め方の無い routine を作らない」は不変・検出だけ言語非依存化）。
     root = _copy_templates(tmp_path)
     _mutate(
         root,
         "monitor.yml",
-        "# 停止（stop）＝ Actions 画面で Disable workflow（gh workflow disable でも可）、\n",
+        "# stop: Actions 画面で Disable workflow（gh workflow disable でも可）、または本ファイルを削除。\n",
         "# 定期実行についての補足コメント。\n",
     )
-    assert any("monitor.yml" in m and "停止" in m for m in _errors(root))
+    assert any("monitor.yml" in m and "stop" in m.lower() for m in _errors(root))
 
 
 @pytest.mark.unit
-def test_stop_comment_without_reference_is_error(tmp_path: Path) -> None:
+def test_stop_marker_without_reference_is_error(tmp_path: Path) -> None:
     # (e) の後半＝停止コメントが runbook（README/docs）を指すことの検査を直接ピン留めする。
-    # 「停止」の語は残し、参照先（README.md/docs/agent.md）への言及だけを外す＝前半をすり抜け後半が効く。
+    # `# stop:` マーカーは残し、参照先（README.md/docs/agent.md）への言及だけを外す＝前半をすり抜け後半が効く。
     root = _copy_templates(tmp_path)
     _mutate(
         root,
@@ -138,9 +146,9 @@ def test_readme_without_stop_section_is_error(tmp_path: Path) -> None:
     root = _copy_templates(tmp_path)
     readme = root / "templates" / "schedule" / "README.md"
     text = readme.read_text(encoding="utf-8")
-    assert "## 停止（stop）" in text, "fixture の前提が崩れている: README.md に停止見出しが無い"
-    readme.write_text(text.replace("## 停止（stop）", "## routine を止める手順"), encoding="utf-8")
-    assert any("README.md" in m and "停止" in m for m in _errors(root))
+    assert "## Stop（停止）" in text, "fixture の前提が崩れている: README.md に stop 見出しが無い"
+    readme.write_text(text.replace("## Stop（停止）", "## routine を止める手順"), encoding="utf-8")
+    assert any("README.md" in m and "見出し" in m for m in _errors(root))
 
 
 # --- CLI サブコマンドの実在（h） ---

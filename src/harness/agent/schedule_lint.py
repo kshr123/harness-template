@@ -47,16 +47,13 @@ def run_checks(root: Path) -> list[pm.Problem]:
     if monitor_text is not None:
         try:
             doc = yaml.safe_load(monitor_text)
-        except yaml.YAMLError as exc:
-            problems.append(
-                pm.Problem("error", f"templates/schedule/monitor.yml: YAML として読めない（{type(exc).__name__}）")
-            )
+        except yaml.YAMLError:
+            # YAML 妥当性・workflow 構造の型は actionlint/check-jsonschema へ委譲（自前では報告しない。
+            # 読めない場合は doc=None のまま＝doc に依存する検査（trigger/permissions/concurrency）だけ
+            # 静かに skip する。stop コメント・scripts 実在は raw text 相手なので影響を受けない）。
+            doc = None
 
-    if monitor_text is not None and doc is not None and not isinstance(doc, dict):
-        problems.append(
-            pm.Problem("error", "templates/schedule/monitor.yml: workflow の YAML はキー→値の辞書であること")
-        )
-    elif isinstance(doc, dict):
+    if isinstance(doc, dict):
         # 落とし穴：pyyaml は YAML 1.1 の implicit resolver で `on:` を bool True に読む。
         # 文字列 "on" とキー True の両方を受ける（外すと全 workflow が trigger 無し誤検知になる）。
         on_block = doc.get("on", doc.get(True))
@@ -96,14 +93,7 @@ def _check_trigger(problems: list[pm.Problem], on_block: Any) -> None:
                 "error", "templates/schedule/monitor.yml: on.schedule に cron が無い（time-based trigger が無い）"
             )
         )
-    for cron in crons:
-        if len(cron.split()) != 5:
-            problems.append(
-                pm.Problem(
-                    "error",
-                    f"templates/schedule/monitor.yml: cron '{cron}' が 5 フィールドでない（{len(cron.split())} 個）",
-                )
-            )
+    # cron の構文（フィールド数等）は actionlint へ委譲（自前では存在だけを見る）。
 
     if "workflow_dispatch" not in on_block:
         problems.append(
@@ -128,10 +118,13 @@ def _check_concurrency(problems: list[pm.Problem], doc: dict[str, Any]) -> None:
 
 
 def _check_stop_comment(problems: list[pm.Problem], monitor_text: str) -> None:
-    if re.search(r"^\s*#.*停止", monitor_text, re.MULTILINE) is None:
+    # 言語非依存の構造マーカー（`# stop: ...`）で検出する（英語 README の複製先で日本語「停止」grep が
+    # 即壊れる言語過剰適合を避ける。意味論＝「止め方の無い routine を作らない」は不変）。
+    if re.search(r"^\s*#\s*stop:", monitor_text, re.MULTILINE | re.IGNORECASE) is None:
         problems.append(
             pm.Problem(
-                "error", "templates/schedule/monitor.yml: 「停止」を含むコメント行が無い（停止手順の宣言が無い）"
+                "error",
+                "templates/schedule/monitor.yml: `# stop:` マーカーを含むコメント行が無い（停止手順の宣言が無い）",
             )
         )
         return
@@ -140,14 +133,16 @@ def _check_stop_comment(problems: list[pm.Problem], monitor_text: str) -> None:
         problems.append(
             pm.Problem(
                 "error",
-                "templates/schedule/monitor.yml: 停止コメントが README/docs/agent.md を参照していない",
+                "templates/schedule/monitor.yml: `# stop:` コメントが README/docs/agent.md を参照していない",
             )
         )
 
 
 def _check_stop_heading(problems: list[pm.Problem], readme_text: str) -> None:
-    if re.search(r"^#{1,6}\s.*停止", readme_text, re.MULTILINE) is None:
-        problems.append(pm.Problem("error", "templates/schedule/README.md: 「停止」の見出しが無い"))
+    # 英語見出し（`## Stop` 等）も日本語見出し（`## 停止`）も受ける（言語非依存化。既存の日本語見出しの
+    # 複製先を壊さないための両対応）。
+    if re.search(r"^#{1,6}\s.*(停止|stop)", readme_text, re.MULTILINE | re.IGNORECASE) is None:
+        problems.append(pm.Problem("error", "templates/schedule/README.md: 「stop（停止）」の見出しが無い"))
 
 
 # --- 叩いている CLI サブコマンドが pyproject.toml の [project.scripts] に実在するか ---

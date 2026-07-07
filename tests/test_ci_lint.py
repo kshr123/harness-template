@@ -184,13 +184,15 @@ def test_repo_retrain_template_passes() -> None:
     assert ci_lint.run_checks(REPO_ROOT) == []
 
 
-# --- 壊れた YAML ---
+# --- 壊れた YAML（妥当性は actionlint/check-jsonschema へ委譲・自前では報告しない） ---
 
 
 @pytest.mark.unit
-def test_broken_yaml_is_error_not_crash(tmp_path: Path) -> None:
-    # YAML として読めない雛形＝内容検査に進めない構成→クラッシュせず error で報告。
+def test_broken_yaml_does_not_crash_and_is_not_self_reported(tmp_path: Path) -> None:
+    # YAML 妥当性の自前検査は削った（DEC-0021：actionlint/check-jsonschema が同じ壊し方を RED にする）。
+    # 壊れた YAML でもクラッシュしない（run_checks が例外を投げたらこのテスト自体が失敗する）ことと、
+    # 「YAML として読めない」という自己申告 error がもう出ないことを確かめる。
     root = _copy_templates(tmp_path)
     (root / "templates" / "ci" / WORKFLOW).write_text("jobs: [unclosed\n", encoding="utf-8")
     errors = _errors(root)
-    assert any(WORKFLOW in m and "YAML" in m for m in errors)
+    assert not any("YAML" in m for m in errors)

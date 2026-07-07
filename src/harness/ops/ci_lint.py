@@ -94,10 +94,9 @@ def run_checks(root: Path) -> list[pm.Problem]:
             continue  # 任意の雛形（required=False）は不在を指摘しない（在るときだけ内容を検査する）
         try:
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            problems.append(
-                pm.Problem("error", f"templates/ci/{spec.rel}: YAML として読めない（{type(exc).__name__}）")
-            )
+        except yaml.YAMLError:
+            # YAML 妥当性・workflow 構造の型は actionlint/check-jsonschema へ委譲（自前では報告しない）。
+            # 読めない雛形はここで内容検査を諦めるだけ（他 spec の error にも波及させない）。
             continue
         _check_required_triggers(problems, spec, doc)
         _check_required_runs(problems, spec, doc)

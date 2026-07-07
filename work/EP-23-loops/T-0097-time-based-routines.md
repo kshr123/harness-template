@@ -8,8 +8,8 @@ depends_on: [T-0095, T-0093]
 verified_by:
   - tests/test_agent_schedule_lint.py::test_real_repo_schedule_template_passes_clean
   - tests/test_agent_schedule_lint.py::test_missing_workflow_dispatch_is_error
-  - tests/test_agent_schedule_lint.py::test_missing_stop_comment_is_error
-  - tests/test_agent_schedule_lint.py::test_stop_comment_without_reference_is_error
+  - tests/test_agent_schedule_lint.py::test_missing_stop_marker_is_error
+  - tests/test_agent_schedule_lint.py::test_stop_marker_without_reference_is_error
   - tests/test_agent_schedule_lint.py::test_readme_without_stop_section_is_error
   - tests/test_agent_schedule_lint.py::test_unknown_script_is_error
   - tests/test_agent_schedule_lint.py::test_schedule_template_commands_resolve
@@ -40,10 +40,13 @@ blog の time-based（時間間隔で起動・cancel/無効化で停止）を、
 - `uv run verify` 全成功（実 schedule 実行なし・無ネットワーク）。
 
 ## verified_by（代表テスト）
+（T-0135 で停止宣言の検出を言語非依存の `# stop:` マーカーへ進化させた際、`test_missing_stop_comment_is_error`／
+`test_stop_comment_without_reference_is_error` は `test_missing_stop_marker_is_error`／
+`test_stop_marker_without_reference_is_error` へ改名・書き換え＝意味論は不変・下の一覧は現行名。）
 - `tests/test_agent_schedule_lint.py::test_real_repo_schedule_template_passes_clean`
 - `tests/test_agent_schedule_lint.py::test_missing_workflow_dispatch_is_error`
-- `tests/test_agent_schedule_lint.py::test_missing_stop_comment_is_error`
-- `tests/test_agent_schedule_lint.py::test_stop_comment_without_reference_is_error`
+- `tests/test_agent_schedule_lint.py::test_missing_stop_marker_is_error`
+- `tests/test_agent_schedule_lint.py::test_stop_marker_without_reference_is_error`
 - `tests/test_agent_schedule_lint.py::test_readme_without_stop_section_is_error`
 - `tests/test_agent_schedule_lint.py::test_unknown_script_is_error`
 - `tests/test_agent_schedule_lint.py::test_schedule_template_commands_resolve`

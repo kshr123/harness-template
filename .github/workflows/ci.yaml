@@ -60,8 +60,9 @@ jobs:
           uv run --with pip-audit pip-audit --progress-spinner off "${ignores[@]}"
 
   secrets:
-    # 秘密情報スキャン。ローカル（pre-commit）と同じ入口＝同じフック（gitleaks・dir モード）を
-    # pre-commit 経由で回す（CI だけ別ツールにしない）。作業ツリー全走査なので履歴の fetch は不要。
+    # 秘密情報スキャン＋workflow lint。ローカル（pre-commit）と同じ入口＝同じフック（gitleaks・
+    # actionlint・check-jsonschema）を pre-commit 経由で回す（CI だけ別ツールにしない）。
+    # 作業ツリー全走査なので履歴の fetch は不要。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,3 +70,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: 秘密情報スキャン（ローカルと同じ入口＝pre-commit の gitleaks フック）
         run: uvx pre-commit run gitleaks --all-files
+      - name: workflow 雛形の構文検査（検査委譲の関門・DEC-0021＝pre-commit の actionlint フック）
+        run: uvx pre-commit run actionlint --all-files
+      - name: workflow 雛形の schema 準拠検査（検査委譲の関門・DEC-0021＝pre-commit の check-jsonschema フック）
+        run: uvx pre-commit run check-jsonschema --all-files

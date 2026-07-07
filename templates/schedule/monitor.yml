@@ -1,6 +1,6 @@
 # time-based routine：agent monitor の定期実行（trigger＝schedule.cron）
-# 停止（stop）＝ Actions 画面で Disable workflow（gh workflow disable でも可）、
-# または本ファイルを削除。手順の正本は README.md と docs/agent.md の time-based 節。
+# stop: Actions 画面で Disable workflow（gh workflow disable でも可）、または本ファイルを削除。
+# 手順の正本は README.md と docs/agent.md の time-based 節。
 name: agent-monitor-routine
 on:
   schedule:
