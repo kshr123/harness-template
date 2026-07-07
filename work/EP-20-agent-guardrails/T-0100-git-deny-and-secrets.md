@@ -1,7 +1,7 @@
 ---
 id: T-0100
 kind: task
-status: todo
+status: done
 title: 破壊的 git deny と秘密情報検出（settings＋pre-commit＋CI を同じ入口で・ガードレールの骨組み）
 created: 2026-07-07
 depends_on: [T-0088]

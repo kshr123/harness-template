@@ -9,3 +9,18 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+  # 秘密情報検出＝gitleaks を採用（第一候補どおり。detect-secrets は実測で results/ のデータ指紋
+  # （sha256）を偽陽性 7 件検出したため不採用）。CI もこの同じフック id を回す（tests/test_guardrails.py が検査）。
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        # 公式 entry（`gitleaks git --staged`）はステージ差分だけを走査し、CI のクリーンチェックアウト
+        # （差分ゼロ）では何も走査しない（実測で確認）。ローカル・CI とも同じ入口で実効走査させるため、
+        # 作業ツリー全走査（dir モード。実測 0.1 秒）に entry を上書きする。ドットファイル（`.env` 含む）は
+        # 走査される（実測：`.env`/`.env.probe`/`.probedir/key.txt` すべて検出）。`.venv` 等が走査対象外なのは
+        # gitleaks 既定の path allowlist による別機序で、ドット始まりだからではない。
+        # 追跡外・ステージ外のファイルの鍵形文字列でもコミットを止める（免除は `.gitleaksignore`＝理由必須）。
+        # 偽陽性の免除は `.gitleaksignore`（fingerprint 単位・理由コメント必須＝test_guardrails が検査）。
+        entry: gitleaks dir --redact --no-banner --verbose .
+        pass_filenames: false

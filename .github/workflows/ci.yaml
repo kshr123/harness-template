@@ -27,3 +27,14 @@ jobs:
         run: uv sync --all-extras
       - name: 共通の検証コマンド（完了判定）
         run: uv run verify
+
+  secrets:
+    # 秘密情報スキャン。ローカル（pre-commit）と同じ入口＝同じフック（gitleaks・dir モード）を
+    # pre-commit 経由で回す（CI だけ別ツールにしない）。作業ツリー全走査なので履歴の fetch は不要。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: uv をセットアップ
+        uses: astral-sh/setup-uv@v5
+      - name: 秘密情報スキャン（ローカルと同じ入口＝pre-commit の gitleaks フック）
+        run: uvx pre-commit run gitleaks --all-files

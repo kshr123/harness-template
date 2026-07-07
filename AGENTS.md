@@ -41,6 +41,8 @@ Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを�
 - `STATUS.md` を手で編集しない（自動生成のファイル）。
 - テストの答えをハードコードしたり、テストを書き換えて成功させたりしない。
 - 認証情報を読まない・プロンプトに書かない（`.env`・`secrets/` は読み取り対象外）。
+- 破壊的 git 操作（force push・`reset --hard`・`clean -f`・`branch -D`）をしない（`.claude/settings.json` の deny が拒否）。
+  秘密情報のコミットはコミット時（pre-commit の gitleaks）と CI（同じフック）で検出。配線は `tests/test_guardrails.py` が常在検査。
 
 ## テストの決まりごと
 （「（DS プロファイル）」印はデータサイエンス案件のときだけ。非 DS の案件に複製するときは外してよい。）
