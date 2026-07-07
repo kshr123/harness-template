@@ -14,6 +14,7 @@ verify が落ちる**こと（fail closed）だけを検査する。
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -51,6 +52,17 @@ SECRET_READ_DENY: tuple[str, ...] = (
 
 # 秘密情報検出フックの id。ローカル（pre-commit）と CI が**同じ入口**（この 1 つのフック）で回す。
 SECRETS_HOOK_ID = "gitleaks"
+
+# 検査委譲の関門（DEC-0021）で配線した workflow lint 2 種。対象は当リポの workflow 雛形
+# （実 workflow ではない＝GitHub Actions は `.github/` しか読まないため、templates/ 配下を明示的に覆う）。
+WORKFLOW_LINT_HOOK_IDS = ("actionlint", "check-jsonschema")
+# 実際にフックが走査すべきパス文字列（`files:` 正規表現がこの両方に re.search でマッチしなければ
+# vacuous pass＝L-015 の教訓）。k8s・compose はここに含めない（github-workflow スキーマの対象外）。
+WORKFLOW_LINT_TARGET_PATHS = (
+    "templates/ci/.github/workflows/verify.yml",
+    "templates/schedule/monitor.yml",
+)
+CHECK_JSONSCHEMA_BUILTIN_SCHEMA = "vendor.github-workflows"
 
 # フックの走査モードもポリシー：上流既定 `gitleaks git --staged`（ステージ差分のみ）は CI のクリーン
 # チェックアウト（差分ゼロ）で何も走査しない空振り＝fail-open。作業ツリー全走査（`gitleaks dir`）に
@@ -113,6 +125,41 @@ def test_secrets_scan_wired() -> None:
         f"CI の秘密情報スキャンに `--all-files` が無い（実際: {secrets_runs!r}）。"
         "`pre-commit run gitleaks` 単体は変更ファイルが無いと何も走査しない空振りになるため、"
         "CI では `--all-files` を付けて全走査する"
+    )
+
+
+def test_workflow_lint_wired() -> None:
+    """検査委譲の関門（DEC-0021）：actionlint・check-jsonschema が workflow 雛形を実効走査する配線。
+
+    (a) 2 フックが存在、(b) それぞれの `files` 正規表現が実際のパス文字列（templates/ 配下の
+    workflow 雛形 2 か所）の両方に `re.search` でマッチする（マッチしないと「緑だが何も走査していない」
+    vacuous pass＝L-015 の教訓）、(c) check-jsonschema が github-workflows の builtin schema を使う、を検査。
+    公式既定の `files: ^\\.github/workflows/` のままだと当リポ（実 workflow を持たない）では 1 件も
+    マッチせず fail-open になるため、上書きが必須（設定が黙って templates/ を外したら RED）。
+    """
+    pre_commit = yaml.safe_load((_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    hooks = [hook for repo in pre_commit["repos"] for hook in repo["hooks"]]
+    for hook_id in WORKFLOW_LINT_HOOK_IDS:
+        hook = next((h for h in hooks if h["id"] == hook_id), None)
+        assert hook is not None, (
+            f"workflow lint フック '{hook_id}' が .pre-commit-config.yaml に無い。DEC-0021 の配線"
+            "（検査委譲の関門）が外れている。フックを戻すこと（T-0134 の執行点）"
+        )
+        files_pattern = hook.get("files", "")
+        assert files_pattern, (
+            f"'{hook_id}' フックに `files:` の上書きが無い（公式既定 `^\\.github/workflows/` のままだと"
+            "当リポの workflow 雛形（templates/ 配下）は 1 件もマッチせず vacuous pass になる）"
+        )
+        for target in WORKFLOW_LINT_TARGET_PATHS:
+            assert re.search(files_pattern, target), (
+                f"'{hook_id}' フックの files 正規表現 {files_pattern!r} が {target!r} にマッチしない。"
+                "templates/ の workflow 雛形を覆う正規表現に上書きすること（vacuous pass の再発防止）"
+            )
+    check_jsonschema = next(h for h in hooks if h["id"] == "check-jsonschema")
+    args = check_jsonschema.get("args", [])
+    assert CHECK_JSONSCHEMA_BUILTIN_SCHEMA in args, (
+        f"check-jsonschema フックの args に {CHECK_JSONSCHEMA_BUILTIN_SCHEMA!r} が無い（実際: {args!r}）。"
+        "GitHub Actions workflow の schema 準拠を検査する builtin schema 指定を外さないこと"
     )
 
 
