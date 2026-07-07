@@ -27,6 +27,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   （`src/harness/agent/goal.py`。`docs/decisions/DEC-0017`）。
 - **部品は、他の人が元コードを読まずに使える状態にして完了**。再利用する部品を作ったら、同じタスクでレジストリ登録＋docstring＋スキル/雛形からの、使い方にたどり着けるリンクまで更新する。エージェントが元コードを読まずに使えて初めて done（`docs/decisions/DEC-0009`。検査点：レジストリ項目の説明文必須は pytest が検査。スキルからのリンクはレビュー観点）。
 - **新しい CLI コマンドは、スキルか正本 docs から使い方にたどり着けるリンク・記載が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（`docs/decisions/DEC-0016`。検査点：coverage_lint が未到達コマンドを verify で失敗にする＝DEC-0009 の第 3 要件の機械化）。
+- **恒久ドキュメントは一時的な作業単位（`work/…`）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` は複製すると `work/` が消える／置き換わるので、根拠は DEC（決定の記録）か本文の説明に置く（複製手順の説明だけは `docs/template-copy.md` に）。検査点：doc_source_lint が `work/EP-…` 等の参照を verify で失敗にする。
 
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。
