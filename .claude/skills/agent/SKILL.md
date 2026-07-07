@@ -37,6 +37,9 @@ description: LLM エージェント（AgentSpec）を作る・評価する・昇
 7. 監視：`uv run agent monitor`（実行ログの拒否/打ち切り率・コスト分位・ツール頻度。門番にしない＝常に
    exit 0・`--file-issue` で帯が要注意以上なら課題を冪等起票）。入出力の検査は `agent/guardrails.py`
    （`PiiRegexGuard`＝PII 正規表現スタブ・`validate_output_schema`＝JSON Schema 最小検証。詳細は `docs/agent.md`）。
+   定期実行（time-based routine）は `templates/schedule/` をコピーする（正本は `docs/agent.md` の
+   time-based 節）。止め方の宣言（停止コメント＋README の停止見出し）は必須＝欠けると schedule_lint が
+   `uv run verify` で失敗にする。
 
 ## してはいけないこと
 - verify 経路で実プロバイダ（実 API）を叩かない（dummy/cassette だけ＝無ネットワーク・DEC-0015）。

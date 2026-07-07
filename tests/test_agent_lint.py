@@ -123,10 +123,11 @@ def test_import_harness_agent_stays_light() -> None:
         "import harness.agent.tools\n"
         "import harness.agent.providers\n"
         "import harness.agent.cassette\n"
-        "from harness.agent import lint\n"
+        "from harness.agent import lint, schedule_lint\n"
         "from harness.agent.providers import AnthropicProvider\n"  # SDK は reply() 内の遅延 import（T-0092）
         "assert harness.agent.PROFILE.name == 'agent', harness.agent.PROFILE\n"
-        "assert harness.agent.PROFILE.pm_checks == (lint.run_checks,), harness.agent.PROFILE\n"
+        "assert harness.agent.PROFILE.pm_checks == (lint.run_checks, schedule_lint.run_checks), "
+        "harness.agent.PROFILE\n"
         "heavy = [m for m in ('anthropic', 'fastapi', 'uvicorn', 'polars', 'sklearn') if m in sys.modules]\n"
         "assert not heavy, f'import harness.agent が重い依存を読み込んだ: {heavy}'\n"
     )

@@ -7,7 +7,7 @@ yaml を遅延取り込みするので、ここから import しても LLM SDK �
 
 from __future__ import annotations
 
-from harness.agent import lint
+from harness.agent import lint, schedule_lint
 from harness.profiles import Profile
 
-PROFILE = Profile(name="agent", pm_checks=(lint.run_checks,))
+PROFILE = Profile(name="agent", pm_checks=(lint.run_checks, schedule_lint.run_checks))

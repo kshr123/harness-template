@@ -34,7 +34,7 @@ Anthropic「Getting started with loops」の分類（**loop＝停止条件が満
 | --- | --- | --- | --- |
 | turn-based | 発話・`agent run` | provider の `end_turn`＋`max_turns` backstop | `runtime.run_agent`（既存の再解釈のみ） |
 | goal-based | 呼び出し時に Goal を宣言 | 評価器ゲート（`AGENT_METRICS`＋`eval.passes`）合格 or `max_cycles` backstop | `agent/goal.py`（`Goal`/`GoalGate`/`run_agent_to_goal`＝**唯一の新規部品**・T-0095） |
-| time-based | 時間間隔（cron/CI schedule・Claude 側 /loop・/schedule スキル） | cancel・無効化 | 雛形のみ（実行基盤は利用者環境。T-0097・outline） |
+| time-based | 時間間隔（cron/CI schedule・Claude 側 /loop・/schedule スキル） | cancel・無効化 | `templates/schedule/`＋schedule_lint（T-0097） |
 | proactive | event/schedule＋goal の合成 | タスク＝goal 達成で退場・routine＝無効化まで | `agent monitor --file-issue`（前半円のみ実装済み。T-0098・outline） |
 
 **goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）を、宣言済みの評価器
@@ -251,6 +251,36 @@ uv run agent monitor --file-issue                 # 帯が要注意以上なら�
 
 `--file-issue` は決定的タイトル `[agent-monitor] non_end_turn_rate <帯>` で起票し、同タイトルの open 課題が
 既に在れば再起票しない（**冪等**＝二度叩いても 1 件。github: backend では起票せず案内だけ・exit 0 のまま）。
+
+## time-based routine（monitor の定期実行・templates/schedule/・T-0097）
+
+`agent monitor` を時間間隔で定期実行するための雛形が `templates/schedule/`（`monitor.yml`＋`README.md`）に
+ある。**実行基盤（GitHub Actions・cron・Claude 側の `/loop`・`/schedule` スキル）は利用者環境が持つ**
+（ハーネスは実行基盤を再発明しない＝DEC-0006/0008）。使い方：
+
+1. `templates/schedule/monitor.yml` を案件リポジトリの `.github/workflows/` へコピーする
+   （**このリポジトリ自身の `.github/workflows/` には置かない**＝verify は時間起動を含まない、実 schedule
+   は動かさない）。
+2. `on.schedule.cron` を運用に合わせて調整する（UTC・5 フィールド）。
+3. push すると、次の cron 起動（または `workflow_dispatch` の手動実行）から `uv run agent monitor
+   --file-issue` が定期的に走る。
+
+Claude 側で回したいときは `/loop`（間隔指定の繰り返し）や `/schedule`（cron 起動の routine）スキルから
+同じ雛形の運用思想（trigger×stop）に沿って組む（実行基盤としては別の経路・雛形自体は共通）。
+
+### 停止（stop）
+
+**「止め方の無い routine を作らない」**＝停止手順が無い定期実行は作らない、という規律。次のいずれかで
+止める：
+
+- GitHub の Actions 画面で workflow を **Disable workflow**、または `gh workflow disable` で無効化する。
+- コピー先の `.github/workflows/monitor.yml` を削除する。
+- Claude 側で組んだ場合はそのスキル/スケジュールを解除する。
+- 補足：GitHub は 60 日間 push が無い scheduled workflow を自動的に無効化する。
+
+この規律は `src/harness/agent/schedule_lint.py`（`uv run verify` で走る）が機械的に守る：雛形に
+「停止」を含むコメント（README/docs 参照つき）と `README.md` の停止見出しが無ければ error になる
+（停止宣言の欠落は verify で失敗＝レビューを待たずに検知する）。
 
 ## ガードレール（`agent/guardrails.py`・入出力の入口だけ・委譲点を明示）
 
