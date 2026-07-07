@@ -37,6 +37,8 @@ PREDICTION_LOG_FIELDS: dict[str, str] = {
     "input_fingerprint": "str（features の正準 JSON の sha256。input_fingerprint(features) で再計算できる）",
     "features": "dict（列名→入力値。受信した record そのまま）",
     "prediction": "float（proba/value）| list[float]（multiclass_proba＝クラス 0..k-1 の確率）",
+    # T-0113 で後方互換追加：常に付与（shadow 未設定でも "primary"）＝読み手は role の有無で場合分けしない。
+    "role": 'str（"primary"＝応答を返した champion | "shadow"＝並走した shadow 版。同じ入力は同じ input_fingerprint）',
 }
 
 
@@ -104,14 +106,18 @@ def build_log_rows(
     predictions: object,
     request_id: str,
     time: str,
+    role: str = "primary",
 ) -> list[dict[str, Any]]:
     """予測 1 リクエスト分の JSONL 行（PREDICTION_LOG_FIELDS の契約どおり）を組み立てる。
 
     1 行＝1 予測行。prediction は proba/value なら float・multiclass_proba なら list[float]（クラス 0..k-1）。
+    role は "primary"（既定＝応答を返す champion）| "shadow"（並走版・T-0113）。契約外の role・
     行の数と予測の数が合わない・キー集合が契約とずれる場合は失敗にする（黙って欠けたログを書かない）。
     """
     import numpy as np
 
+    if role not in ("primary", "shadow"):
+        raise ValueError(f'role は "primary" | "shadow"（契約）: {role!r}')
     preds = np.asarray(predictions, dtype=np.float64)
     if preds.shape[0] != len(features_rows):
         raise ValueError(f"予測 {preds.shape[0]} 件と入力 {len(features_rows)} 行が合わない")
@@ -132,6 +138,7 @@ def build_log_rows(
             "input_fingerprint": input_fingerprint(features),
             "features": dict(features),
             "prediction": prediction,
+            "role": role,
         }
         if entry.keys() != PREDICTION_LOG_FIELDS.keys():  # 契約からのドリフトをここで止める
             raise ValueError(f"ログ行のキーが契約とずれている: {sorted(entry)} != {sorted(PREDICTION_LOG_FIELDS)}")

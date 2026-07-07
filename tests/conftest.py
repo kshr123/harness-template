@@ -98,6 +98,13 @@ class Project:
         return path
 
 
+@pytest.fixture(autouse=True)
+def _clear_shadow_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SERVE_SHADOW_* が開発者シェルに残っていても serve テストを汚染しないよう既定で落とす（T-0113）。"""
+    for var in ("SERVE_SHADOW_NAME", "SERVE_SHADOW_WORK", "SERVE_SHADOW_VERSION"):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture
 def make_project(tmp_path: Path) -> Callable[..., Project]:
     """一時プロジェクトを作る工場。呼ぶたびに tmp_path 下の別ディレクトリに作る（複数作っても衝突しない）。"""

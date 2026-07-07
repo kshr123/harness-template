@@ -22,6 +22,8 @@ JSONL 行スキーマ）の正本は docs/serve.md（監視 data monitor はこ�
    実行基盤は利用者環境の関心）。
 6. 配信後の分布ずれを見張る：`uv run data monitor --baseline <学習基準の表 id> [--auc] [--since YYYY-MM-DD]`
    （予測 JSONL×学習基準の psi/band。門番にせず band で読む＝exit 0。ログの正本は docs/serve.md の行スキーマ）。
+7. 新版を本番トラフィックで下見するなら shadow 配信：`SERVE_SHADOW_NAME=<shadow 名>` を付けて起動すると
+   応答は primary のまま、同じ入力の shadow 予測が `role: shadow` で JSONL に並ぶ（docs/serve.md の shadow 節）。
 
 ## してはいけないこと
 - 昇格していない版を既定で配らない（champion が正本。--version は緊急・検証用の明示に限る）。

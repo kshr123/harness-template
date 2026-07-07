@@ -1,7 +1,7 @@
 ---
 id: T-0113
 kind: task
-status: todo
+status: done
 title: shadow 配信＝/predict の 1 プロセス内分岐・PREDICTION_LOG_FIELDS に role を後方互換追加
 created: 2026-07-07
 depends_on: [T-0112]

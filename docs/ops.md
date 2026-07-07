@@ -62,8 +62,12 @@ replicas 比率で流量を近似的に分ける段階リリース。コピペ�
 
 ## shadow 配信
 
-（T-0113 で記載：`/predict` の 1 プロセス内分岐で champion と shadow 版を並走させ、
-`role: primary|shadow` を予測 JSONL に記録する契約。`docs/serve.md` の契約表と同時に更新。）
+`/predict` の **1 プロセス内分岐**で champion（primary）と shadow 版を並走させる：応答は常に primary のみ・
+同じ入力の予測を `role: primary|shadow` の 2 行として同じ予測 JSONL に残す（同じ `request_id`・
+`input_fingerprint` で突き合わせられる＝新版の本番下見）。有効化は env（`SERVE_SHADOW_NAME` ほか）だけで、
+未設定なら従来どおり。shadow の失敗は primary に波及させない（ベストエフォート）。契約（env・JSONL の
+`role`・失敗時の方針）の正本は `docs/serve.md` の「shadow 配信」節と契約表。実行時基盤での
+トラフィック分割・サイドカー等には踏み込まない（上の「やらないこと」）。
 
 ## 継続学習（CT）雛形
 

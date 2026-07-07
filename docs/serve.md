@@ -43,9 +43,35 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 | `input_fingerprint` | str | features の正準 JSON（キー昇順・区切り最小）の sha256。`runtime.input_fingerprint(features)` で再計算できる |
 | `features` | dict | 列名→入力値（受信した record そのまま） |
 | `prediction` | float \| list[float] | proba/value は float・multiclass_proba はクラス 0..k-1 の確率の list[float] |
+| `role` | str | `primary`（応答を返した champion）\| `shadow`（並走した shadow 版。T-0113）。**常に付与**（shadow 未設定でも `primary`）＝読み手は有無で場合分けしない |
 
 この契約は後続の監視（`data monitor`・T-0087）が唯一依存するもの。キーの増減・改名は契約の変更＝
 `PREDICTION_LOG_FIELDS`・この表・消費側を同時に直すこと。
+
+## shadow 配信（1 プロセス内分岐・env で明示有効化）
+
+champion（primary）の応答は変えずに、**同じ入力**を shadow 版でも予測して同じ JSONL に `role: "shadow"` の
+行を残す（本番トラフィックでの新版の下見。実行時基盤＝トラフィック分割・サイドカーには踏み込まない。
+位置づけは `docs/ops.md` の shadow 節）。
+
+```
+SERVE_SHADOW_NAME=challenger uv run serve --work E-0001 --name baseline
+```
+
+- **有効化は env のみ**（新 CLI オプションは無い）：`SERVE_SHADOW_NAME`（shadow のモデル名。未設定・空なら
+  完全に従来どおり）・`SERVE_SHADOW_WORK`（既定＝primary と同じ work）・`SERVE_SHADOW_VERSION`
+  （既定＝shadow 名の現 champion）。
+- shadow も**起動時に読み込む**（無ければ明示エラー＝設定ミスをリクエスト時まで持ち越さない）。
+- `/predict` の**HTTP 応答は常に primary のみ**（応答スキーマ不変）。JSONL には 1 予測行につき
+  primary＋shadow の 2 行が同じ `request_id`・同じ `input_fingerprint` で並ぶ（monitor の突き合わせ用）。
+  shadow 行の `model`・`prediction_kind`・`prediction` は shadow 版のもの。
+- **shadow の予測失敗は応答を落とさない**：primary は 200 で返し、shadow 行は**書かない**（エラー値で
+  契約の `prediction` 型を汚さない）。失敗は警告ログ（logging）にだけ残る。
+- `/metadata` は shadow 有効時のみ `shadow`（work/name/version）キーを足す（後方互換のキー追加のみ）。
+- **監視での注意**：`data monitor` は現状 `role` を区別せず全行を集計する。shadow を有効にすると同じ入力が
+  primary＋shadow の 2 行になり、shadow が primary と同じ `prediction_kind`（＝同一タスクの新版）なら
+  要約が両 role の混合になる。role 別に見たいときは `role: "primary"` の行だけを対象にする（`data monitor`
+  への role フィルタは後続で追加予定＝EP-21 T-0115）。
 
 ## コンテナ・K8s で配るとき
 
