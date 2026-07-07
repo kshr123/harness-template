@@ -1,5 +1,5 @@
 # E-0001 の task 変種（回帰）＝雛形 train.py の task 分岐スモーク（--test・e2e が毎回実行）。
-# 雛形本体は 1 つ（code/train.py）・task の違いは config で選ぶ：`python code/train.py --config config-regression.yaml --variant reg_baseline --test`
+# 雛形本体は 1 つ（train.py）・task の違いは config で選ぶ：`python train.py --config config-regression.yaml --variant reg_baseline --test`
 # データは train.py 登録のローカル源 synthetic_regression（y = 1.5*x1 − 2.0*x2 + 雑音 std 0.5）。
 # thresholds の導出：線形モデル（ridge）は係数を回復でき残差 ≈ 雑音 → OOF rmse ≈ 0.5。揺れを見て 0.6 以下で合格。
 # 本規模で回すときは --root を分ける（fold 表 e0001_folds は config.yaml（二値）の分割と別物になるため）。

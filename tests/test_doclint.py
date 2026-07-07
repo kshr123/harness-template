@@ -142,3 +142,10 @@ def test_skills_and_decisions_are_scanned_but_templates_are_not(tmp_path: Path) 
 def test_real_repo_docs_have_no_dead_links() -> None:
     errors = [p for p in doclint.run_checks(REPO_ROOT) if p.level == "error"]
     assert errors == [], [p.message for p in errors]
+
+
+def test_template_copy_paths_resolve() -> None:
+    # docs/template-copy.md（複製手順）が指すパス参照（templates/・tests/・work/ 等）がすべて実在すること
+    # （T-0140：正本雛形の移設で複製手順が腐っていないかを doclint の走査対象に載せた回帰の番人）。
+    errors = [p for p in doclint.run_checks(REPO_ROOT) if p.level == "error" and "docs/template-copy.md" in p.message]
+    assert errors == [], [p.message for p in errors]

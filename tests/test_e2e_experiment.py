@@ -18,8 +18,8 @@ import yaml
 pytestmark = pytest.mark.e2e
 
 _ROOT = Path(__file__).resolve().parents[1]  # harness-template リポの根
-_EXPERIMENT = _ROOT / "work" / "EP-06-ds-experiment-loop" / "E-0001-interaction-feature"
-_TRAIN = _EXPERIMENT / "code" / "train.py"
+_EXPERIMENT = _ROOT / "templates" / "experiment"  # 実験雛形の正本（T-0140 で work/E-0001 から移設）
+_TRAIN = _EXPERIMENT / "train.py"
 
 
 def _run(tmp_path: Path, variant: str, *, config: Path | None = None) -> subprocess.CompletedProcess[str]:

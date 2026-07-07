@@ -1,8 +1,12 @@
-"""E-0001 の唯一の実行体。データ生成→特徴量→交差検証→合否→保存→results を一気通貫で回す。
+"""実験雛形の唯一の実行体（正本は `templates/experiment/`・T-0140 で移設）。
+データ生成→特徴量→交差検証→合否→保存→results を一気通貫で回す。
 
-**この実験フォルダは以後の実験のコピー元（雛形）**。新しい実験は experiment スキルの手順どおり、これを
-丸ごとコピーして config.yaml だけ書き換える（train.py は触らない）。特徴量・エンコーダの kind は
-`uv run data blocks` / `uv run data encoders` の一覧から選ぶ。
+**この `templates/experiment/` が以後の実験のコピー元（雛形）**。新しい実験は experiment スキルの手順どおり、
+これを丸ごとコピーして config.yaml だけ書き換える（train.py は触らない）。特徴量・エンコーダの kind は
+`uv run data blocks` / `uv run data encoders` の一覧から選ぶ。雛形の初出は E-0001（交互作用特徴量の実験。
+再現記録は `work/EP-06-ds-experiment-loop/E-0001-interaction-feature/` に残る）で、その後の実験もこの
+train.py を使い回す。WORK_ID・テーブル定義（e0001_*）は初出の E-0001 のものを引き続き使う（雛形自体の
+スモークはこの WORK_ID で行う。2 つ目の実験を作るときは各自の WORK_ID・テーブル定義に差し替える）。
 
 使い方：`python train.py [--config <yaml>] --variant <config の variants キー> [--test] [--root <dir>] [--out <dir>]`
 - 変種は config.yaml の variants 節で持つ（実験＝1 仮説）。各変種は build_estimator の spec（features / encode）。
@@ -38,10 +42,14 @@ from harness.ds.experiment import ExperimentSpec, final_eval_on_holdout, run_exp
 from harness.ds.pipeline import build_estimator, build_model
 
 HERE = Path(__file__).resolve().parent
-CONFIG = HERE.parent / "config.yaml"
-ROOT_DEFAULT = HERE.parents[3]  # code → E-0001 → EP-06 → work → リポ根
+CONFIG = HERE / "config.yaml"
+ROOT_DEFAULT = HERE.parents[1]  # templates/experiment → templates → リポ根
 WORK_ID = "E-0001"
-CODE_REF = "work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py"
+CODE_REF = "templates/experiment/train.py"
+# WORK_ID=E-0001 のテーブル定義（e0001_*.yaml）は初出の実験フォルダに再現記録として残る（T-0140で
+# train.py 本体だけ templates/experiment/ へ移設・data/ は移動しない＝やらないこと）。--test/--root の
+# 一時 root はこの定義を持たないので、ここから temp root の work/E-0001/data へコピーする（下の prepare_root）。
+_E0001_SCHEMA_DIR = ROOT_DEFAULT / "work" / "EP-06-ds-experiment-loop" / "E-0001-interaction-feature" / "data"
 
 # conftest.DEFAULT_CONFIG と同文（config.py の既定と同じ形。tests から import しない＝依存を逆流させない）。
 DEFAULT_CONFIG = """\
@@ -108,7 +116,7 @@ def prepare_root(*, test: bool, root: Path | None) -> Path:
             cfg.write_text(DEFAULT_CONFIG, encoding="utf-8")
         ddir = root / "work" / WORK_ID / "data"
         ddir.mkdir(parents=True, exist_ok=True)
-        for src in (HERE.parent / "data").glob("*.yaml"):
+        for src in _E0001_SCHEMA_DIR.glob("*.yaml"):
             shutil.copy(src, ddir / src.name)  # 定義は正本のコピー（内容同一なので上書き可）
     return root
 
@@ -170,7 +178,8 @@ def main() -> int:
 
     root = prepare_root(test=args.test, root=args.root)
     # --test の既定 out は root 側へ（試走が本物の results/ を上書きしないように）。--out の明示指定は常に優先。
-    out = args.out if args.out is not None else (root / "results" if root != ROOT_DEFAULT else HERE.parent / "results")
+    # フラットな配置（train.py は自分の実験フォルダの直下）なので既定の results/ も HERE 直下。
+    out = args.out if args.out is not None else (root / "results" if root != ROOT_DEFAULT else HERE / "results")
 
     df_all = data.load_dataset(root, data_spec, n=n, seed=seed)
     # 最終評価用の test（holdout）を先に取り分ける（id ハッシュの安定分割＝再実行しても同じ行）。

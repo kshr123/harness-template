@@ -1,8 +1,9 @@
 """正本ドキュメントの参照実在検査（doclint）。
 
-AGENTS.md・CLAUDE.md・docs/method.md・docs/learnings.md・.claude/skills/**/*.md・docs/decisions/*.md が持つ
-参照（DEC-XXXX・ISS-XXXX・相対パス・`uv run <サブコマンド>`）の実在を検査する。対象が消える／改名されると
-黙って死にリンクになる問題（ISS-0003）を機械で止める。core の検査（プロファイル非依存）。stdlib のみに依存。
+AGENTS.md・CLAUDE.md・docs/method.md・docs/learnings.md・docs/template-copy.md・.claude/skills/**/*.md・
+docs/decisions/*.md が持つ参照（DEC-XXXX・ISS-XXXX・相対パス・`uv run <サブコマンド>`）の実在を検査する。
+対象が消える／改名されると黙って死にリンクになる問題（ISS-0003）を機械で止める。core の検査（プロファイル非依存）。
+stdlib のみに依存。
 
 方針（保守的抽出＝過検出より取りこぼしを許容）:
 - パスは `docs/`・`src/`・`work/`・`tests/`・`.claude/` で始まる語だけ拾う。
@@ -29,7 +30,7 @@ from pathlib import Path
 from harness import issues, pm
 
 # 固定の対象（存在するものだけ読む）。glob の対象は _target_files を参照。
-_FIXED_FILES = ("AGENTS.md", "CLAUDE.md", "docs/method.md", "docs/learnings.md")
+_FIXED_FILES = ("AGENTS.md", "CLAUDE.md", "docs/method.md", "docs/learnings.md", "docs/template-copy.md")
 
 _DEC_RE = re.compile(r"\bDEC-\d+\b")
 _ISS_RE = re.compile(r"\bISS-\d+\b")

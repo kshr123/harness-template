@@ -26,7 +26,7 @@ work 木＋pm.lint・goal-gate/judge/exit-1・maker≠checker・fail-closed・�
 - **T-0133**（A・骨組み）loops の正直化：`loops.py`→`agent/goal.py` へ畳み込み・死んだ `Trigger` 削除・墓標テスト・DEC-0020。
 - **T-0134**（C-1・骨組み）検査委譲の関門 DEC-0021＋actionlint/check-jsonschema を pre-commit 配線（vacuous pass を実測で潰す）。
 - **T-0135**（C-2・差し替え）自前 lint の汎用層剥離＋「停止」日本語 grep→言語非依存 `# stop:` マーカーへ。
-- **T-0136**（D-1・差し替え）実験正本雛形を `templates/experiment/` へ移設・e2e/スキル追従・template-copy.md を doclint 走査対象へ。
+- **T-0140**（D-1・差し替え）実験正本雛形を `templates/experiment/` へ移設・e2e/スキル追従・template-copy.md を doclint 走査対象へ。
 - **T-0137**（D-2・抜本1）templates 資産のオーナー検査ラチェット（資産を足したら検査オーナーも足す＝verify 強制）。
 - **T-0138**（B・抜本2・EP-24 着地後）レビューのリスク比例化（diff で full/light 機械判定）＋レビュー来歴を pm 検査へ昇格。
 - **T-0139**（E・EP-24 着地後）メタの自己整合：正本一元の実施・棚卸し・規範文の重複検出を doc_standards へ。
@@ -34,7 +34,7 @@ work 木＋pm.lint・goal-gate/judge/exit-1・maker≠checker・fail-closed・�
 ## EP-24 競合回避
 別ターミナルが worktree で EP-24（docs 人間可読化・T-0130 コミット済み／T-0131・T-0132 todo）稼働中。
 - 競合ゼロで即可：T-0134・T-0135・T-0137（コード・テスト・pre-commit・新 DEC のみ）。
-- 軽微競合・即可（先に main へ入れ EP-24 が rebase）：T-0133（AGENTS 2 行）・T-0136（experiment スキル 1 行・template-copy.md 最小修正）。
+- 軽微競合・即可（先に main へ入れ EP-24 が rebase）：T-0133（AGENTS 2 行）・T-0140（experiment スキル 1 行・template-copy.md 最小修正）。
 - EP-24 着地後：T-0138（review スキル・DoD は T-0132 の改稿対象）・T-0139（AGENTS/method/learnings は T-0132 の改稿対象・doc_standards.py は EP-24 の新資産）。
 
 ## 原則
