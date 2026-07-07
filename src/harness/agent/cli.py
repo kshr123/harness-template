@@ -87,14 +87,24 @@ def _agent_run(
         typer.Option("--goal-threshold", help="goal の閾値 名=値（繰り返し可・省略時 exact_match=1.0）"),
     ] = None,
     max_cycles: Annotated[int, typer.Option("--max-cycles", help="goal 未達時の続行サイクル上限")] = 4,
+    goal: Annotated[
+        Path | None,
+        typer.Option("--goal", help="goal 宣言 YAML（llm_judge 等・--goal-expected と併用不可）"),
+    ] = None,
 ) -> None:
     """AgentSpec で 1 実行（ツール往復ループ）。--test は --spec/--input を使わず組み込みスモークを回す。
 
     --goal-expected を指定すると turn-based（1 回きり）でなく goal-based ループになる：評価器ゲート
     （`AGENT_METRICS`＋`eval.passes`）が合格と言うまで続行注入し、`max_cycles` で必ず打ち切る（DEC-0017）。
+    --goal（goal 宣言 YAML）を指定すると同じ goal-based ループを宣言経由で回す（自由文の成功基準は
+    llm_judge・T-0096）。--goal-expected と --goal の併用は exit 2（正本が二重になる二重管理を避ける）。
     """
     from harness.agent.providers import PROVIDERS
     from harness.agent.runtime import run_agent
+
+    if goal is not None and goal_expected is not None:
+        typer.echo("--goal と --goal-expected は併用できない（正本が二重になる）", err=True)
+        raise typer.Exit(2)
 
     if test:
         from harness.agent.experiment import run_agent_eval
@@ -153,6 +163,36 @@ def _agent_run(
         typer.echo(f"goal_loop: cycles={goal_run.cycles}\tstop_reason={goal_run.stop_reason}")
         if goal_run.cycles != 2 or goal_run.stop_reason != "goal_met":
             raise typer.Exit(1)
+
+        # judge goal のスモーク：agent 台本（1 サイクル目「下書き」・続行文で「1. 2. 3. の手順」）と
+        # judge 台本（rubric×候補 2 通りに 0.2/0.9 を仕込む）を束ねる。threshold 0.7 に対し 1 サイクル目
+        # 0.2 は未達・2 サイクル目 0.9 は達成＝ cycles==2・goal_met を台本＋閾値の構成から導出できる。
+        from harness.agent.judge import JUDGE_SYSTEM_PROMPT, judge_user_text, make_rubric_judge
+
+        rubric = "手順が番号付きで3段になっていること"
+        judge_agent_spec = AgentSpec(
+            name="smoke-judge-goal", provider="dummy", model="dummy-model", system_prompt="そのまま返す"
+        )
+        judge_agent_provider = PROVIDERS.resolve("dummy").factory(
+            seed, replies={"下書きにして": "下書き", DEFAULT_CONTINUE_PROMPT: "1. 2. 3. の手順"}
+        )
+        judge_spec = AgentSpec(
+            name="smoke-judge", provider="dummy", model="dummy-model", system_prompt=JUDGE_SYSTEM_PROMPT
+        )
+        judge_provider = PROVIDERS.resolve("dummy").factory(
+            seed,
+            replies={judge_user_text(rubric, "下書き"): "0.2", judge_user_text(rubric, "1. 2. 3. の手順"): "0.9"},
+        )
+        judge = make_rubric_judge(provider=judge_provider, spec=judge_spec)
+        judge_gate = GoalGate(
+            goal=Goal(expected=rubric, metrics=("llm_judge",), thresholds={"llm_judge": 0.7}), judge=judge
+        )
+        judge_goal_run = run_agent_to_goal(
+            judge_agent_spec, "下書きにして", provider=judge_agent_provider, gate=judge_gate, seed=seed
+        )
+        typer.echo(f"judge_goal_loop: cycles={judge_goal_run.cycles}\tstop_reason={judge_goal_run.stop_reason}")
+        if judge_goal_run.cycles != 2 or judge_goal_run.stop_reason != "goal_met":
+            raise typer.Exit(1)
         return
 
     if spec is None or input_text is None:
@@ -163,6 +203,26 @@ def _agent_run(
     agent_spec = load_agent_spec(spec)
     entry = PROVIDERS.resolve(agent_spec.provider)  # 未知 provider はここで候補一覧つき ValueError
     provider = entry.factory(seed)
+
+    if goal is not None:
+        from harness.agent.goal import gate_from_goal, load_goal, run_agent_to_goal
+
+        loaded_goal, judge_decl = load_goal(goal)
+        gate = gate_from_goal(loaded_goal, judge_decl, seed=seed)
+        goal_run = run_agent_to_goal(
+            agent_spec, input_text, provider=provider, gate=gate, seed=seed, max_cycles=max_cycles
+        )
+        typer.echo(goal_run.final.output)
+        # 来歴は stderr（stdout は最終応答だけ＝turn-based の run と同じ分離）。
+        typer.echo(
+            f"cycles={goal_run.cycles}\tstop_reason={goal_run.stop_reason}\t"
+            f"gate_reasons={' | '.join(goal_run.gate_reasons)}",
+            err=True,
+        )
+        # goal 未達（max_cycles 打ち切り）は exit 1＝評価器が合格と言うまで完了にしないを exit code に写す。
+        if goal_run.stop_reason != "goal_met":
+            raise typer.Exit(1)
+        return
 
     if goal_expected is not None:
         from harness.agent.goal import Goal, GoalGate, run_agent_to_goal

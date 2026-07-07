@@ -21,6 +21,9 @@ description: LLM エージェント（AgentSpec）を作る・評価する・昇
    必須の規律と同じ）。答えの成功基準を宣言できるとき（golden set の期待が一意に決まる）は
    `--goal-expected "<正解>"`（＋`--goal-threshold`/`--max-cycles`）で goal-based ループ（評価器ゲートが
    合格と言うまで続行・詳細は `docs/agent.md` の「loops」節）。
+   自由文の成功基準（一意の正解が無い）は `goal.yaml`＋`llm_judge`（`--goal <goal.yaml>`。
+   `--goal-expected` と併用不可）。verify では judge も `provider: dummy`/`cassette` を goal.yaml の
+   `judge:` 節に宣言する（無ネットワーク・詳細は `docs/agent.md` の llm_judge 節）。
 3. 評価・保存：golden set（`[{id, input, expected}]`）を `run_agent_eval` に通し、`save_agent` で版として保存
    （負の結果も記録）。乱数は明示 `seed=` のみ（グローバル種禁止）。
 4. 変種比較：結果を `metrics_<variant>.yaml` に残し `uv run agent experiments --results <dir>` でリーダーボード

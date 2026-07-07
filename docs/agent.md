@@ -4,7 +4,9 @@ LLMOps/AgentOps プロファイル（EP-22・DEC-0015）。中核アーティフ
 （AgentSpec＝prompt＋model＋tools＋方針）**。ライフサイクルは ML と同型：宣言 → golden set → 採点 →
 合否 → 保存 → 昇格 → 配信 → 監視。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
 プロバイダ抽象・tools.py＝ツール（TOOLS）・runtime.py＝往復ループとログ契約・eval.py＝採点器と合否・
-goal.py＝goal-based 停止ゲート（`Goal`/`GoalGate`/`run_agent_to_goal`・EP-23）・
+judge.py＝LLM-judge（`RubricJudge`・rubric 採点のテンプレとパース・T-0096）・
+goal.py＝goal-based 停止ゲート（`Goal`/`GoalGate`/`run_agent_to_goal`・宣言の読み込み＝`goal_from_mapping`/
+`load_goal`/`gate_from_goal`・EP-23）・
 experiment.py＝評価の一巡・store.py＝保存と昇格・app.py＝配信・monitor.py＝監視・lint.py＝宣言の構造 lint・
 cli.py＝入口）。
 
@@ -59,6 +61,43 @@ stdout は最終応答のみ・来歴（`cycles`/`stop_reason`/`gate_reasons`）
 分離）。**goal 未達（`max_cycles` 打ち切り）は exit 1**（評価器が合格と言うまで完了にしない、を exit code
 に写す＝`agent monitor` の「門番にしない」＝常に exit 0 とは役割が違う）。
 **verify 経路は extra 無し・ネットワーク 0 で全機能が検証できる**（dummy/cassette のみ＝DEC-0015）。
+
+### llm_judge（rubric＝expected でモデルに採点させる・goal の宣言化・T-0096）
+
+`exact_match` は答えが一意のときしか使えない。自由文の成功基準（「手順が 3 段で書かれている」等）は
+**`llm_judge`**（`AGENT_METRICS` の 1 kind＝`agent/judge.py` の `RubricJudge`）で採点する。`GoalGate` は
+metric 名の**entry 型**でしか分岐しない（`JudgeEntry` か否か）＝`exact_match` だけの goal は無変更。
+
+goal は**宣言（YAML）が正本**（`agent/goal.py` の `goal_from_mapping`/`load_goal`）。キーは
+`expected`・`metrics`（既定 `["exact_match"]`）・`thresholds`・`judge`（judge 系 metric を使うときだけ）：
+
+```yaml
+expected: "手順が番号付きで3段になっていること"   # rubric（llm_judge の y_true 経路）
+metrics: [llm_judge]
+thresholds:
+  llm_judge: 0.7
+judge:
+  provider: cassette        # dummy（テスト）｜ cassette（記録再生・要 path）｜ anthropic（実運用）
+  model: claude-opus-4-8
+  effort: medium             # 省略可（既定 medium）
+  path: fixtures/judge.json  # provider: cassette のときだけ書ける
+```
+
+- **judge 系 metric（`llm_judge`）⇔ `judge:` 節がある**：片方だけは読み込みで ValueError。judge 系と
+  `exact_match` 等の純関数系の併用も ValueError（`expected` の意味が二重になるため）。
+- `parse_judge_score` は judge の応答テキストが strip 後に裸の `0`〜`1`（小数可）の全文一致でなければ
+  **NaN**（散文からの数値抽出・範囲外の clamp をしない＝応答ドリフトを隠さない）。NaN は `eval.passes`
+  の既存規約でそのまま不合格（fail closed・L-009）。
+- cassette フィクスチャの鍵は `cassette_key(model=…, system_prompt=JUDGE_SYSTEM_PROMPT,
+  messages=judge_messages(rubric, candidate), tools=[])`（`JUDGE_SYSTEM_PROMPT`/`judge_user_text` は
+  コード固定＝宣言では変えられない。テンプレを変えると鍵がずれて fail closed になる）。
+
+```
+uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 4
+```
+
+**`--goal` と `--goal-expected` の併用は exit 2**（正本が二重になる二重管理を避ける）。それ以外の exit
+規約（stdout=最終応答・stderr=来歴・goal 未達は exit 1）は `--goal-expected` と同じ。
 
 ## 実プロバイダ（anthropic）と記録再生（cassette）
 

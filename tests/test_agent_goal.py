@@ -7,12 +7,23 @@
 
 from __future__ import annotations
 
+import json
 import socket
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
-from harness.agent.goal import DEFAULT_CONTINUE_PROMPT, Goal, GoalGate, run_agent_to_goal
+from harness.agent.goal import (
+    DEFAULT_CONTINUE_PROMPT,
+    Goal,
+    GoalGate,
+    gate_from_goal,
+    load_goal,
+    run_agent_to_goal,
+)
+from harness.agent.judge import JUDGE_SYSTEM_PROMPT, RubricJudge, judge_user_text
 from harness.agent.providers import PROVIDERS, build_messages
 from harness.agent.runtime import run_agent
 from harness.agent.spec import AgentSpec
@@ -184,3 +195,84 @@ def test_goal_loop_composes_with_tool_round_trip_no_network(monkeypatch: pytest.
     assert run.gate_reasons[0].startswith("goal_not_met")
     # サイクル 1（tool_use→tool_result→答え）は turns==2・サイクル 2（続行文への直答）は turns==1（台本の構成）。
     assert run.final.turns == 1
+
+
+# --- llm_judge を束ねた GoalGate（T-0096） ---
+
+_JUDGE_SPEC = AgentSpec(name="judge", provider="dummy", model="dummy-model", system_prompt=JUDGE_SYSTEM_PROMPT)
+
+
+@pytest.mark.integration
+def test_goal_loop_with_llm_judge_continues_until_pass_no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    _cut_network(monkeypatch)
+    rubric = "手順が番号付きで3段になっていること"
+    # agent 台本：1 サイクル目「下書き」（rubric 未達）→ 続行文の鍵で「1. 2. 3. の手順」（rubric 達成）。
+    agent_provider = PROVIDERS.resolve("dummy").factory(
+        0, replies={"下書きにして": "下書き", DEFAULT_CONTINUE_PROMPT: "1. 2. 3. の手順"}
+    )
+    # judge 台本：候補ごとにスコアを仕込む（0.2 は閾値 0.7 未満・0.9 は閾値以上＝構成から cycles==2 を導出）。
+    judge_provider = PROVIDERS.resolve("dummy").factory(
+        0, replies={judge_user_text(rubric, "下書き"): "0.2", judge_user_text(rubric, "1. 2. 3. の手順"): "0.9"}
+    )
+    judge = RubricJudge(provider=judge_provider, spec=_JUDGE_SPEC)  # agent provider とは別インスタンス
+    gate = GoalGate(goal=Goal(expected=rubric, metrics=("llm_judge",), thresholds={"llm_judge": 0.7}), judge=judge)
+
+    run = run_agent_to_goal(_SPEC, "下書きにして", provider=agent_provider, gate=gate, seed=0)
+
+    assert run.cycles == 2
+    assert run.gate_reasons[0] == "goal_not_met: llm_judge=0.200"  # 台本の 0.2 の構成から導出
+    assert run.stop_reason == "goal_met"
+    assert run.final.output == "1. 2. 3. の手順"
+
+
+@pytest.mark.unit
+def test_goal_gate_judge_metric_without_binding_raises_fail_closed() -> None:
+    # llm_judge を metrics に載せたが judge= を束ねていない（None）＝fail closed の ValueError。
+    goal = Goal(expected="基準", metrics=("llm_judge",), thresholds={"llm_judge": 0.7})
+    gate = GoalGate(goal=goal)  # judge 省略時は None
+    with pytest.raises(ValueError, match="束ね"):
+        gate.check(output="x", iteration=1)
+
+
+@pytest.mark.integration
+def test_gate_from_goal_yaml_with_cassette_judge_no_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _cut_network(monkeypatch)
+    from harness.agent.cassette import cassette_key
+    from harness.agent.judge import judge_messages
+
+    rubric = "手順が番号付きで3段になっていること"
+    candidate = "1. 2. 3. の手順"
+    judge_key = cassette_key(
+        model="judge-model",
+        system_prompt=JUDGE_SYSTEM_PROMPT,
+        messages=judge_messages(rubric, candidate),
+        tools=[],
+    )
+    record = {
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": "0.9"}],
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    cassette_path = tmp_path / "judge-cassette.json"
+    cassette_path.write_text(json.dumps({judge_key: record}, ensure_ascii=False), encoding="utf-8")
+
+    goal_path = tmp_path / "goal.yaml"
+    goal_path.write_text(
+        yaml.safe_dump(
+            {
+                "expected": rubric,
+                "metrics": ["llm_judge"],
+                "thresholds": {"llm_judge": 0.7},
+                "judge": {"provider": "cassette", "model": "judge-model", "path": str(cassette_path)},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    goal, judge_decl = load_goal(goal_path)
+    gate = gate_from_goal(goal, judge_decl, seed=0)
+    decision = gate.check(output=candidate, iteration=1)
+
+    assert decision.stop is True
+    assert decision.reason == "goal_met"
