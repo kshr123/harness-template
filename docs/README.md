@@ -49,6 +49,7 @@
 | [../AGENTS.md](../AGENTS.md) | Reference | 従うべき決まりごと（機械検査つき・正本） |
 | [DoD.md](DoD.md) | Reference | 完了の定義（チェックリスト） |
 | [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と使いどころの地図 |
+| [ds-code.md](ds-code.md) | Explanation | ds のコードの役割・組まれ方・今後の広がり（設計の説明） |
 | [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
 | [serve.md](serve.md) | Reference | モデル配信（FastAPI）と予測ログの契約 |
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
