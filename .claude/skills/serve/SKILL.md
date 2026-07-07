@@ -26,6 +26,9 @@ JSONL 行スキーマ）の正本は docs/serve.md（監視 data monitor はこ�
    docs/ops.md の「監視→課題起票の閉ループ」。ログの正本は docs/serve.md の行スキーマ）。
 7. 新版を本番トラフィックで下見するなら shadow 配信：`SERVE_SHADOW_NAME=<shadow 名>` を付けて起動すると
    応答は primary のまま、同じ入力の shadow 予測が `role: shadow` で JSONL に並ぶ（docs/serve.md の shadow 節）。
+8. 実時間 API でなく、保存済みテーブルにまとめて予測したいとき（バッチ推論）は配信せずに
+   `uv run data predict --work <ID> --name <モデル名> --table <表 id> [--version <版>]`
+   （champion を読み、予測 parquet＋来歴 manifest を書く）。
 
 ## してはいけないこと
 - 昇格していない版を既定で配らない（champion が正本。--version は緊急・検証用の明示に限る）。
