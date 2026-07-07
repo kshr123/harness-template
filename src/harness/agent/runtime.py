@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +60,7 @@ def run_agent(
     tools: Registry[ToolEntry] = TOOLS,
     seed: int,
     max_turns: int | None = None,
+    prior_messages: Sequence[Mapping[str, Any]] = (),
 ) -> AgentRun:
     """ツール往復ループの一巡（純関数）。stop_reason が tool_use の間はツールを実行して結果を返し続ける。
 
@@ -67,12 +68,17 @@ def run_agent(
     （turns＝provider 呼び出し回数）。ツールは順に実行し、ツールが投げたらそのまま止まる（再試行方針は
     監視 T-0093 で必要が見えてから＝YAGNI）。seed は明示で受ける規約（グローバル種禁止）：dummy/cassette
     は生成時に seed を持つため未使用＝サンプリング実行を足すときの口（run_agent_eval と同じ扱い）。
+
+    prior_messages は続行口（省略時 () ＝従来どおりの挙動・後方互換）：会話履歴の続きから始めたいとき
+    （goal-based ループが「続けろ」を注入する T-0095）に渡す。`[*prior_messages, *build_messages(user_input)]`
+    で開始する＝過去の往復を保ったまま新しい user 発話を積む。
     """
     limit = max_turns if max_turns is not None else spec.max_turns
     if limit < 1:
         raise ValueError(f"max_turns は 1 以上（実際: {limit}）")
     provider_tools = to_provider_tools(spec.tools, registry=tools)
-    messages: list[dict[str, Any]] = build_messages(user_input)
+    messages: list[dict[str, Any]] = [dict(m) for m in prior_messages]
+    messages.extend(build_messages(user_input))
     usage = {"input_tokens": 0, "output_tokens": 0}
     tools_used: list[str] = []
     turns = 0

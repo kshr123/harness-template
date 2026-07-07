@@ -78,8 +78,21 @@ def _agent_run(
         bool, typer.Option("--test", help="合成 spec＋合成 cases のスモーク（無ネットワーク・verify 用）")
     ] = False,
     seed: Annotated[int, typer.Option(help="乱数種（dummy の応答導出に混ぜる・明示必須の規約）")] = 0,
+    goal_expected: Annotated[
+        str | None,
+        typer.Option("--goal-expected", help="指定時のみ goal-based ループ（評価器が合格と言うまで続行）"),
+    ] = None,
+    goal_threshold: Annotated[
+        list[str] | None,
+        typer.Option("--goal-threshold", help="goal の閾値 名=値（繰り返し可・省略時 exact_match=1.0）"),
+    ] = None,
+    max_cycles: Annotated[int, typer.Option("--max-cycles", help="goal 未達時の続行サイクル上限")] = 4,
 ) -> None:
-    """AgentSpec で 1 実行（ツール往復ループ）。--test は --spec/--input を使わず組み込みスモークを回す。"""
+    """AgentSpec で 1 実行（ツール往復ループ）。--test は --spec/--input を使わず組み込みスモークを回す。
+
+    --goal-expected を指定すると turn-based（1 回きり）でなく goal-based ループになる：評価器ゲート
+    （`AGENT_METRICS`＋`eval.passes`）が合格と言うまで続行注入し、`max_cycles` で必ず打ち切る（DEC-0017）。
+    """
     from harness.agent.providers import PROVIDERS
     from harness.agent.runtime import run_agent
 
@@ -122,6 +135,24 @@ def _agent_run(
         typer.echo(f"tool_loop: turns={run.turns}\ttools_used={','.join(run.tools_used)}\toutput={run.output}")
         if run.stop_reason != "end_turn" or run.tools_used != ("calculator",):
             raise typer.Exit(1)
+
+        # goal ループのスモーク：1 サイクル目は不一致・続行文の鍵で正解（cycles==2・goal_met を台本から導出）。
+        from harness.agent.goal import DEFAULT_CONTINUE_PROMPT, Goal, GoalGate, run_agent_to_goal
+
+        goal_spec = AgentSpec(name="smoke-goal", provider="dummy", model="dummy-model", system_prompt="そのまま返す")
+        goal_provider = PROVIDERS.resolve("dummy").factory(
+            seed, replies={"下書きにして": "下書き", DEFAULT_CONTINUE_PROMPT: "正解"}
+        )
+        goal_run = run_agent_to_goal(
+            goal_spec,
+            "下書きにして",
+            provider=goal_provider,
+            gate=GoalGate(goal=Goal(expected="正解", thresholds={"exact_match": 1.0})),
+            seed=seed,
+        )
+        typer.echo(f"goal_loop: cycles={goal_run.cycles}\tstop_reason={goal_run.stop_reason}")
+        if goal_run.cycles != 2 or goal_run.stop_reason != "goal_met":
+            raise typer.Exit(1)
         return
 
     if spec is None or input_text is None:
@@ -132,6 +163,31 @@ def _agent_run(
     agent_spec = load_agent_spec(spec)
     entry = PROVIDERS.resolve(agent_spec.provider)  # 未知 provider はここで候補一覧つき ValueError
     provider = entry.factory(seed)
+
+    if goal_expected is not None:
+        from harness.agent.goal import Goal, GoalGate, run_agent_to_goal
+
+        thresholds = _parse_thresholds(goal_threshold) if goal_threshold else {"exact_match": 1.0}
+        goal_run = run_agent_to_goal(
+            agent_spec,
+            input_text,
+            provider=provider,
+            gate=GoalGate(goal=Goal(expected=goal_expected, thresholds=thresholds)),
+            seed=seed,
+            max_cycles=max_cycles,
+        )
+        typer.echo(goal_run.final.output)
+        # 来歴は stderr（stdout は最終応答だけ＝turn-based の run と同じ分離）。
+        typer.echo(
+            f"cycles={goal_run.cycles}\tstop_reason={goal_run.stop_reason}\t"
+            f"gate_reasons={' | '.join(goal_run.gate_reasons)}",
+            err=True,
+        )
+        # goal 未達（max_cycles 打ち切り）は exit 1＝評価器が合格と言うまで完了にしないを exit code に写す。
+        if goal_run.stop_reason != "goal_met":
+            raise typer.Exit(1)
+        return
+
     run = run_agent(agent_spec, input_text, provider=provider, seed=seed)
     typer.echo(run.output)
     # 実行の来歴は stderr（stdout は応答テキストだけ＝パイプで使える）。

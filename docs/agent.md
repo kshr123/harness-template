@@ -4,6 +4,7 @@ LLMOps/AgentOps プロファイル（EP-22・DEC-0015）。中核アーティフ
 （AgentSpec＝prompt＋model＋tools＋方針）**。ライフサイクルは ML と同型：宣言 → golden set → 採点 →
 合否 → 保存 → 昇格 → 配信 → 監視。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
 プロバイダ抽象・tools.py＝ツール（TOOLS）・runtime.py＝往復ループとログ契約・eval.py＝採点器と合否・
+goal.py＝goal-based 停止ゲート（`Goal`/`GoalGate`/`run_agent_to_goal`・EP-23）・
 experiment.py＝評価の一巡・store.py＝保存と昇格・app.py＝配信・monitor.py＝監視・lint.py＝宣言の構造 lint・
 cli.py＝入口）。
 
@@ -14,10 +15,49 @@ uv run agent providers                 # プロバイダ一覧（AgentSpec の p
 uv run agent metrics                   # 採点器一覧（thresholds に書ける名前・向きつき）
 uv run agent tools                     # ツール一覧（AgentSpec の tools に書ける kind）
 uv run agent run --spec <yaml> --input "<発話>"   # 宣言で 1 実行（ツール往復ループ・骨組みは dummy のみ）
-uv run agent run --test                # 合成 spec のスモーク（評価＋ツール往復・無ネットワーク・verify 用）
+uv run agent run --spec <yaml> --input "<発話>" --goal-expected "<正解>"  # goal-based ループ（下の節）
+uv run agent run --test                # 合成 spec のスモーク（評価＋ツール往復＋goal ループ・無ネットワーク・verify 用）
 ```
 
 実プロバイダ（`provider: anthropic`）は `uv sync --extra agent` で SDK を入れて使う（下の節）。
+
+## loops（trigger×stop×policy・DEC-0017）
+
+Anthropic「Getting started with loops」の分類（**loop＝停止条件が満たされるまで作業サイクルを繰り返す
+エージェント**。trigger（起動）×stop-condition（停止）×policy（方針）で 4 類型）を運用モデルの語彙として
+正本化したもの（正本 DEC は `docs/decisions/DEC-0017-loops-operating-model.md`）。語彙（`Trigger`・
+`StopDecision`・`StopCondition`）は core `src/harness/loops.py`（stdlib のみ・DEC-0013）。
+
+| 類型 | trigger | stop | 対応する実装 |
+| --- | --- | --- | --- |
+| turn-based | 発話・`agent run` | provider の `end_turn`＋`max_turns` backstop | `runtime.run_agent`（既存の再解釈のみ） |
+| goal-based | 呼び出し時に Goal を宣言 | 評価器ゲート（`AGENT_METRICS`＋`eval.passes`）合格 or `max_cycles` backstop | `agent/goal.py`（`Goal`/`GoalGate`/`run_agent_to_goal`＝**唯一の新規部品**・T-0095） |
+| time-based | 時間間隔（cron/CI schedule・Claude 側 /loop・/schedule スキル） | cancel・無効化 | 雛形のみ（実行基盤は利用者環境。T-0097・outline） |
+| proactive | event/schedule＋goal の合成 | タスク＝goal 達成で退場・routine＝無効化まで | `agent monitor --file-issue`（前半円のみ実装済み。T-0098・outline） |
+
+**goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）を、宣言済みの評価器
+（`AGENT_METRICS`＋`eval.passes`・fail closed）が検査し、未達なら続行を注入する（AGENTS 第一原則の
+エージェント実行版）。`run_agent` を丸ごと再利用し、続行は `run_agent` の続行口 `prior_messages`
+（会話履歴を保ったまま「続けろ」を注入する keyword-only 引数・省略時は従来どおり）で行う。
+
+```python
+from harness.agent.goal import Goal, GoalGate, run_agent_to_goal
+
+goal = Goal(expected="正解", thresholds={"exact_match": 1.0})
+run = run_agent_to_goal(spec, "問い", provider=provider, gate=GoalGate(goal=goal), seed=0, max_cycles=4)
+run.cycles, run.stop_reason, run.gate_reasons  # 各サイクルの判定＝来歴
+```
+
+CLI からは `agent run` の拡張だけで届く（新しいコマンドは足さない・DEC-0016）：
+
+```
+uv run agent run --spec <yaml> --input "<発話>" --goal-expected "<正解>" \
+    --goal-threshold exact_match=1.0 --max-cycles 4
+```
+
+stdout は最終応答のみ・来歴（`cycles`/`stop_reason`/`gate_reasons`）は stderr（既存 `agent run` と同じ
+分離）。**goal 未達（`max_cycles` 打ち切り）は exit 1**（評価器が合格と言うまで完了にしない、を exit code
+に写す＝`agent monitor` の「門番にしない」＝常に exit 0 とは役割が違う）。
 **verify 経路は extra 無し・ネットワーク 0 で全機能が検証できる**（dummy/cassette のみ＝DEC-0015）。
 
 ## 実プロバイダ（anthropic）と記録再生（cassette）
@@ -65,10 +105,13 @@ I/O をするツールは書かない（verify の無ネットワーク契約＝
 - `to_provider_tools(names)`：provider へ渡す tool 宣言（`{"name","description","input_schema"}` の並び）。
 - `run_tool(name, args)`：1 回実行して文字列を返す。未登録名・スキーマ不一致（required 欠け・未宣言キー）は
   ValueError（黙って捨てず実行前に止める）。
-- `run_agent(spec, user_input, provider=, seed=, max_turns=None) -> AgentRun`：**ツールを呼ぶ→結果を渡す→
-  また考える** を stop_reason に従って繰り返す純関数。`tool_use` の間は tool_result を messages に積んで継続、
-  `end_turn` で停止。上限（`spec.max_turns`・引数は上書き口）到達は `stop_reason="max_turns"` で必ず打ち切る。
-  結果は `AgentRun`（output・stop_reason・turns・tools_used・usage 合算・messages 全履歴）。
+- `run_agent(spec, user_input, provider=, seed=, max_turns=None, prior_messages=()) -> AgentRun`：**ツールを
+  呼ぶ→結果を渡す→また考える** を stop_reason に従って繰り返す純関数。`tool_use` の間は tool_result を
+  messages に積んで継続、`end_turn` で停止。上限（`spec.max_turns`・引数は上書き口）到達は
+  `stop_reason="max_turns"` で必ず打ち切る。結果は `AgentRun`（output・stop_reason・turns・tools_used・
+  usage 合算・messages 全履歴）。`prior_messages`（keyword-only・既定 ()）は続行口：
+  `[*prior_messages, *build_messages(user_input)]` で開始する＝会話の続きから始めたいとき（goal-based
+  ループが「続けろ」を注入する。上の「loops」節）に渡す。省略時は従来どおり（後方互換）。
 - dummy provider は replies の値に `{"tool_use": {"name","input"}}` を仕込むと tool_use を台本化できる
   （tool_result 後の続きは鍵 `"tool_result:<結果文字列>"`）＝往復ループを無ネットワークでテストできる。
 

@@ -66,6 +66,8 @@ def test_agent_run_test_flag_is_wired_and_offline(
     _agent_run(test=True)
     out = capsys.readouterr().out
     assert "exact_match=0.667" in out  # CLI 内蔵スモークも 3 件中 2 件一致の構成（2/3 を 3 桁表示）
+    # goal ループのスモーク（T-0095）も同じ --test 経路で一巡する：台本の構成から cycles==2・goal_met を導出。
+    assert "goal_loop: cycles=2\tstop_reason=goal_met" in out
     assert "passed=True" in out
 
 

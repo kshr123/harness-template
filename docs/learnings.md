@@ -75,3 +75,9 @@
 - **状態**：昇格済み → DEC-0016（導線カバレッジ検査 coverage_lint を verify に接続。次の棚卸しで削除可）。
 - **要点**：doclint は「書いた参照が実在するか」（dead link）だけを見る一方向の検査。逆向き＝新しい能力（CLI コマンド）が増えたのに、スキル/正本 docs に導線が書かれない（missing link）は機械で捕まらず、verify は緑のまま。実測で data の selectors・tuners・metrics（一覧コマンド）と issue の new（起票）がどのスキル/正本 docs からも到達不能だった（serve スキルに `data monitor` の 1 行が入ったのは作者が覚えていたから＝忘れても検査は落ちない）。
 - **対応**：coverage_lint（cli.py 群を ast 解析して `@*.command` を全抽出→スキル/正本 docs での出現を検査・未到達＝error・免除は理由必須の allowlist）を PM_CHECKS に接続し、欠けていた導線を experiment/session スキルに追記して緑化（DEC-0016）。DEC-0009 の第 3 要件（スキル/雛形からの導線）の機械化。
+
+## L-014 end_turn は「完了した気になった」であって「基準を満たした」ではない
+- **状態**：昇格済み → DEC-0017（loops の goal-based 停止ゲートを運用モデルへ昇格。次の棚卸しで削除可）。
+- **要点**：`run_agent` の turn-based ループは provider の `end_turn`（モデル自身の「もう答えた」という自己申告）で止まる。これは AGENTS 第一原則「完了＝検証にすべて成功したときだけ・自己申告で完了にしない」が禁じている形そのものが、エージェント実行の中に素通しで残っていた（end_turn＝モデルの自己申告・宣言済みの評価器による検査を経ていない）。
+- **対応**：goal-based ループ（`agent/goal.py`＝`Goal`/`GoalGate`/`run_agent_to_goal`・T-0095）で、end_turn の直後に宣言済みの評価器（`AGENT_METRICS`＋`eval.passes`・fail closed）を挟む。合格するまで続行を注入し（`run_agent` の続行口 `prior_messages`）、`max_cycles` で黙って無限ループしない backstop を持つ。
+- **判断**：「完了＝検証にすべて成功」の原則は人間・スキルの規律だけでなく、エージェント実行そのもの（maker＝モデルの end_turn、checker＝宣言済みの評価器）にも機械化できる・すべき対象だった。

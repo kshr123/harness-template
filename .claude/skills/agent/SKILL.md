@@ -17,7 +17,10 @@ description: LLM エージェント（AgentSpec）を作る・評価する・昇
    実運用は `provider: anthropic`（`uv sync --extra agent`・SDK は遅延 import・effort を送り temperature は送らない）。
    テスト/CI は `cassette`（記録再生・fail closed・無ネットワーク＝SDK 応答形状のガード。詳細は `docs/agent.md`）。
 2. 動かす：`uv run agent run --spec <yaml> --input "<発話>"`（ツール往復ループ 1 実行）。スモークは
-   `uv run agent run --test`（合成 spec＋合成 cases・無ネットワーク・verify 用＝実験の `--test` 必須の規律と同じ）。
+   `uv run agent run --test`（合成 spec＋合成 cases＋goal ループ・無ネットワーク・verify 用＝実験の `--test`
+   必須の規律と同じ）。答えの成功基準を宣言できるとき（golden set の期待が一意に決まる）は
+   `--goal-expected "<正解>"`（＋`--goal-threshold`/`--max-cycles`）で goal-based ループ（評価器ゲートが
+   合格と言うまで続行・詳細は `docs/agent.md` の「loops」節）。
 3. 評価・保存：golden set（`[{id, input, expected}]`）を `run_agent_eval` に通し、`save_agent` で版として保存
    （負の結果も記録）。乱数は明示 `seed=` のみ（グローバル種禁止）。
 4. 変種比較：結果を `metrics_<variant>.yaml` に残し `uv run agent experiments --results <dir>` でリーダーボード
