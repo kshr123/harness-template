@@ -68,10 +68,11 @@ SERVE_SHADOW_NAME=challenger uv run serve --work E-0001 --name baseline
 - **shadow の予測失敗は応答を落とさない**：primary は 200 で返し、shadow 行は**書かない**（エラー値で
   契約の `prediction` 型を汚さない）。失敗は警告ログ（logging）にだけ残る。
 - `/metadata` は shadow 有効時のみ `shadow`（work/name/version）キーを足す（後方互換のキー追加のみ）。
-- **監視での注意**：`data monitor` は現状 `role` を区別せず全行を集計する。shadow を有効にすると同じ入力が
-  primary＋shadow の 2 行になり、shadow が primary と同じ `prediction_kind`（＝同一タスクの新版）なら
-  要約が両 role の混合になる。role 別に見たいときは `role: "primary"` の行だけを対象にする（`data monitor`
-  への role フィルタは後続で追加予定＝EP-21 T-0115）。
+- **監視での注意**：shadow を有効にすると同じ入力が primary＋shadow の 2 行になるため、無区別に数えると
+  `n_served` が二重計上になり要約が両 role の混合になる。`data monitor` は **`--role`（primary | shadow |
+  all・T-0115）**でこれを絞る：既定 `primary`＝shadow 行を除外した従来（shadow 無し）相当の集計。shadow 版
+  だけの分布を見るなら `--role shadow`、全行（突き合わせ・件数確認）は `--role all`。`role` キーが無い
+  旧ログ行は primary 扱い（後方互換）。
 
 ## コンテナ・K8s で配るとき
 

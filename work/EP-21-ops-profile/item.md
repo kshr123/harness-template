@@ -1,7 +1,7 @@
 ---
 id: EP-21
 kind: epic
-status: todo
+status: done
 title: 運用プロファイル harness.ops（CI/継続学習/リリース戦略/shadow/監視の閉ループ）
 plan: detailed
 requirements: [REQ-002]

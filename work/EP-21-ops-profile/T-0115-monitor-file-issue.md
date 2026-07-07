@@ -1,11 +1,11 @@
 ---
 id: T-0115
 kind: task
-status: todo
+status: done
 title: data monitor --file-issue＝PSI_ALERT 超で issues に冪等起票（監視→課題の閉ループ・門番にしない）
 created: 2026-07-07
 depends_on: [T-0114]
-verified_by: [tests/test_monitor_file_issue.py::test_file_issue_idempotent_and_exit_zero]
+verified_by: [tests/test_monitor_file_issue.py::test_file_issue_idempotent_and_exit_zero, tests/test_monitor_file_issue.py::test_resolved_same_drift_refiles]
 ---
 # T-0115 data monitor --file-issue（監視→課題起票の閉ループ）
 

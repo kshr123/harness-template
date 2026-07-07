@@ -193,11 +193,21 @@ def _data_monitor(
     since: Annotated[
         str | None, typer.Option("--since", help="この日付（YYYY-MM-DD・境界日を含む）以降の行だけ")
     ] = None,
+    role: Annotated[
+        str,
+        typer.Option("--role", help="集計する役割（primary | shadow | all）。既定 primary＝shadow 行を除外"),
+    ] = "primary",
+    file_issue: Annotated[
+        bool,
+        typer.Option("--file-issue", help="band=大変化（PSI_ALERT 以上）の列があれば issues に冪等起票（exit 0）"),
+    ] = False,
     seed: Annotated[int, typer.Option(help="--auc の乱数種")] = 0,
 ) -> None:
     """配信ログ（予測 JSONL）×学習基準テーブルの分布監視表を YAML で出す（psi/band・--auc で drift・予測の要約）。
 
-    門番にしない（分布ずれは exit code に載せず band で人が読む・exit 0）。基準テーブルが読めないときだけ非 0。
+    門番にしない（分布ずれは exit code に載せず band で人が読む・exit 0。--file-issue の起票も副作用であって
+    exit code に載せない）。基準テーブルが読めないときだけ非 0。--role は既定 primary＝shadow 配信
+    （docs/serve.md）の並走行を二重計上しない従来相当の集計（role キーが無い旧ログ行は primary 扱い）。
     ログの glob は root 相対（既定 artifacts/serve/predictions/**/*.jsonl）。serve は起動しない（結合は契約のみ）。
     """
     from datetime import date
@@ -213,15 +223,62 @@ def _data_monitor(
             since_date = date.fromisoformat(since)
         except ValueError as exc:
             raise typer.BadParameter(f"--since は YYYY-MM-DD 形式（受領: {since!r}）") from exc
+    if role not in ("primary", "shadow", "all"):
+        raise typer.BadParameter(f"--role は primary / shadow / all のいずれか（受領: {role!r}）")
 
     root = _root()
     baseline_df = store.load(root, baseline)  # 読めなければここで例外＝非 0（唯一の門番）
     files = sorted(root.glob(log))
-    served = monitor_mod.read_prediction_logs(files, since=since_date)
+    served = monitor_mod.read_prediction_logs(files, since=since_date, role=role)
     cols = columns.split(",") if columns else None
     report = monitor_mod.monitor(baseline_df, served, columns=cols, auc=auc, seed=seed)
     out: dict[str, object] = {"baseline": baseline, "log": log, **report.to_dict()}
     typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+    if file_issue:
+        _file_drift_issue(root, baseline=baseline, log=log, psi_rows=report.psi.to_dicts())
+
+
+def _file_drift_issue(root: Path, *, baseline: str, log: str, psi_rows: list[dict[str, Any]]) -> None:
+    """band=大変化（psi >= PSI_ALERT）の列があれば issues backend へ冪等に起票する（`--file-issue` の中身）。
+
+    門番にしない：起票は副作用で exit code に載せない（alert でも・起票済みでも・github: backend でも
+    そのまま戻る＝exit 0）。冪等判定は課題本文の「監視指紋」（drift_issue_content の fingerprint）を
+    open / in-progress の課題と照合する。起票は issues.py の既存 API（local_dir・next_id）だけを使う
+    （backend 分岐を新設しない。github: では `issue new` と同様に GitHub 側で起票する）。
+    """
+    from datetime import date
+
+    import yaml
+
+    from harness import issues
+    from harness.ds import monitor as monitor_mod
+
+    alerts = [r for r in psi_rows if float(r["psi"]) >= monitor_mod.PSI_ALERT]
+    if not alerts:
+        return  # alert 無し＝起票なし（1 行も出さない）
+    content = monitor_mod.drift_issue_content(baseline=baseline, log=log, alerts=alerts, today=date.today())
+    for li in issues.load_issues(root):
+        if li.issue.state in (issues.IssueState.open, issues.IssueState.in_progress) and content.fingerprint in li.body:
+            typer.echo(f"起票済み: {li.issue.id}（同じドリフト内容の課題が未解決＝重複起票しない）")
+            return
+    directory = issues.local_dir(root)
+    if directory is None:
+        typer.echo("起票先が github: backend（起票は GitHub 側で行う・監視は継続）")
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    iid = issues.next_id(root)
+    meta: dict[str, Any] = {
+        "id": iid,
+        "kind": issues.IssueKind.risk.value,
+        "state": issues.IssueState.open.value,
+        "created": date.today(),
+        "found_in": "data monitor --file-issue",
+        "title": content.title,
+    }
+    path = directory / f"{iid}.md"
+    front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
+    path.write_text(f"---\n{front}---\n# {iid} {content.title}\n\n{content.body}", encoding="utf-8")
+    typer.echo(f"起票: {iid}（{path.relative_to(root)}）")
 
 
 def _feature_columns(df: Any, columns: str | None) -> list[str]:  # noqa: ANN401  polars.DataFrame

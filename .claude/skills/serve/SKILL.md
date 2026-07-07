@@ -20,8 +20,10 @@ JSONL 行スキーマ）の正本は docs/serve.md（監視 data monitor はこ�
    追記される（行スキーマは docs/serve.md）。
 5. コンテナ・K8s で配るときは `templates/serve/` の雛形をコピーして案件側で調整する（T-0086 で追加。
    実行基盤は利用者環境の関心）。
-6. 配信後の分布ずれを見張る：`uv run data monitor --baseline <学習基準の表 id> [--auc] [--since YYYY-MM-DD]`
-   （予測 JSONL×学習基準の psi/band。門番にせず band で読む＝exit 0。ログの正本は docs/serve.md の行スキーマ）。
+6. 配信後の分布ずれを見張る：`uv run data monitor --baseline <学習基準の表 id> [--auc] [--since YYYY-MM-DD]
+   [--role primary|shadow|all] [--file-issue]`（予測 JSONL×学習基準の psi/band。門番にせず band で読む＝exit 0。
+   既定 `--role primary` は shadow 行を除外・`--file-issue` は PSI_ALERT 超で issues に冪等起票＝閉ループは
+   docs/ops.md の「監視→課題起票の閉ループ」。ログの正本は docs/serve.md の行スキーマ）。
 7. 新版を本番トラフィックで下見するなら shadow 配信：`SERVE_SHADOW_NAME=<shadow 名>` を付けて起動すると
    応答は primary のまま、同じ入力の shadow 予測が `role: shadow` で JSONL に並ぶ（docs/serve.md の shadow 節）。
 

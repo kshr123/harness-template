@@ -31,7 +31,9 @@ jobs:
         run: uv run python work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py --variant interaction
       # ドリフト確認＝data monitor は門番にしない（分布ずれで exit code を非 0 にしない・band は人が読む。
       # 基準テーブルが読めないときだけ非 0）。自動停止しない理由：ドリフトの解釈は文脈依存で、誤検知の
-      # 自動停止は再学習ループ全体を止めてしまうため。閉ループは monitor --file-issue（課題起票）側で作る。
+      # 自動停止は再学習ループ全体を止めてしまうため。閉ループ＝--file-issue を付けると PSI_ALERT 超で
+      # issues に冪等起票される（起票しても exit 0＝ループは止めない。正本は docs/ops.md の
+      # 「監視→課題起票の閉ループ」）。shadow 配信中は既定 --role primary が二重計上を防ぐ（docs/serve.md）。
       - name: ドリフト確認（門番にしない）
         run: uv run data monitor --baseline train_table # ← 複製先が編集する箇所：学習基準テーブルの id
       # 昇格＝既存の promote_model が唯一の関門：絶対（thresholds＝eval.passes と同じ合否）かつ

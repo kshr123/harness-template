@@ -7,14 +7,15 @@ serve/runtime.py の PREDICTION_LOG_FIELDS）**だけ**で、serve パッケー�
 
 監視は**門番にしない**：壊れ行・スキーマ不一致は警告して読み飛ばす（監視が盲目になるより縮退）。
 判定は band（psi の目安 0.1/0.25 の離散化）として人が読む数字で返し、exit code に載せない。
-消費するキーだけを検証する（time/prediction_kind/features/prediction。使わないキーは見ない＝受け側は寛容に）。
+消費するキーだけを検証する（time/prediction_kind/features/prediction。role は絞り込みにだけ使い、
+無い旧ログ行は primary 扱い。使わないキーは見ない＝受け側は寛容に）。
 """
 
 from __future__ import annotations
 
 import json
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -25,6 +26,7 @@ import polars as pl
 from numpy.typing import NDArray
 
 from harness.ds import eda
+from harness.fingerprint import input_fingerprint
 
 # psi の目安（eda.psi の docstring と同じ 0.1 / 0.25）。表示のための離散化であって門番の閾値ではない。
 PSI_WATCH = 0.1
@@ -81,13 +83,17 @@ def _contract_error(row: object) -> str | None:
     return None
 
 
-def read_prediction_logs(files: Sequence[Path], *, since: date | None = None) -> ServedLog:
+def read_prediction_logs(files: Sequence[Path], *, since: date | None = None, role: str = "all") -> ServedLog:
     """予測 JSONL（docs/serve.md の行スキーマ）を読み、配信入力（features の unnest）と予測を集める。
 
     壊れ行（JSON でない・消費キーの欠け/型違い・features のキー集合が先頭の有効行と不一致・多クラスの
     確率の長さが揃わない）は**ファイルごとに 1 回警告して読み飛ばす**（門番にしない）。since を渡すと
     time（ISO 8601）の日付がその日以降の行だけ残す（境界日を含む。絞り込みは壊れ行に数えない）。
+    role（"primary" | "shadow" | "all"）でその役割の行だけ残す（shadow 配信＝T-0113 で同じ入力が
+    role 2 行になるため。既定 all＝従来どおり全行・role キーが無い旧ログ行は primary 扱い＝後方互換）。
     """
+    if role not in ("primary", "shadow", "all"):
+        raise ValueError(f'role は "primary" | "shadow" | "all"（契約は docs/serve.md）: {role!r}')
     feature_rows: list[dict[str, Any]] = []
     kinds: list[str] = []
     predictions: list[Any] = []
@@ -115,6 +121,8 @@ def read_prediction_logs(files: Sequence[Path], *, since: date | None = None) ->
             if reason is not None:
                 _skip(reason)
                 continue
+            if role != "all" and row.get("role", "primary") != role:
+                continue  # role 対象外＝壊れ行ではない（警告しない。無い旧ログ行は primary 扱い）
             if since is not None:
                 try:
                     at = datetime.fromisoformat(row["time"])
@@ -257,3 +265,48 @@ def monitor(
         drift=drift,
         prediction_summary=prediction_summary(served),
     )
+
+
+# ---- 監視→課題起票（`data monitor --file-issue`）の内容組み立て（純関数。書き込み＝副作用は CLI 側） ----
+
+
+@dataclass(frozen=True)
+class DriftIssueContent:
+    """--file-issue が起票する課題の内容。同じ入力（基準×alert 列×psi×日付）なら同じ title/body。
+
+    fingerprint は冪等判定キー：基準テーブル id×大変化の列集合だけの指紋（psi 値・日付を含めない＝
+    同じドリフト事象の再実行・翌日の再実行で重複起票しない）。body に埋めて open 課題と照合する。
+    """
+
+    title: str
+    body: str
+    fingerprint: str
+
+
+def drift_issue_content(
+    *, baseline: str, log: str, alerts: Sequence[Mapping[str, Any]], today: date
+) -> DriftIssueContent:
+    """PSI_ALERT 帯（band=大変化）の psi 行から課題の title/body/指紋を組み立てる（決定的）。
+
+    指紋は harness.fingerprint.input_fingerprint（正準 JSON の sha256）＝既存部品を再利用（新しい
+    仕組みを作らない）。alerts は MonitorReport.psi の行（column/psi/band の dict）のうち alert のもの。
+    """
+    columns = sorted(str(a["column"]) for a in alerts)
+    fp = input_fingerprint({"kind": "psi_alert", "baseline": baseline, "columns": columns})
+    by_column = {str(a["column"]): float(a["psi"]) for a in alerts}
+    lines = [
+        "## 事象",
+        f"`data monitor --baseline {baseline} --log '{log}'` で band=大変化"
+        f"（psi >= {PSI_ALERT}）の列を検知（{today.isoformat()}）。",
+        "",
+        *[f"- {c}: psi={by_column[c]:.6f}（大変化）" for c in columns],
+        "",
+        "## 根拠・影響",
+        "psi のビン境界は基準側の分位のみ（eda.psi＝リーク無し）。0.25 以上＝大変化は人が読む目安であって",
+        "門番ではない（monitor は exit 0 のまま）。対応すると決めたら promoted_to で作業単位（再学習・特徴の",
+        "見直し）に結びつける。閉ループの正本は docs/ops.md の「監視→課題起票の閉ループ」。",
+        "",
+        f"監視指紋: {fp}",
+    ]
+    title = f"監視ドリフト {baseline}（大変化: {', '.join(columns)}）"
+    return DriftIssueContent(title=title, body="\n".join(lines) + "\n", fingerprint=fp)

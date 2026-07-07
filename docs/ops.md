@@ -82,8 +82,8 @@ replicas 比率で流量を近似的に分ける段階リリース。コピペ�
   experiment スキル。学習コードをワークフローに書かない＝config.yaml が変種・モデル・データの正本）。
 - **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**門番にしない**（分布ずれは band で
   人が読む・exit 0。基準テーブルが読めないときだけ非 0）＝ドリフトの解釈は文脈依存で、誤検知の自動停止は
-  再学習ループ全体を止めてしまうため。閉ループ（PSI_ALERT 超で課題起票）は `data monitor --file-issue`
-  （T-0115）がここに接続される。
+  再学習ループ全体を止めてしまうため。閉ループ（PSI_ALERT 超で課題起票）は `--file-issue` を付けて接続する
+  （下の「監視→課題起票の閉ループ」節）。
 - **昇格**＝`harness.ds.models.promote_model` が唯一の関門：絶対（thresholds＝`eval.passes` と同じ合否の
   辞書。「本番に出してよい最低ライン」を書く）かつ相対（現 champion に primary で勝つ）を満たすときだけ
   champion を更新する。版は手書きしない＝再学習 step の結果記録（`results/metrics_<variant>.yaml` の
@@ -97,4 +97,22 @@ Python 版・`--all-extras` を静的検査して腐りを止める（`_WORKFLOW
 
 ## 監視→課題起票の閉ループ
 
-（T-0115 で記載：`data monitor --file-issue`＝PSI_ALERT 超で issues に冪等起票。門番にしない＝exit 0。）
+`uv run data monitor --baseline <テーブル id> --file-issue` は、psi の band が大変化（`PSI_ALERT`＝0.25 以上）
+の列があるとき issues の登録簿（`uv run issue` と同じ置き場・`.harness/config.toml` の issues.backend）へ
+**冪等に**起票する（kind=risk・state=open）。**門番にしない思想は維持**：起票は副作用で exit code は常に 0
+（alert でも・起票済みでも 0。分布ずれで CI・再学習ループを止めない）。`--file-issue` 無しの出力・exit code
+は従来と完全に同一（既定 off＝後方互換）。既存 2 部品の合成のみ：判定は `ds/monitor.py` の psi/band、起票は
+`issues.py` の既存 API（local_dir・next_id）＝新しい監視ロジック・新しい backend を作らない。
+
+- **冪等**：課題本文の「監視指紋」（基準テーブル id×大変化の列集合の正準 JSON の sha256＝
+  `harness.fingerprint.input_fingerprint`）を open / in-progress の課題と照合し、既にあれば起票しない
+  （`起票済み: ISS-xxxx` と 1 行出すだけ）。psi 値・日付は指紋に**含めない**＝同じドリフト事象の再実行・
+  翌日の再実行で重複起票しない。列集合が変われば別事象として新規に起票される。
+- **起票の中身**：タイトル・本文は決定的（対象列・psi 値・基準/ログの指定・日付）。対応すると決めたら
+  `promoted_to` で作業単位（再学習・特徴の見直し）に結びつける（課題の生涯・検査は `uv run issue check`）。
+- **backend**：github: backend では（`issue new` と同様）起票は GitHub 側で行う＝その旨を 1 行出して
+  監視は継続する（exit 0）。
+- **shadow との併用**：`data monitor` は既定 `--role primary`（shadow 行を除外した従来相当の集計。
+  詳細は docs/serve.md の shadow 配信節）。
+- **CT への結線**：retrain.yml（上の CT 雛形）の monitor step に `--file-issue` を付ければ、定期実行の
+  ドリフト検知が課題登録簿に自動で残る（読む・対応を決めるのは人＝自動停止しない）。
