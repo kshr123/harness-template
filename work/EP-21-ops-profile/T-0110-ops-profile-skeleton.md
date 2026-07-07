@@ -1,7 +1,7 @@
 ---
 id: T-0110
 kind: task
-status: todo
+status: done
 title: harness.ops 歩く骨組み（PROFILE 登録・空 ci_lint・config 1 行・docs/ops.md の器）
 created: 2026-07-07
 depends_on: [T-0085, T-0088]
