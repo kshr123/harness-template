@@ -1,7 +1,7 @@
 ---
 id: T-0111
 kind: task
-status: todo
+status: done
 title: CI verify テンプレ＝templates/ci の verify.yml＋ci_lint 本実装（実行しない構造検査）
 created: 2026-07-07
 depends_on: [T-0110]

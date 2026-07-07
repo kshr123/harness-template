@@ -11,7 +11,7 @@ DEC-0013 の軽 import）。**ops は CLI を持たない**＝入口はこの正
 GitHub Actions・k8s・スケジューラ・クラウドは**実行しない**。運用の実行基盤は利用者環境の関心であり、
 当リポが持つのは：
 
-- **テンプレート**（`templates/ci/` に置く雛形。T-0111 以降で追加）＝利用者がコピーして使う資産。
+- **テンプレート**（`templates/ci/` の雛形）＝利用者がコピーして使う資産。
 - **構造 lint**（`ci_lint.run_checks`）＝実行できない資産の参照整合を verify で静的に検査し、
   テンプレートが腐るのを止める（`src/harness/serve/deploy_lint.py` が `templates/serve/` を守るのと同型）。
 - **プロファイル境界**＝ops を外したい案件は config の 1 行を消すだけ（中核・ds・serve は無傷）。
@@ -28,8 +28,27 @@ S3・GCS の実装／retry・timeout・circuit breaker／オンライン特徴�
 
 ## CI（verify ゲート）テンプレートと ci_lint
 
-（T-0111 で記載：`templates/ci/` の verify ワークフロー雛形の複製手順・ci_lint が何を守るか＝
-verify step の有無・Python 版・extras の整合。）
+`templates/ci/.github/workflows/verify.yml` は、テンプレ複製先のリポジトリが **PR→`uv run verify` の
+ゲート**を最初から持てる雛形。複製先のリポジトリ直下へ `.github/workflows/verify.yml` としてコピーする
+（`templates/ci/` は雛形置き場であり当リポの CI＝`.github/workflows/ci.yaml` とは独立。GitHub Actions は
+リポ直下の `.github/` しか読まないので、雛形のままでは実行されない）。複製先が編集してよい箇所
+（既定ブランチ名・OS）は雛形内のコメントで示している。ジョブの中身はローカルの完了判定と同じ
+checkout→uv セットアップ（Python 3.14）→`uv sync --all-extras`→`uv run verify` の 1 本＝完了の定義を
+CI と一致させる。
+
+ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に自動で乗る・CLI は持たない）は、
+この雛形を**実行せずに**構造検査して腐りを止める。error になるのは：
+
+- 必須ファイル（`.github/workflows/verify.yml`）の欠落＝複製先がゲート無しで始まってしまう。
+- `uv run verify` を実行する step が無い＝ゲートの本体が抜けた雛形。
+- `python-version` がリポの正（pyproject の `requires-python`）と食い違う・指定が無い＝CI とローカルで
+  別の版を検証してしまう。
+- `uv sync` の step に `--all-extras` が無い＝optional 依存のテストが skip され「verify 環境は全部入り」
+  （AGENTS の規約）に反する。
+
+検査対象はデータ駆動（ci_lint の `_WORKFLOWS` の表）：ワークフロー雛形を足すときは表に 1 行足すだけで
+欠落・必須 step・版/extras の検査が増える（T-0114 の retrain.yml も同じ表に載る）。`templates/ci/` が無い
+コピー先の案件では何も指摘しない（誤検知しない）。
 
 ## リリース戦略（Blue-Green・Canary）
 

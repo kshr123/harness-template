@@ -1,0 +1,27 @@
+# CI verify ゲートの雛形（複製先のリポジトリ直下へ .github/workflows/verify.yml としてコピーして使う）。
+# ローカルと同じ共通の検証コマンド（uv run verify）を PR/push のゲートにする＝完了の定義を CI と一致させる。
+#
+# この雛形は当リポでは実行されない（GitHub Actions はリポ直下の .github/ しか読まない。当リポ自身の CI は
+# .github/workflows/ci.yaml）。代わりに ci_lint（src/harness/ops/ci_lint.py）が uv run verify のたびに
+# 構造（verify step の有無・Python 版・--all-extras）を静的検査し、雛形が腐るのを止める。
+# 使い方の正本は docs/ops.md の「CI（verify ゲート）テンプレートと ci_lint」。
+name: verify
+
+on:
+  push:
+    branches: [main] # ← 複製先が編集する箇所：既定ブランチ名（main 以外なら合わせる）
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest # ← 複製先が編集する箇所：OS を増やすなら matrix にする（例：当リポの ci.yaml）
+    steps:
+      - uses: actions/checkout@v4
+      - name: uv をセットアップ（Python 版はリポの正＝pyproject の requires-python と一致させる）
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: 依存を同期（全部入り＝optional 依存のテストも skip しない・AGENTS の規約）
+        run: uv sync --all-extras
+      - name: 共通の検証コマンド（完了判定＝ローカルと同じ）
+        run: uv run verify
