@@ -27,9 +27,11 @@ work 木＋pm.lint・goal-gate/judge/exit-1・maker≠checker・fail-closed・�
 - **T-0134**（C-1・骨組み）検査委譲の関門 DEC-0021＋actionlint/check-jsonschema を pre-commit 配線（vacuous pass を実測で潰す）。
 - **T-0135**（C-2・差し替え）自前 lint の汎用層剥離＋「停止」日本語 grep→言語非依存 `# stop:` マーカーへ。
 - **T-0140**（D-1・差し替え）実験正本雛形を `templates/experiment/` へ移設・e2e/スキル追従・template-copy.md を doclint 走査対象へ。
-- **T-0137**（D-2・抜本1）templates 資産のオーナー検査ラチェット（資産を足したら検査オーナーも足す＝verify 強制）。
-- **T-0138**（B・抜本2・EP-24 着地後）レビューのリスク比例化（diff で full/light 機械判定）＋レビュー来歴を pm 検査へ昇格。
-- **T-0139**（E・EP-24 着地後）メタの自己整合：正本一元の実施・棚卸し・規範文の重複検出を doc_standards へ。
+- **T-0137**（D-2・抜本1）templates 資産のオーナー検査ラチェット（資産を足したら検査オーナーも足す＝verify 強制）。**機械検査で実施**（コードの構造不変条件＝機械化の射程内）。
+- **T-0138**（B・改訂）レビューのリスク比例化（diff で full/light 判定）を **review スキル＋DoD に規約として明文化**（新 pm 検査は足さない）。**理由**：EP-24 rollback で「文書構造の機械化（lede 必須等）は撤去・規約へ」と決まった。「レビュー節必須」の pm 検査は同型（文書構造の機械化）＝規約に留める。レビュー深度の判定基準（src/tests/templates に触れる＝full）を skill に書き、独立性は全 tier で不変。
+- **T-0139**（E・改訂）メタの自己整合：正本一元の実施（同趣旨の重複を 1 か所へ）・learnings 棚卸しを **手作業で実施**。**規範文の重複検出器（doc_standards 型）は新設しない**（rollback＝「文書規律は機械検査でなく規約」と整合。doc_standards は撤去済み）。
+
+**機械化の射程（owner 決定 2026-07-07・rollback 整合）**：真に機械化できる構造/コード不変条件だけ機械検査（T-0137・actionlint 等）、文書/プロセス/散文品質の規律は〈私への規約〉（skill/AGENTS）に留める（T-0138/0139）。
 
 ## EP-24 競合回避
 別ターミナルが worktree で EP-24（docs 人間可読化・T-0130 コミット済み／T-0131・T-0132 todo）稼働中。
