@@ -87,6 +87,28 @@ import しない（DEC-0004）。
 本番のリクエストを新版にも**並走**させ、応答は返さずログだけ残す下見運用（英: shadow deployment／
 シャドー配信）。予測 JSONL に `role: shadow` の行として残る（`docs/serve.md` の shadow 配信節）。
 
+## registry
+学習・評価済みの版（モデル・エージェント）を登録しておく置き場（英: model registry／モデルレジストリ）。
+`work/<ID>/models/`・`work/<ID>/agents/` 配下の manifest と昇格記録の総体で、champion（採用版）はここから
+解決する。
+
+## prediction log
+配信中の予測を 1 行＝1 予測で JSONL に残すログ（英: prediction log／予測ログ）。モデル版・入力の指紋などの
+来歴を含み、監視（`data monitor`）が唯一依存する契約。行スキーマの正本は `docs/serve.md`。
+
+## role
+予測ログの各行の役割を示すキー。`primary`（応答を返した champion）か `shadow`（並走した shadow 版）の
+どちらかが**常に**入る（英: role。shadow deployment の行を突き合わせ・除外するのに使う）。
+
+## AgentSpec
+LLM エージェントの宣言（英: agent specification）。prompt・model・tools・方針（effort・max_turns など）を
+1 つの YAML で表し、この宣言そのものをエージェントの実体として評価・保存・昇格する
+（`src/harness/agent/spec.py`）。
+
+## golden set
+期待する出力（expected）つきの評価用の例集（英: golden set／ゴールデンセット）。エージェントの合否は
+golden set 全体への採点の平均で決める（テストデータの LLM 版・回帰の基準）。
+
 ## cassette
 実 API の応答を JSON に固定しておき、テスト時にネットワークなしで再生する記録再生フィクスチャ
 （英: record-replay fixture。VCR の「カセット」の慣用）。記録が無いキーはエラー＝fail-closed
@@ -100,6 +122,10 @@ LLM の推論の深さの指定（英: reasoning effort。low〜max）。現行�
 「停止条件が満たされるまで作業サイクルを繰り返す」エージェント運用の語彙（trigger×stop×policy。
 turn-based／goal-based／time-based／proactive の 4 類型）。正本は DEC-0017 と `docs/agent.md` の loops 節。
 
+## goal-based gate
+goal-based loop の停止判定（英: evaluator gate／評価器ゲート）。モデル自身の「終わった」（`end_turn`）を
+そのまま信用せず、宣言済みの評価器が合格と言うまで続行させる（DEC-0017・`src/harness/agent/goal.py`）。
+
 ## fail-closed / fail-open
 判定できない入力（欠損・NaN・未知キー）が来たとき、**不合格側に倒す**のが fail-closed（フェイルクローズド）、
 合格側に素通しするのが fail-open（フェイルオープン）。合否・関門・再生は常に fail-closed に作る（L-009）。
@@ -107,6 +133,15 @@ turn-based／goal-based／time-based／proactive の 4 類型）。正本は DEC
 ## PSI
 Population Stability Index（母集団安定性指標）。2 つの分布（基準と現在）のずれの大きさを 1 つの数にした
 監視の定番指標。`data monitor` がドリフト検知に使い、band で読む。
+
+## CT
+Continuous Training（継続学習）。schedule（cron）→再学習→監視→関門を満たせば昇格、を既存部品の結線だけで
+定期的に回す運用。雛形は `templates/ci/` の retrain.yml（正本は `docs/ops.md` の CT 節）。
+
+## pm_checks
+`uv run verify` が最初に走らせるプロジェクト管理検査の列（英: project-management checks。実体は
+`harness.checks.PM_CHECKS`）。lint 群はここに登録されることで verify に乗り、プロファイルは PROFILE 経由で
+自分の検査をこの列に足す。
 
 ## lint 群
 実行せずに構造・整合を検査する軽い検査たちの総称：pm.lint／spec_lint（作業単位・SPEC の形）、

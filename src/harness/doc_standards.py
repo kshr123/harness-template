@@ -5,7 +5,7 @@ doclint（**書かれた参照が実在するか**＝dead link の検査）と�
 （索引から辿れない孤立文書・凡例に無い ID 接頭辞・用語集の不整合）を verify で止める。core の検査
 （プロファイル非依存）。stdlib のみに依存（`from harness import pm` は可）。
 
-T-0130 時点の検査は「即満たせるもの」3 つだけ（導入 lede 検査・造語 denylist は T-0131/0132 で足す）：
+検査は 4 つ（T-0130 で 3 つ・T-0131 で導入 lede 検査を追加。造語 denylist は T-0132 で足す）：
 - **孤立検査**：`docs/*.md`（直下・非再帰。`docs/README.md` 自身は除外＝索引そのもの。`docs/archive/**` は
   下層なので対象外）が `docs/README.md` の本文にファイル名で現れる（＝リンクされている）こと。未リンク＝error。
 - **凡例網羅**：`docs/**/*.md`（`docs/archive/**` を除く・再帰）で使われている ID 接頭辞
@@ -13,11 +13,15 @@ T-0130 時点の検査は「即満たせるもの」3 つだけ（導入 lede �
   載っていること。使われているのに凡例に無い接頭辞＝error。
 - **用語集整合**：`docs/glossary.md` が存在し、用語の見出し（`##` 以降の見出し行）に重複が無く、
   各見出しの直下に定義本文があること（本文の無い空見出し＝error）。
+- **導入（lede）検査**：対象文書（`_LEDE_DOCS`）の H1 直後の最初の内容ブロックが**平文の段落**であること
+  （見出し・箇条書き・HTML コメント・コードフェンス・表・引用で始まらない＝可視の平易な導入。
+  DEC-0019 の「各正本文書は可視の平易な導入で始まる」の機械化できる部分。「導入が実際に平易か」は
+  レビュー観点）。違反＝error。
 
 穏当な縮退（コピー先の案件を誤検知しない）：`docs/` が無い、または `docs/` を正本置き場として使っていない
 （直下に .md が無く ID 接頭辞も使われていない）プロジェクトでは何も指摘しない。
-免除は `_EXEMPT`（ファイル名→理由）だけ。**理由必須**（空はValueError で即失敗＝黙って免除しない。
-coverage_lint と同型）。免除を増やす前に「索引に 1 行足す」を先に検討すること。
+免除は `_EXEMPT`／`_LEDE_EXEMPT`（ファイル名→理由）だけ。**理由必須**（空はValueError で即失敗＝黙って
+免除しない。coverage_lint と同型）。免除を増やす前に「索引に 1 行足す」「導入を書く」を先に検討すること。
 """
 
 from __future__ import annotations
@@ -30,6 +34,16 @@ from harness import pm
 # 免除リスト：真に索引不要な docs 直下の文書だけ（ファイル名 → なぜ索引に載せないかの理由。空は不可）。
 _EXEMPT: dict[str, str] = {}
 
+# 導入（lede）検査の対象（docs/ 直下のファイル名）。段階導入の明示リスト：全 `docs/*.md` に一斉に課すと
+# 未刷新の文書（method.md・charter.md 等）が同時に落ちるため、刷新済み（＝可視の導入を持つ）文書だけを
+# 列挙し、T-0132 の中核ルール文書の刷新で残りを足していく（ratchet：一度載せた文書は退行すると error）。
+# README.md（索引）と glossary.md（対応表）は一覧そのものなので対象にしない。archive/ は正本でないので
+# 対象外（docs 直下だけを列挙する）。
+_LEDE_DOCS: tuple[str, ...] = ("agent.md", "serve.md", "ops.md")
+
+# lede 検査の免除リスト（ファイル名 → なぜ導入不要かの理由。空は不可）。_EXEMPT と同型。
+_LEDE_EXEMPT: dict[str, str] = {}
+
 # 文書中の ID 接頭辞（「接頭辞-数字」の形で使われているものを拾う）。凡例はこの全部を説明しなくてよいが、
 # 使われている接頭辞は必ず凡例に載る（読者が索引で意味を引ける）こと。
 _ID_RE = re.compile(r"\b(EP|INV|DEC|ISS|REQ|T|E)-\d")
@@ -40,13 +54,17 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 # 索引の凡例の節を見つける印（見出しにこの語を含む節を凡例とみなす）。
 _LEGEND_MARK = "凡例"
 
+# 平文の段落と認めない先頭パターン：見出し（#）・HTML コメント・コードフェンス・表・引用・箇条書き・番号リスト。
+# lede 検査は「H1 直後の最初の内容が散文である」ことだけを機械で見る（平易さの中身はレビュー観点）。
+_NON_PROSE_RE = re.compile(r"^(?:#|<!--|```|~~~|\||>|[-*+]\s|\d+[.)]\s)")
 
-def _validated_exempt() -> dict[str, str]:
+
+def _validated_exempt(exempt: dict[str, str], label: str) -> dict[str, str]:
     """免除リストの理由が空でないことを確かめて返す。空の理由は設定ミス＝即失敗（黙って免除しない）。"""
-    for name, reason in _EXEMPT.items():
+    for name, reason in exempt.items():
         if not reason.strip():
-            raise ValueError(f"_EXEMPT[{name!r}] の理由が空。免除には人が読める理由が必須（doc_standards）")
-    return _EXEMPT
+            raise ValueError(f"{label}[{name!r}] の理由が空。免除には人が読める理由が必須（doc_standards）")
+    return exempt
 
 
 def _non_archive_docs(docs: Path) -> list[Path]:
@@ -160,12 +178,53 @@ def _glossary_problems(docs: Path) -> list[pm.Problem]:
     return problems
 
 
+def _first_content_line_after_h1(text: str) -> str | None:
+    """H1（`# 題名` の行）の直後にある最初の非空行を返す。H1 が無い・後に内容が無いときは None。"""
+    lines = text.splitlines()
+    h1 = next((i for i, line in enumerate(lines) if line.startswith("# ")), None)
+    if h1 is None:
+        return None
+    return next((line for line in lines[h1 + 1 :] if line.strip()), None)
+
+
+def _lede_problems(docs: Path, exempt: dict[str, str]) -> list[pm.Problem]:
+    """導入（lede）検査：対象文書の H1 直後の最初の内容が平文の段落（＝可視の導入）であること。"""
+    problems: list[pm.Problem] = []
+    for name in _LEDE_DOCS:
+        if name in exempt:
+            continue
+        path = docs / name
+        if not path.is_file():
+            continue  # 文書ごと持たないプロジェクト（コピー先で領域を外した等）には課さない
+        first = _first_content_line_after_h1(path.read_text(encoding="utf-8"))
+        if first is None:
+            problems.append(
+                pm.Problem(
+                    "error",
+                    f"docs/{name}: H1（`# 題名`）とその直後の本文が無い。冒頭に題名と 2〜4 文の平易な導入"
+                    f"（これは何か・なぜ在るか・誰が読むか）を置くこと（DEC-0019）",
+                )
+            )
+        elif _NON_PROSE_RE.match(first.lstrip()):
+            problems.append(
+                pm.Problem(
+                    "error",
+                    f"docs/{name}: H1 直後の最初の内容が平文の段落でない（見出し・箇条書き・HTML コメント・"
+                    f"コードフェンス等で始まっている）。機構の説明の前に 2〜4 文の平易な導入（これは何か・"
+                    f"なぜ在るか・誰が読むか）を可視の本文として置くこと（DEC-0019。真に導入不要なら"
+                    f" doc_standards の _LEDE_EXEMPT に理由つきで）",
+                )
+            )
+    return problems
+
+
 def run_checks(root: Path) -> list[pm.Problem]:
-    """ドキュメント標準の検査（孤立・凡例網羅・用語集整合）。索引から辿れない文書＝error。"""
+    """ドキュメント標準の検査（孤立・凡例網羅・用語集整合・導入 lede）。索引から辿れない文書＝error。"""
     docs = root / "docs"
     if not docs.is_dir():
         return []
-    exempt = _validated_exempt()
+    exempt = _validated_exempt(_EXEMPT, "_EXEMPT")
+    lede_exempt = _validated_exempt(_LEDE_EXEMPT, "_LEDE_EXEMPT")
     readme = docs / "README.md"
     top_docs = [p for p in docs.glob("*.md") if p.name != "README.md"]
     if not readme.is_file():
@@ -181,4 +240,5 @@ def run_checks(root: Path) -> list[pm.Problem]:
     problems = _orphan_problems(docs, readme_text, exempt)
     problems += _legend_problems(docs, readme_text)
     problems += _glossary_problems(docs)
+    problems += _lede_problems(docs, lede_exempt)
     return problems

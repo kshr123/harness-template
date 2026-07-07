@@ -1,4 +1,4 @@
-"""doc_standards のテスト：文書の発見可能性と整合（孤立・凡例網羅・用語集整合）の検査。
+"""doc_standards のテスト：文書の発見可能性と整合（孤立・凡例網羅・用語集整合・導入 lede）の検査。
 
 期待値はすべて一時プロジェクトの構成（どの文書を置き・索引に何を書くか）から導く。
 最後の 1 本は現リポに対する回帰の番人（索引・凡例・用語集が整合していること＝以後の腐りを止める）。
@@ -85,8 +85,9 @@ def test_blank_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.unit
 def test_every_exempt_reason_is_nonempty() -> None:
-    for name, reason in doc_standards._EXEMPT.items():
-        assert isinstance(reason, str) and reason.strip(), f"_EXEMPT[{name!r}] の理由が空"
+    for label, exempt in (("_EXEMPT", doc_standards._EXEMPT), ("_LEDE_EXEMPT", doc_standards._LEDE_EXEMPT)):
+        for name, reason in exempt.items():
+            assert isinstance(reason, str) and reason.strip(), f"{label}[{name!r}] の理由が空"
 
 
 # --- 凡例網羅：使われている ID 接頭辞が凡例に無ければ error ---
@@ -146,6 +147,78 @@ def test_empty_glossary_heading_is_error(tmp_path: Path) -> None:
     _project(tmp_path, _readme(links=("glossary.md",)), glossary=glossary)
     errors = _errors(tmp_path)
     assert any("'導線'" in m and "定義本文" in m for m in errors)
+
+
+# --- 導入（lede）検査：対象文書の H1 直後の最初の内容は平文の段落（＝可視の導入）であること ---
+
+
+def _lede_project(root: Path, body: str) -> None:
+    """lede 検査用の最小プロジェクト：対象文書 foo.md（索引にリンク済み＝孤立 error を混ぜない）を body で置く。"""
+    _project(root, _readme(links=("glossary.md", "foo.md")))
+    _write(root, "docs/foo.md", body)
+
+
+@pytest.fixture
+def lede_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """lede 検査の対象を foo.md だけに差し替える（現物の対象リストに依存しない）。"""
+    monkeypatch.setattr(doc_standards, "_LEDE_DOCS", ("foo.md",))
+
+
+@pytest.mark.unit
+def test_lede_bullet_list_first_is_error_until_prose_added(tmp_path: Path, lede_target: None) -> None:
+    _lede_project(tmp_path, "# 題名\n\n- いきなり箇条書き（機構の羅列）\n")
+    errors = _errors(tmp_path)
+    assert any("foo.md" in m and "導入" in m for m in errors)
+    # H1 直後に平文の導入を置く → error が消える（導入の後の箇条書きはよい）。
+    _write(tmp_path, "docs/foo.md", "# 題名\n\nこの文書が何か・なぜ在るかを述べる平易な導入。\n\n- 詳細は導入の後\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_lede_html_comment_first_is_error(tmp_path: Path, lede_target: None) -> None:
+    # HTML コメントに隠した導入は「可視」でない＝error。
+    _lede_project(tmp_path, "# 題名\n\n<!-- コメントに隠れた導入 -->\n\n本文。\n")
+    errors = _errors(tmp_path)
+    assert any("foo.md" in m and "平文の段落でない" in m for m in errors)
+
+
+@pytest.mark.unit
+def test_lede_heading_or_fence_first_is_error(tmp_path: Path, lede_target: None) -> None:
+    _lede_project(tmp_path, "# 題名\n\n## いきなり小見出し\n\n本文。\n")
+    assert any("foo.md" in m for m in _errors(tmp_path))
+    _write(tmp_path, "docs/foo.md", "# 題名\n\n```\nuv run verify\n```\n")
+    assert any("foo.md" in m for m in _errors(tmp_path))
+
+
+@pytest.mark.unit
+def test_lede_missing_h1_or_empty_body_is_error(tmp_path: Path, lede_target: None) -> None:
+    _lede_project(tmp_path, "本文だけで題名（H1）が無い。\n")
+    assert any("foo.md" in m and "H1" in m for m in _errors(tmp_path))
+    _write(tmp_path, "docs/foo.md", "# 題名\n")
+    assert any("foo.md" in m and "H1" in m for m in _errors(tmp_path))
+
+
+@pytest.mark.unit
+def test_lede_absent_target_doc_is_silent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 対象文書ごと持たないプロジェクト（コピー先で領域を外した等）には lede を課さない。
+    monkeypatch.setattr(doc_standards, "_LEDE_DOCS", ("missing.md",))
+    _project(tmp_path, _readme(links=("glossary.md",)))
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_lede_exempt_suppresses_error(tmp_path: Path, lede_target: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(doc_standards._LEDE_EXEMPT, "foo.md", "テスト用：導入を課さない例。")
+    _lede_project(tmp_path, "# 題名\n\n- 箇条書きで始まる\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_blank_lede_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _project(tmp_path, _readme(links=("glossary.md",)))
+    monkeypatch.setitem(doc_standards._LEDE_EXEMPT, "foo.md", "  ")
+    with pytest.raises(ValueError, match="理由が空"):
+        doc_standards.run_checks(tmp_path)
 
 
 # --- 縮退：docs を正本置き場として使っていないプロジェクトでは誤検知しない ---

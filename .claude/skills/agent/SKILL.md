@@ -6,8 +6,10 @@ description: LLM エージェント（AgentSpec）を作る・評価する・昇
 # agent（LLM エージェント＝1 宣言・評価は無ネットワーク・昇格は関門つき）
 
 エージェントの実体は **1 宣言（AgentSpec）＝prompt＋model＋tools＋方針**。ライフサイクルは ML と同型：
-宣言 → golden set → 採点 → 合否 → 保存 → 昇格。契約の正本は `docs/agent.md`（AgentSpec のキー・ログ契約・
-評価と合否）。verify 経路は dummy/cassette のみ＝**ネットワーク 0・extra 無しで全機能が検証できる**（DEC-0015）。
+宣言 → golden set（期待する出力つきの評価例集）で採点 → 合否 → 保存 → 昇格（関門を通った版だけ champion）。
+契約の正本は `docs/agent.md`（AgentSpec のキー・ログ契約・評価と合否）、用語（AgentSpec・golden set・
+cassette・effort など）の定義は `docs/glossary.md`。verify 経路は dummy/cassette（記録再生）のみ＝
+**ネットワーク 0・extra 無しで全機能が検証できる**（DEC-0015）。
 
 ## 手順
 1. 宣言を書く：AgentSpec の YAML（キーの正本は `src/harness/agent/spec.py`・未知キーは読み込みで失敗）。
