@@ -5,7 +5,7 @@ doclint（**書かれた参照が実在するか**＝dead link の検査）と�
 （索引から辿れない孤立文書・凡例に無い ID 接頭辞・用語集の不整合）を verify で止める。core の検査
 （プロファイル非依存）。stdlib のみに依存（`from harness import pm` は可）。
 
-検査は 4 つ（T-0130 で 3 つ・T-0131 で導入 lede 検査を追加。造語 denylist は T-0132 で足す）：
+検査は 5 つ（T-0130 で 3 つ・T-0131 で導入 lede 検査・T-0132 で造語 denylist を追加）：
 - **孤立検査**：`docs/*.md`（直下・非再帰。`docs/README.md` 自身は除外＝索引そのもの。`docs/archive/**` は
   下層なので対象外）が `docs/README.md` の本文にファイル名で現れる（＝リンクされている）こと。未リンク＝error。
 - **凡例網羅**：`docs/**/*.md`（`docs/archive/**` を除く・再帰）で使われている ID 接頭辞
@@ -17,11 +17,16 @@ doclint（**書かれた参照が実在するか**＝dead link の検査）と�
   （見出し・箇条書き・HTML コメント・コードフェンス・表・引用で始まらない＝可視の平易な導入。
   DEC-0019 の「各正本文書は可視の平易な導入で始まる」の機械化できる部分。「導入が実際に平易か」は
   レビュー観点）。違反＝error。
+- **造語 denylist**：`docs/**/*.md`（`docs/archive/**` と `docs/glossary.md`＝定義そのもの、を除く）で、
+  用語集で標準語に対応づけた**最悪造語**（`_DENYLIST`）が、その文書から用語集の該当アンカー
+  （`glossary.md#<anchor>`）へのリンク無しに使われている＝error（標準の言い換えを修正提案として示す。
+  Google style「jargon は初出で定義するか定義へリンク」の機械化・Vale の禁止語検査の翻案）。
 
 穏当な縮退（コピー先の案件を誤検知しない）：`docs/` が無い、または `docs/` を正本置き場として使っていない
 （直下に .md が無く ID 接頭辞も使われていない）プロジェクトでは何も指摘しない。
-免除は `_EXEMPT`／`_LEDE_EXEMPT`（ファイル名→理由）だけ。**理由必須**（空はValueError で即失敗＝黙って
-免除しない。coverage_lint と同型）。免除を増やす前に「索引に 1 行足す」「導入を書く」を先に検討すること。
+免除は `_EXEMPT`／`_LEDE_EXEMPT`／`_TERM_EXEMPT`（ファイル名→理由）だけ。**理由必須**（空はValueError で
+即失敗＝黙って免除しない。coverage_lint と同型）。免除を増やす前に「索引に 1 行足す」「導入を書く」
+「用語集へリンクする」を先に検討すること。
 """
 
 from __future__ import annotations
@@ -34,15 +39,43 @@ from harness import pm
 # 免除リスト：真に索引不要な docs 直下の文書だけ（ファイル名 → なぜ索引に載せないかの理由。空は不可）。
 _EXEMPT: dict[str, str] = {}
 
-# 導入（lede）検査の対象（docs/ 直下のファイル名）。段階導入の明示リスト：全 `docs/*.md` に一斉に課すと
-# 未刷新の文書（method.md・charter.md 等）が同時に落ちるため、刷新済み（＝可視の導入を持つ）文書だけを
-# 列挙し、T-0132 の中核ルール文書の刷新で残りを足していく（ratchet：一度載せた文書は退行すると error）。
-# README.md（索引）と glossary.md（対応表）は一覧そのものなので対象にしない。archive/ は正本でないので
-# 対象外（docs 直下だけを列挙する）。
-_LEDE_DOCS: tuple[str, ...] = ("agent.md", "serve.md", "ops.md")
+# 導入（lede）検査の対象（docs/ 直下のファイル名）。刷新済み（＝可視の導入を持つ）文書だけを列挙する
+# 段階導入の明示リスト（T-0131 でプロファイル文書・T-0132 で中核ルール文書を追加。ratchet：一度載せた
+# 文書は退行すると error）。README.md（索引）と glossary.md（対応表）は一覧そのものなので対象にしない。
+# archive/ は正本でないので対象外（docs 直下だけを列挙する）。
+_LEDE_DOCS: tuple[str, ...] = (
+    "agent.md",
+    "serve.md",
+    "ops.md",
+    "method.md",
+    "charter.md",
+    "DoD.md",
+    "template-copy.md",
+    "learnings.md",
+)
 
 # lede 検査の免除リスト（ファイル名 → なぜ導入不要かの理由。空は不可）。_EXEMPT と同型。
 _LEDE_EXEMPT: dict[str, str] = {}
+
+# 造語 denylist：語 → (修正提案＝標準の言い換え, docs/glossary.md のアンカー)。
+# **高精度・最小主義の線引き（DEC-0019）**：誤検出を避けるため、対象は用語集で標準語に対応づけを宣言した
+# 「最悪造語」だけに限定する。jargon 全部の機械化はしない＝検査できると嘘をつかない正直な線引きで、
+# 「標準用語か・造語を増やしていないか」の残りは review スキルのドキュメント観点が受け持つ。
+# 語を足すときは、docs/glossary.md に定義（アンカー）がある語だけを、標準の言い換えとアンカーの組で足す
+# （仕組みは汎用＝dict に 1 行足すだけで対象語が増える）。
+# 注：gate 語彙の不統一（「門番」「関門」の混用）も候補だが、両語は用語集で別概念（blocking/advisory の別
+# ／昇格の 2 段判定）として定義済みで、正当な併用が現存する。機械化は保留し review 観点に残す（同上の線引き）。
+_DENYLIST: dict[str, tuple[str, str]] = {
+    "金メッキ": ("実装の出力をコピーした（入力の作り方から導出できない）ハードコード期待値", "金メッキ"),
+}
+
+# 造語 denylist の免除リスト（docs/ からの相対パス → 理由。空は不可）。_EXEMPT と同型。
+_TERM_EXEMPT: dict[str, str] = {
+    "decisions/DEC-0019-documentation-standards.md": (
+        "造語を廃止するドキュメント標準の決定そのものが、廃止対象の語を鉤括弧の引用（言及）で記述している"
+        "（使用でなく言及。DEC は確定後に書き換えない記録）。"
+    ),
+}
 
 # 文書中の ID 接頭辞（「接頭辞-数字」の形で使われているものを拾う）。凡例はこの全部を説明しなくてよいが、
 # 使われている接頭辞は必ず凡例に載る（読者が索引で意味を引ける）こと。
@@ -218,13 +251,35 @@ def _lede_problems(docs: Path, exempt: dict[str, str]) -> list[pm.Problem]:
     return problems
 
 
+def _term_problems(docs: Path, exempt: dict[str, str]) -> list[pm.Problem]:
+    """造語 denylist：最悪造語が用語集の該当アンカーへのリンク無しに使われていないこと（標準の言い換えを提案）。"""
+    problems: list[pm.Problem] = []
+    for path in _non_archive_docs(docs):
+        rel = path.relative_to(docs).as_posix()
+        if rel == "glossary.md" or rel in exempt:  # 用語集は定義そのもの（denylist の対象外）
+            continue
+        text = path.read_text(encoding="utf-8")
+        for term, (suggestion, anchor) in _DENYLIST.items():
+            if term in text and f"glossary.md#{anchor}" not in text:
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"docs/{rel}: 造語 '{term}' が用語集リンク無しに使われている。標準の言い換え"
+                        f"「{suggestion}」に置き換えるか、使用箇所を glossary.md#{anchor} へリンクすること"
+                        f"（真に必要なら doc_standards の _TERM_EXEMPT に理由つきで。DEC-0019）",
+                    )
+                )
+    return problems
+
+
 def run_checks(root: Path) -> list[pm.Problem]:
-    """ドキュメント標準の検査（孤立・凡例網羅・用語集整合・導入 lede）。索引から辿れない文書＝error。"""
+    """ドキュメント標準の検査（孤立・凡例網羅・用語集整合・導入 lede・造語 denylist）。違反＝error。"""
     docs = root / "docs"
     if not docs.is_dir():
         return []
     exempt = _validated_exempt(_EXEMPT, "_EXEMPT")
     lede_exempt = _validated_exempt(_LEDE_EXEMPT, "_LEDE_EXEMPT")
+    term_exempt = _validated_exempt(_TERM_EXEMPT, "_TERM_EXEMPT")
     readme = docs / "README.md"
     top_docs = [p for p in docs.glob("*.md") if p.name != "README.md"]
     if not readme.is_file():
@@ -241,4 +296,5 @@ def run_checks(root: Path) -> list[pm.Problem]:
     problems += _legend_problems(docs, readme_text)
     problems += _glossary_problems(docs)
     problems += _lede_problems(docs, lede_exempt)
+    problems += _term_problems(docs, term_exempt)
     return problems

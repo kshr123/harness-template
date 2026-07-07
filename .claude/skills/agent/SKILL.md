@@ -1,6 +1,6 @@
 ---
 name: agent
-description: LLM エージェント（AgentSpec）を作る・評価する・昇格する際に自動参照。宣言（prompt＋model＋tools＋方針）を golden set で採点し、関門を通った版だけ champion にする。エージェント・LLM・プロンプト・AgentSpec・ツール呼び出し・golden set・LLMOps の語で発火。
+description: LLM エージェント（AgentSpec）を作る・評価する・昇格する際に自動参照。宣言（prompt＋model＋tools＋方針）を golden set で採点し、昇格ゲート（関門＝評価の合格基準）を通った版だけ champion（採用版）にする。エージェント・LLM・プロンプト・AgentSpec・ツール呼び出し・golden set・LLMOps の語で発火。
 ---
 
 # agent（LLM エージェント＝1 宣言・評価は無ネットワーク・昇格は関門つき）

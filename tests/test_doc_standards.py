@@ -1,4 +1,4 @@
-"""doc_standards のテスト：文書の発見可能性と整合（孤立・凡例網羅・用語集整合・導入 lede）の検査。
+"""doc_standards のテスト：文書の発見可能性と整合（孤立・凡例網羅・用語集整合・導入 lede・造語 denylist）の検査。
 
 期待値はすべて一時プロジェクトの構成（どの文書を置き・索引に何を書くか）から導く。
 最後の 1 本は現リポに対する回帰の番人（索引・凡例・用語集が整合していること＝以後の腐りを止める）。
@@ -85,7 +85,12 @@ def test_blank_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.unit
 def test_every_exempt_reason_is_nonempty() -> None:
-    for label, exempt in (("_EXEMPT", doc_standards._EXEMPT), ("_LEDE_EXEMPT", doc_standards._LEDE_EXEMPT)):
+    exempts = (
+        ("_EXEMPT", doc_standards._EXEMPT),
+        ("_LEDE_EXEMPT", doc_standards._LEDE_EXEMPT),
+        ("_TERM_EXEMPT", doc_standards._TERM_EXEMPT),
+    )
+    for label, exempt in exempts:
         for name, reason in exempt.items():
             assert isinstance(reason, str) and reason.strip(), f"{label}[{name!r}] の理由が空"
 
@@ -219,6 +224,75 @@ def test_blank_lede_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setitem(doc_standards._LEDE_EXEMPT, "foo.md", "  ")
     with pytest.raises(ValueError, match="理由が空"):
         doc_standards.run_checks(tmp_path)
+
+
+# --- 造語 denylist：最悪造語は用語集の該当アンカーへのリンク無しに使えない ---
+
+# denylist に実在する語とその構成（提案・アンカー）から期待値を導く（語を増減してもテストは追従する）。
+DENY_TERM = "金メッキ"
+DENY_SUGGESTION, DENY_ANCHOR = doc_standards._DENYLIST[DENY_TERM]
+
+
+@pytest.mark.unit
+def test_denylisted_term_without_glossary_link_is_error_until_linked(tmp_path: Path) -> None:
+    _project(tmp_path, _readme(links=("glossary.md", "foo.md")))
+    _write(tmp_path, "docs/foo.md", f"# 題名\n\nテストに{DENY_TERM}を書かない。\n")
+    errors = _errors(tmp_path)
+    assert any(f"'{DENY_TERM}'" in m and DENY_SUGGESTION in m for m in errors)
+    # 使用箇所を用語集の該当アンカーへリンクする → error が消える。
+    _write(tmp_path, "docs/foo.md", f"# 題名\n\nテストに[{DENY_TERM}](glossary.md#{DENY_ANCHOR})を書かない。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_denylisted_term_absent_is_clean(tmp_path: Path) -> None:
+    _project(tmp_path, _readme(links=("glossary.md", "foo.md")))
+    _write(tmp_path, "docs/foo.md", "# 題名\n\n対象語を使わない普通の文書。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_glossary_itself_is_excluded_from_denylist(tmp_path: Path) -> None:
+    # 用語集は対象語を定義する場所そのものなので、リンク無しで語が現れても指摘しない。
+    glossary = f"{VALID_GLOSSARY}\n## {DENY_TERM}\n導出できない期待値を書いたテストのこと。\n"
+    _project(tmp_path, _readme(links=("glossary.md",)), glossary=glossary)
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_denylist_scans_subdirectories_but_not_archive(tmp_path: Path) -> None:
+    # 検査は docs/**（再帰・decisions/ 等も対象）。archive/ は正本でないので対象外。
+    _project(tmp_path, _readme(links=("glossary.md",)))
+    _write(tmp_path, "docs/archive/old.md", f"# 古いメモ\n\n{DENY_TERM}という言い方をしていた。\n")
+    assert _errors(tmp_path) == []
+    _write(tmp_path, "docs/decisions/DEC-0001-x.md", f"# 決定\n\n{DENY_TERM}を禁じる。\n")
+    errors = _errors(tmp_path)
+    assert any("decisions/DEC-0001-x.md" in m and f"'{DENY_TERM}'" in m for m in errors)
+
+
+@pytest.mark.unit
+def test_term_exempt_suppresses_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _project(tmp_path, _readme(links=("glossary.md", "foo.md")))
+    _write(tmp_path, "docs/foo.md", f"# 題名\n\n{DENY_TERM}に触れる文書（免除の例）。\n")
+    monkeypatch.setitem(doc_standards._TERM_EXEMPT, "foo.md", "テスト用：対象語を言及として引用する例。")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_blank_term_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _project(tmp_path, _readme(links=("glossary.md",)))
+    monkeypatch.setitem(doc_standards._TERM_EXEMPT, "foo.md", "  ")
+    with pytest.raises(ValueError, match="理由が空"):
+        doc_standards.run_checks(tmp_path)
+
+
+@pytest.mark.unit
+def test_every_denylist_term_has_a_real_glossary_anchor_heading() -> None:
+    # denylist の各語は、現リポの用語集に定義（見出し）がある語だけを載せる（提案先が実在する）。
+    glossary_text = (REPO_ROOT / "docs" / "glossary.md").read_text(encoding="utf-8")
+    for term, (suggestion, _anchor) in doc_standards._DENYLIST.items():
+        assert f"## {term}" in glossary_text, f"denylist の '{term}' が docs/glossary.md に定義されていない"
+        assert suggestion.strip(), f"denylist の '{term}' の言い換え提案が空"
 
 
 # --- 縮退：docs を正本置き場として使っていないプロジェクトでは誤検知しない ---
