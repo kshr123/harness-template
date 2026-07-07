@@ -1,7 +1,7 @@
 ---
 id: T-0161
 kind: task
-status: todo
+status: done
 title: method.md のメタ模型から「決定（DEC）」層と DEC 起票フローを外す（変更の記録は git）
 created: 2026-07-07
 depends_on: [T-0160]
