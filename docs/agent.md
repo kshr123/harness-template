@@ -2,9 +2,10 @@
 
 LLMOps/AgentOps プロファイル（EP-22・DEC-0015）。中核アーティファクトは **1 エージェント＝1 宣言
 （AgentSpec＝prompt＋model＋tools＋方針）**。ライフサイクルは ML と同型：宣言 → golden set → 採点 →
-合否 → 保存 → 昇格（配信・監視は後続タスク）。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
+合否 → 保存 → 昇格 → 配信 → 監視。実装は `src/harness/agent/`（spec.py＝宣言・providers.py＝
 プロバイダ抽象・tools.py＝ツール（TOOLS）・runtime.py＝往復ループとログ契約・eval.py＝採点器と合否・
-experiment.py＝評価の一巡・store.py＝保存と昇格・lint.py＝宣言の構造 lint・cli.py＝入口）。
+experiment.py＝評価の一巡・store.py＝保存と昇格・app.py＝配信・monitor.py＝監視・lint.py＝宣言の構造 lint・
+cli.py＝入口）。
 
 ## 使い方
 
@@ -123,6 +124,32 @@ uv run agent experiments --results work/…/results           # 変種比較（m
 
 `agent experiments` は `ds.experiment.leaderboard`（polars＋yaml の純関数）を CLI 内で遅延 import して
 再利用する（結果記録の形式 `metrics_<variant>.yaml` は ML の実験と共通＝比較の作法を二重化しない）。
+
+## 配信（`agent serve`・champion を FastAPI で出す・`agent/app.py`）
+
+昇格済み champion を FastAPI で配信する（宣言→評価→昇格→**配信**→監視のライフサイクルが閉じる）。
+serve プロファイルと同じ作法・別 app（`harness.serve` は import しない＝プロファイル境界・DEC-0004。
+fastapi/uvicorn は extra `agent` に含む＝`uv sync --extra agent`）。予測 1 発の serve `/predict` と違い、
+agent は**会話×ツール往復**＝`POST /invoke`（1 発話 → `run_agent` の往復ループ → 最終応答）。
+
+- **起動時に champion を読み込む**（version 指定時はその版）。無い・宣言が壊れている・provider が未知なら
+  起動時に明示エラー（黙って空で立たない）。保存済み宣言（dict）は `spec_from_mapping` で検証つきで
+  AgentSpec に復元する（temperature 拒否・未知キー・effort の検証を YAML 読込と共用）。
+- **provider は宣言（spec.provider）に従う**＝override 口は無い（champion の宣言が正本。verify は
+  provider=dummy の champion で無ネットワークのまま回る・DEC-0015）。
+- `POST /invoke`：本文 `{"input": "<発話>"}`。空 input は 422。返答は
+  `{output, stop_reason, turns, tools_used, usage, request_id, agent:{name,work,version}}`。
+- `GET /health`（生存＋載っている版）・`GET /metadata`（来歴＝spec・metrics・prompt_fingerprint・created）。
+- **1 実行＝AGENT_LOG_FIELDS の JSONL 1 行**を既定 `artifacts/agent/runs/<name>/<YYYYMMDD>.jsonl`
+  （`--log-dir` で変更可）へ追記＝`agent monitor` の既定 glob がそのまま読む（配信が監視の入力を生む）。
+
+```
+uv run agent serve --work E-0101 --name helper              # champion を配信（無ければ起動時エラー）
+uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z --port 8080
+```
+
+ストリーミング（SSE）・会話の永続・認証/レート制御は LLM ゲートウェイの関心＝この骨組みではやらない
+（/invoke は 1 発話→1 応答。ツール往復は内部で回る）。
 
 ## 監視（`agent monitor`・門番にしない・`agent/monitor.py`）
 

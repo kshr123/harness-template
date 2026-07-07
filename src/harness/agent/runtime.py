@@ -11,8 +11,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from harness.agent.providers import Provider, ProviderReply, _last_user_text, build_messages, reply_text
@@ -138,3 +141,26 @@ def build_log_row(run: AgentRun, *, spec: AgentSpec, request_id: str, time: str)
     if entry.keys() != AGENT_LOG_FIELDS.keys():  # 契約からのドリフトをここで止める（serve と同じ規律）
         raise ValueError(f"ログ行のキーが契約とずれている: {sorted(entry)} != {sorted(AGENT_LOG_FIELDS)}")
     return entry
+
+
+def agent_log_path(root: Path, *, name: str, log_dir: Path | None = None, when: datetime | None = None) -> Path:
+    """実行 JSONL の置き場。既定 `artifacts/agent/runs/<name>/<YYYYMMDD>.jsonl`（UTC の日付で 1 ファイル）。
+
+    log_dir を渡すと `<log_dir>/<YYYYMMDD>.jsonl`（エージェント名のディレクトリを掘らない＝呼び手が置き場を
+    決める）。既定は `agent monitor` の既定 glob `artifacts/agent/runs/**/*.jsonl` に一致する＝配信（T-0094）の
+    ログをそのまま監視が読める（serve.runtime.log_path と同型。serve は import しない＝プロファイル境界）。
+    """
+    stamp = (when if when is not None else datetime.now(UTC)).strftime("%Y%m%d")
+    base = log_dir if log_dir is not None else root / "artifacts" / "agent" / "runs" / name
+    return base / f"{stamp}.jsonl"
+
+
+def append_run_log(path: Path, row: Mapping[str, Any]) -> None:
+    """JSONL に 1 行追記する（1 行＝1 JSON・UTF-8・非 ASCII 素通し）。親ディレクトリは無ければ作る。
+
+    `build_log_row` の返り値をそのまま書ける（stdlib のみ。serve の append_jsonl は import しない＝
+    プロファイル境界・DEC-0004。小さな重複は境界維持の許容コスト＝3 個目の消費で core 昇格を DEC-0012 判断）。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")

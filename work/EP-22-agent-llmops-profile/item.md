@@ -1,7 +1,7 @@
 ---
 id: EP-22
 kind: epic
-status: in-progress
+status: done
 title: LLMOps/AgentOps プロファイル harness.agent（LLMエージェントの一般ライフサイクル）
 plan: detailed
 requirements: [REQ-002]

@@ -181,6 +181,36 @@ def _agent_champion(
     typer.echo(f"prompt_fingerprint={champ.prompt_fingerprint}")
 
 
+@agent_app.command("serve")
+def _agent_serve(
+    work: Annotated[str, typer.Option(help="作業単位ID（保存時の work）")],
+    name: Annotated[str, typer.Option(help="エージェント名（保存時の name）")],
+    version: Annotated[str | None, typer.Option(help="配信する版（省略時は現 champion）")] = None,
+    host: Annotated[str, typer.Option(help="待ち受けホスト")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="待ち受けポート")] = 8000,
+    seed: Annotated[int, typer.Option(help="乱数種（provider 工場へ渡す・明示必須の規約）")] = 0,
+    log_dir: Annotated[
+        Path | None, typer.Option(help="実行 JSONL の置き場（既定 artifacts/agent/runs/<エージェント名>）")
+    ] = None,
+    root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
+) -> None:
+    """champion（または指定版）を読み込み、FastAPI アプリ（POST /invoke＝会話×ツール往復）を uvicorn で起動する。
+
+    起動時に champion を読み込む＝無い・宣言が壊れている・provider が未知の場合はここで止まる
+    （黙って空で立たない＝serve と同作法）。provider は宣言（spec.provider）に従う（override 口は無い）。
+    実行ログは artifacts/agent/runs/** へ 1 実行 1 行＝`uv run agent monitor` がそのまま読める。
+    """
+    try:
+        import uvicorn
+
+        from harness.agent.app import create_app
+    except ImportError as exc:
+        typer.echo(f"fastapi/uvicorn が無い（配信依存 未導入）。`uv sync --extra agent` で導入する: {exc}")
+        raise typer.Exit(1) from exc
+    app = create_app(root, work=work, name=name, version=version, seed=seed, log_dir=log_dir)
+    uvicorn.run(app, host=host, port=port)
+
+
 @agent_app.command("monitor")
 def _agent_monitor(
     log: Annotated[

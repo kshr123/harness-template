@@ -1,7 +1,7 @@
 ---
 id: T-0094
 kind: task
-status: todo
+status: done
 created: 2026-07-07
 depends_on: [T-0091, T-0093]
 verified_by: [tests/test_agent_serve.py::test_invoke_runs_agent_and_appends_run_log]
@@ -103,6 +103,20 @@ verified_by: [tests/test_agent_serve.py::test_invoke_runs_agent_and_appends_run_
 - OpenTelemetry 実エクスポート・agent 版 Docker/K8s テンプレは配信が固まってから（item.md later）。
 
 ## 独立レビュー（maker≠checker・差分のみ・実測・変異）
-（レビュー後に記入。観点：champion 不在で起動時に落ちる・空 input が 422・/invoke がログを 1 行残し監視が
-読める・spec_from_mapping が temperature/未知キーを弾く・provider は宣言に従う・`import harness.agent` が
-fastapi/anthropic を載せない＝軽さと境界・ネットワーク 0）
+実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。3 変異はいずれも
+狙ったテストだけが RED になることを確認し、バイト同一に復元。
+- **champion 不在で起動時に落ちる＝変異で確認**：`if maybe is None:` を `and False` で無効化
+  → `test_create_app_fails_without_champion` が RED（黙って空で立たないことを守る）。
+- **空 input が 422＝変異で確認**：`if not request.input.strip():` を `and False` で無効化
+  → `test_invoke_empty_input_is_422` が RED（空発話を run_agent へ通さない・ログも残さない）。
+- **/invoke がログを 1 行残し監視が読める＝変異で確認**：`append_run_log(agent_log_path(...), row)` を no-op に変異
+  → `test_invoke_runs_agent_and_appends_run_log`（verified_by）と `test_invoke_logs_to_custom_log_dir` が RED
+  （配信→監視の結線＝`artifacts/agent/runs/**` に AGENT_LOG_FIELDS 行を残し `monitor.read_agent_logs` が読む）。
+- **spec_from_mapping の委譲＝実測**：temperature/未知キー/不正 effort は ValueError（往復 round-trip も一致・
+  呼び手の写像を変更しない）。※temperature を潰す変異は「未知キー」検査へ落ちて依然 ValueError＝多層防御で
+  拒否は保たれる（テストの match が両経路に一致するため専用文言の識別までは見ない＝軽微・挙動は正）。
+- **provider は宣言に従う**：`PROVIDERS.resolve(spec.provider).factory(seed)`＝champion=dummy で無ネットワーク配信
+  （/metadata が `spec.provider=="dummy"` を manifest から往復・`test_health_and_metadata_return_champion_provenance`）。
+- **軽さと境界**：`app.py` は fastapi を top import するが `__init__`/`profile` から辿らせない＝`import harness.agent`
+  は fastapi/uvicorn/anthropic を載せない（既存 subprocess テスト緑）。`harness.serve` は import しない（境界）。
+- **verify 全体緑**（`成功（すべて通過）`）。指摘なし（temperature 専用文言のテスト強化は soon の任意項目）。

@@ -39,9 +39,9 @@ onnx = ["skl2onnx>=1.20", "onnxruntime>=1.27", "onnx>=1.22"]
 # 配信プロファイル（harness.serve）。champion を FastAPI で出す。ds と併用: uv sync --extra ds --extra serve
 # 配信イメージを可搬にするなら onnx も: uv sync --extra ds --extra serve --extra onnx
 serve = ["fastapi>=0.139", "uvicorn>=0.50"]
-# LLMOps プロファイル（harness.agent）。実プロバイダ（Anthropic SDK）用。verify 経路は dummy/cassette
-# のみ＝この extra 無しで全機能検証できる（無ネットワーク・DEC-0015）。導入例: uv sync --extra agent
-agent = ["anthropic>=0.40"]
+# LLMOps プロファイル（harness.agent）。実プロバイダ（Anthropic SDK）＋配信（fastapi/uvicorn＝agent serve）。
+# verify 経路は dummy/cassette で無ネットワークのまま（DEC-0015）。導入例: uv sync --extra agent
+agent = ["anthropic>=0.40", "fastapi>=0.139", "uvicorn>=0.50"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
