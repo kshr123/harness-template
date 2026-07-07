@@ -5,13 +5,13 @@ description: 学習済みモデル（champion）を配信・サービングす�
 
 # serve（champion の配信＝FastAPI・予測は由来つき JSONL）
 
-配信は学習の後工程。配るのは registry（保存済みの版の登録簿）の champion（昇格の関門を通った現在の採用版）
+配信は学習の後工程。配るのは registry（保存済みの版の登録簿）の champion（採用の合否判定を通った現在の採用版）
 だけ。契約（エンドポイント・予測 JSONL の行スキーマ）と用語の正本は docs/serve.md（監視 data monitor はこの
 契約だけに依存する。champion・registry・shadow deployment・role などの用語は docs/serve.md の本文で説明する）。
 
 ## 手順
-1. 配る版を確認する：`uv run data saved --work <ID>`（★＝現 champion）。champion が無ければ先に実験→昇格
-   （promote_model）。旧版・昇格前の版を出すのは `--version` の明示だけ（緊急・検証用）。
+1. 配る版を確認する：`uv run data saved --work <ID>`（★＝現 champion）。champion が無ければ先に実験→採用
+   （promote_model）。旧版・採用前の版を出すのは `--version` の明示だけ（緊急・検証用）。
 2. 依存を入れる：`uv sync --extra ds --extra serve`。可搬な保存形式（ONNX）が要るなら `--extra onnx` も
    （形式の一覧は `uv run data formats`）。
 3. 起動：`uv run serve --work <ID> --name <モデル名> [--version <版>] [--host 127.0.0.1] [--port 8000]`。
@@ -33,6 +33,6 @@ description: 学習済みモデル（champion）を配信・サービングす�
    （champion を読み、予測 parquet＋由来 manifest を書く）。
 
 ## してはいけないこと
-- 昇格していない版を既定で配らない（champion が正本。--version は緊急・検証用の明示に限る）。
+- 採用していない版を既定で配らない（champion が正本。--version は緊急・検証用の明示に限る）。
 - 予測 JSONL の行スキーマ（docs/serve.md・runtime.PREDICTION_LOG_FIELDS）を勝手に変えない（monitor が依存する契約）。
 - 配信コードに前処理を書き足さない（前処理は保存済み Pipeline の中＝学習時と同じものが動く）。

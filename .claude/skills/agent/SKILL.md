@@ -1,12 +1,12 @@
 ---
 name: agent
-description: LLM エージェント（AgentSpec）を作る・評価する・昇格する際に自動参照。宣言（prompt＋model＋tools＋方針）を golden set で採点し、昇格ゲート（関門＝評価の合格基準）を通った版だけ champion（採用版）にする。エージェント・LLM・プロンプト・AgentSpec・ツール呼び出し・golden set・LLMOps の語で発火。
+description: LLM エージェント（AgentSpec）を作る・評価する・採用する際に自動参照。宣言（prompt＋model＋tools＋方針）を golden set で採点し、採用ゲート（合否判定＝評価の合格基準）を通った版だけ champion（採用版）にする。エージェント・LLM・プロンプト・AgentSpec・ツール呼び出し・golden set・LLMOps の語で発火。
 ---
 
-# agent（LLM エージェント＝1 宣言・評価は無ネットワーク・昇格は関門つき）
+# agent（LLM エージェント＝1 宣言・評価は無ネットワーク・採用は合否判定つき）
 
 エージェントの実体は **1 宣言（AgentSpec）＝prompt＋model＋tools＋方針**。ライフサイクルは ML と同型：
-宣言 → golden set（期待する出力つきの評価例集）で採点 → 合否 → 保存 → 昇格（関門を通った版だけ champion）。
+宣言 → golden set（期待する出力つきの評価例集）で採点 → 合否 → 保存 → 採用（合否判定を通った版だけ champion）。
 契約と用語の正本は `docs/agent.md`（AgentSpec のキー・ログ契約・評価と合否・各用語の説明を本文で書いている）。
 verify 経路は dummy/cassette（記録再生）のみ＝
 **ネットワーク 0・extra 無しで全機能が検証できる**（DEC-0015）。
@@ -30,8 +30,8 @@ verify 経路は dummy/cassette（記録再生）のみ＝
    （負の結果も記録）。乱数は明示 `seed=` のみ（グローバル種禁止）。
 4. 変種比較：結果を `metrics_<variant>.yaml` に残し `uv run agent experiments --results <dir>` でリーダーボード
    （ML の実験と共通の形式＝比較の作法を二重化しない）。
-5. 昇格：`uv run agent promote --work <ID> --name <名> --version <版> --primary <指標> --threshold 名=値`
-   （絶対関門＝閾値・相対関門＝現 champion に primary で勝つ。落ちたら非ゼロ終了）。現 champion の確認は
+5. 採用：`uv run agent promote --work <ID> --name <名> --version <版> --primary <指標> --threshold 名=値`
+   （絶対条件＝閾値・相対条件＝現 champion に primary で勝つ。落ちたら非ゼロ終了）。現 champion の確認は
    `uv run agent champion --work <ID> --name <名>`。
 6. 配信：`uv run agent serve --work <ID> --name <名>`（champion を FastAPI で配信。`POST /invoke`
    `{"input": "<発話>"}`＝会話×ツール往復 1 回。provider は宣言に従う・実行ログは `artifacts/agent/runs/**`
@@ -47,4 +47,4 @@ verify 経路は dummy/cassette（記録再生）のみ＝
 - verify 経路で実プロバイダ（実 API）を叩かない（dummy/cassette だけ＝無ネットワーク・DEC-0015）。
 - AgentSpec に `temperature` を書かない（存在しないノブ＝宣言が嘘をつく。effort を宣言に固定する）。
 - ネットワーク・ファイル I/O をするツールを TOOLS に登録しない（純粋・決定的な関数だけ）。
-- 評価・合否・昇格の関門を自作しない（`run_agent_eval`／`promote_agent` が正本。fail closed＝NaN は不合格）。
+- 評価・合否・採用の合否判定を自作しない（`run_agent_eval`／`promote_agent` が正本。fail closed＝NaN は不合格）。

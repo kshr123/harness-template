@@ -3,10 +3,10 @@
 LLM エージェントを、コードでなく **1 つの宣言**（AgentSpec＝プロンプト＋モデル＋
 ツール＋方針の YAML）として作り、育て、配るためのプロファイル。宣言を
 golden set（期待する出力つきの評価例集）で採点し、基準を満たした版だけを
-champion（現在の採用版）に昇格して配信・監視する。エージェントを作る・評価する・
+champion（現在の採用版）に採用して配信・監視する。エージェントを作る・評価する・
 運用する人が、手順と契約（宣言のキー・ログの行形式）を確かめるために読む Reference。
 
-ライフサイクルは機械学習モデルと同型：**宣言 → golden set で採点 → 合否 → 保存 → 昇格 → 配信 → 監視**。
+ライフサイクルは機械学習モデルと同型：**宣言 → golden set で採点 → 合否 → 保存 → 採用 → 配信 → 監視**。
 検証（`uv run verify`）はネットワークを使わない：実 API の代わりに dummy（合成応答）と
 cassette（実 API 応答を JSON に固定しておき、ネットワークなしで再生する記録再生の仕組み）だけで
 全機能を確かめる。再現性の軸は effort（推論の深さの指定）を宣言に固定して作る
@@ -23,11 +23,11 @@ cassette（実 API 応答を JSON に固定しておき、ネットワークな�
 - `goal.py` … goal-based 停止ゲート（`Goal`/`GoalGate`/`run_agent_to_goal`。宣言の読み込みは
   `goal_from_mapping`/`load_goal`/`gate_from_goal`）
 - `experiment.py` … 評価の一巡
-- `store.py` … 保存と昇格
+- `store.py` … 保存と採用
 - `app.py` … 配信（FastAPI）
 - `monitor.py` … 監視
 - `lint.py` … 宣言の構造 lint
-- `cli.py` … CLI の入口
+- `cli.py` … CLI の窓口（コマンド）
 
 ## 使い方（How-to）
 
@@ -219,10 +219,10 @@ T-0091 で `serve/runtime.py` から移設・DEC-0009）。agent は serve を i
 - 乱数は明示 `seed=` のみ（グローバル種禁止）。dummy provider は入力＋seed の正準 JSON ハッシュから
   決定的に応答する（ネットワーク・課金ゼロ）。
 
-## 保存→昇格→champion→experiments（ライフサイクルの後半・`agent/store.py`）
+## 保存→採用→champion→experiments（ライフサイクルの後半・`agent/store.py`）
 
 評価済みの宣言は registry（保存済みの版の登録簿）に版として残し、
-昇格の関門（評価の合格基準）を通った版だけを champion にする。ML の
+採用の合否判定（評価の合格基準）を通った版だけを champion にする。ML の
 `ds/models.py` と同型だがプロファイル独立（`ds` を import しない・`harness.storage` のみ再利用）。
 **非対称**が 1 つ：agent の実体は宣言そのもの＝バイナリが無いので保存形式（FORMATS）は無く、manifest 1 枚
 （spec を config として畳み込み＋metrics＋`prompt_fingerprint`＝system_prompt の sha256＋git 由来）が
@@ -230,14 +230,14 @@ T-0091 で `serve/runtime.py` から移設・DEC-0009）。agent は serve を i
 
 - `save_agent(root, spec, work=, name=, metrics=)`：評価済み宣言を版（UTC タイムスタンプ・再利用しない）として
   `work/<work>/agents/<name>/<version>/manifest.yaml` に保存。保存は常に許す（負の結果も記録）。
-- `promote_agent(root, work=, name=, version=, thresholds=, primary=)`：**絶対関門**（`agent.eval.passes`＝
-  向きつき・NaN 不合格）かつ**相対関門**（現 champion に primary で勝つ・同点/負けは昇格しない）を満たす
+- `promote_agent(root, work=, name=, version=, thresholds=, primary=)`：**絶対条件**（`agent.eval.passes`＝
+  向きつき・NaN 不合格）かつ**相対条件**（現 champion に primary で勝つ・同点/負けは採用しない）を満たす
   ときだけ `promotions/<decided>.yaml` を追記。primary の向きの正本は AGENT_METRICS（引数では受けない）。
-- `champion(root, work=, name=)`：昇格記録の最新が指す版（無ければ None）。`load_agent`/`list_agents` も対で用意。
+- `champion(root, work=, name=)`：採用記録の最新が指す版（無ければ None）。`load_agent`/`list_agents` も対で用意。
 
 ```
 uv run agent promote --work E-0101 --name helper --version 20260706T090000000000Z \
-    --primary exact_match --threshold exact_match=0.8      # 関門で落ちたら非ゼロ終了（メッセージに理由）
+    --primary exact_match --threshold exact_match=0.8      # 合否判定で落ちたら非ゼロ終了（メッセージに理由）
 uv run agent champion --work E-0101 --name helper           # 現 champion（版＋metrics＋prompt_fingerprint）
 uv run agent experiments --results work/…/results           # 変種比較（metrics_*.yaml の leaderboard）
 ```
@@ -247,7 +247,7 @@ uv run agent experiments --results work/…/results           # 変種比較（m
 
 ## 配信（`agent serve`・champion を FastAPI で出す・`agent/app.py`）
 
-昇格済み champion を FastAPI で配信する（宣言→評価→昇格→**配信**→監視のライフサイクルが閉じる）。
+採用済み champion を FastAPI で配信する（宣言→評価→採用→**配信**→監視のライフサイクルが閉じる）。
 serve プロファイルと同じ作法・別 app（`harness.serve` は import しない＝プロファイル境界・DEC-0004。
 fastapi/uvicorn は extra `agent` に含む＝`uv sync --extra agent`）。予測 1 発の serve `/predict` と違い、
 agent は**会話×ツール往復**＝`POST /invoke`（1 発話 → `run_agent` の往復ループ → 最終応答）。
@@ -283,7 +283,7 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 - 分位はニアレストランク法（補間しない）。実装は stdlib のみ（numpy/polars/ds 非依存＝core の軽さと
   DEC-0004 の境界を保つ）。
 - 基準分布との比較（PSI＝Population Stability Index。分布のずれを測る監視指標）はしない：agent のログには基準特徴表が無い。必要が 3 個目に
-  見えたら DEC-0012 の流れで core 昇格を検討する。
+  見えたら DEC-0012 の流れで core 採用を検討する。
 
 ```
 uv run agent monitor                              # 既定 glob artifacts/agent/runs/**/*.jsonl
@@ -329,7 +329,7 @@ Claude 側で回したいときは `/loop`（間隔指定の繰り返し）や `
 
 proactive（event/schedule＋goal の合成。写像表は `work/EP-23-loops/item.md`）は 2 つの半円からなる：
 **前半円**（監視→冪等起票）は `agent monitor --file-issue` で実装済み。**後半円**（issue→修正→検証緑で
-close）は新しいコード・新しい CLI を足さずに、既存の関門（`issues.run_checks` の不変条件＋monitor の
+close）は新しいコード・新しい CLI を足さずに、既存の合否判定（`issues.run_checks` の不変条件＋monitor の
 再起票）だけで閉じる。
 
 ### フロー（maker-checker＝作る側と確かめる側を分ける原則、の承認点つき）
@@ -363,13 +363,13 @@ close）は新しいコード・新しい CLI を足さずに、既存の関門�
   手編集＝人の行為が唯一の口。
 - **monitor は exit 0 のまま**（処理を止めない＝起票は副作用という既存規律を壊さない）。
 
-## ガードレール（`agent/guardrails.py`・入出力の入口だけ・委譲点を明示）
+## ガードレール（`agent/guardrails.py`・入出力の受け口だけ・委譲点を明示）
 
 入出力を通す前に確かめる薄い層。共通の口は `Guard` Protocol（`check(text) -> GuardResult`＝ok・reason・
 matches）。骨組みは 2 つだけ（Registry 化は 2 実装目で＝YAGNI）：
 
 - `PiiRegexGuard`（入力ガードの**正規表現スタブ**）：email・電話番号を検出（見つかれば `ok=False`＋
-  `matches`）。実際の PII 検出は検出モデルへ**委譲**（入口だけ作って委譲点を明示＝DEC-0009 の作法）。
+  `matches`）。実際の PII 検出は検出モデルへ**委譲**（受け口だけ作って委譲点を明示＝DEC-0009 の作法）。
 - `validate_output_schema(output, schema)`（出力ガード）：出力を JSON として解釈し、JSON Schema の
   **最小部分集合**（トップレベル `type`・`required`・`properties` の型）だけ検証。`AgentSpec.output_schema`
   をそのまま渡せる。完全検証は jsonschema へ**委譲**（base 依存に無い＝必要になったら extra として足す）。

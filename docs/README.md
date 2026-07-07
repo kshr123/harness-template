@@ -1,4 +1,4 @@
-# docs 索引 — このリポジトリの文書の入口
+# docs 索引 — このリポジトリの文書の入り口（どこから読むかの案内）
 
 このリポジトリは、AI（Claude Code など）に開発を任せても品質が崩れないようにするための**開発の土台**です。
 仕事の完成は自己申告でなく、`uv run verify` という 1 つのコマンドがテスト・型検査・決まりごとの検査に
@@ -46,15 +46,15 @@
 | --- | --- | --- |
 | [../README.md](../README.md) | Reference | 全体像・主要コマンド・フォルダ構成 |
 | [charter.md](charter.md) | Explanation | この案件の目的・スコープ・成功条件 |
-| [method.md](method.md) | Explanation | 開発の進め方（歩く骨組み）と、進め方自体を進化させる仕組み |
+| [method.md](method.md) | Explanation | 開発の進め方（最小の骨組みを先に作る）と、進め方自体を進化させる仕組み |
 | [../AGENTS.md](../AGENTS.md) | Reference | 従うべき決まりごと（機械検査つき・正本） |
 | [DoD.md](DoD.md) | Reference | 完了の定義（チェックリスト） |
-| [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と入口の地図 |
+| [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と使いどころの地図 |
 | [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
 | [serve.md](serve.md) | Reference | モデル配信（FastAPI）と予測ログの契約 |
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
 | [template-copy.md](template-copy.md) | How-to | この基盤を次の案件へ複製する手順 |
-| [learnings.md](learnings.md) | Explanation | 作業で得た気づきの記録（ルールに昇格する前の材料） |
+| [learnings.md](learnings.md) | Explanation | 作業で得た気づきの記録（ルールにルール化する前の材料） |
 | [decisions/](decisions/) | Explanation | 決定の記録（DEC）。1 決定＝1 ファイル・確定後は書き換えない |
 | [requirements/](requirements/) | Reference | 案件の要件（REQ） |
 | [data/](data/) | Reference | テーブル定義の正本（YAML） |

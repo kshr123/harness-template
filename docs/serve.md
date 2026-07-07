@@ -3,7 +3,7 @@
 学習済みモデルの現在の採用版（champion）を FastAPI の予測 API として配信し、
 すべての予測を由来つきの JSONL（prediction log＝予測ログ）へ記録する
 プロファイル。配れるのは registry（保存済みの版の登録簿）で
-昇格（評価の関門を通って champion になること）済みの版だけ。
+採用（評価の合否判定を通って champion になること）済みの版だけ。
 モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
 
 実装は `src/harness/serve/`：`app.py`（API）・`runtime.py`（champion 解決・予測・ログ）・`cli.py`
@@ -17,8 +17,8 @@ uv sync --extra ds --extra serve
 uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] [--port 8000] [--log-dir <置き場>]
 ```
 
-- 起動時に champion を読み込む。champion が無い（昇格していない）と明示エラーで止まる。
-  `--version` で版を明示すれば昇格前の版も出せる（緊急・検証用）。
+- 起動時に champion を読み込む。champion が無い（採用していない）と明示エラーで止まる。
+  `--version` で版を明示すれば採用前の版も出せる（緊急・検証用）。
 - fastapi/uvicorn が無い環境では導入方法を案内して exit 1。
 
 ## エンドポイント（契約）

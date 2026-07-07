@@ -27,9 +27,9 @@ uv run task-lint        # 作業単位の検査（ID重複・depends_on の指�
 uv run issue list       # 課題の一覧（issue check：作業単位との紐付けの整合）
 uv run data list        # テーブル定義の一覧（data lint：定義の静的検査）
 uv run verify           # 完了判定（作業単位＋課題＋テーブル定義の検査＋ruff＋mypy＋pytest）
-uv run data --help      # DS プロファイルの入口（テーブル・特徴量・実験・モデルのカタログ。正本は docs/ds.md）
-uv run serve --help     # 配信プロファイルの入口（champion の FastAPI 配信。正本は docs/serve.md）
-uv run agent --help     # LLMOps プロファイルの入口（AgentSpec の評価・カタログ。正本は docs/agent.md）
+uv run data --help      # DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。正本は docs/ds.md）
+uv run serve --help     # 配信プロファイルを使い始めるコマンド（champion の FastAPI 配信。正本は docs/serve.md）
+uv run agent --help     # LLMOps プロファイルを使い始めるコマンド（AgentSpec の評価・カタログ。正本は docs/agent.md）
 uvx pre-commit run --all-files   # コミット直前の検査
 ```
 

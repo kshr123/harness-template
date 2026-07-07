@@ -30,12 +30,12 @@ description: DS の実験（仮説検証・モデル比較・特徴量の効果�
 - **回帰の残差**：`analysis.residual_summary(y_true, y_pred)`（mean が 0 から離れていれば系統的な偏り）。
 - 分布差（EDA の drift_auc）の原因列も `cv_permutation_importance(DriftResult.estimators, ...)` で特定できる。
 
-## 実験のあとで使う部品（入口・迷ったらここ）
+## 実験のあとで使う部品（使いどころ・迷ったらここ）
 - **閾値の選び方**：既定は `eval.select_threshold_max_f1`。運用の目標があるなら `eval.select_threshold_at_recall(..., target=)`（見逃し上限を決める）／`select_threshold_at_precision(..., target=)`（誤検知上限を決める）。**どれも OOF/valid で選ぶ**（train・test では選ばない）。
 - **変種の比較（リーダーボード）**：`uv run data experiments --results work/…/results`（`metrics_*.yaml` を集約し変種×指標の表を出す・`--sort-by <指標>` で並べ替え）。
-- **champion への昇格**：採択したら `models.promote_model(root, work=, name=, version=, thresholds=, primary=, higher_is_better=)`。絶対関門（`passes`）かつ相対関門（現 champion に primary で勝つ）を満たすときだけ champion を更新する（負けても保存は残る）。現状の一覧は `uv run data saved`（champion に ★）。
+- **champion への採用**：採択したら `models.promote_model(root, work=, name=, version=, thresholds=, primary=, higher_is_better=)`。絶対条件（`passes`）かつ相対条件（現 champion に primary で勝つ）を満たすときだけ champion を更新する（負けても保存は残る）。現状の一覧は `uv run data saved`（champion に ★）。
 - **保存モデルを読む**：`models.load_model(root, name=, work=, version=None)`（再評価・推論。指紋・形式・依存版を検査してから読む）。version 未指定は最新。
-- **LLM エージェントの変種比較も同じ流れ**：結果は `metrics_<variant>.yaml` に残し `uv run agent experiments --results <dir>` で比較、昇格は `uv run agent promote --work … --name … --version … --primary exact_match --threshold 名=値`（絶対＋相対の関門は ML と同型・`docs/agent.md`）。
+- **LLM エージェントの変種比較も同じ流れ**：結果は `metrics_<variant>.yaml` に残し `uv run agent experiments --results <dir>` で比較、採用は `uv run agent promote --work … --name … --version … --primary exact_match --threshold 名=値`（絶対＋相対の合否判定は ML と同型・`docs/agent.md`）。
 - **ツール込みのエージェント実行（tools[]・往復ループ）も同じ `uv run agent run --test`** でスモークできる（使えるツールは `uv run agent tools`・無ネットワーク）。
 - **最終評価（holdout）**：選抜・閾値調整は全行 OOF で済ませ、champion 確定後に**触っていない test（holdout）で一度だけ** `experiment.final_eval_on_holdout(estimator, df_fit, y_fit, df_test, y_test, task=, decision_threshold=, thresholds=)` を呼び、結果を results/ に記録する（呼び出し例は雛形 train.py）。test の取り分けは `data.fixed_split`（id ハッシュの安定分割）。holdout は選抜・閾値調整に使わない（df_fit と id が重なると ValueError）。
 

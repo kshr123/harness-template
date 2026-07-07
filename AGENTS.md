@@ -12,7 +12,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - **進捗は `uv run status` で自動算出**（`work/` の木をたどる）。`STATUS.md` は生成物（その都度作り直す・手で編集しない・コミットしない）。見たいときに `uv run status` を走らせる。
 - **計画は近い作業だけ先に詳しくする**。着手が近いエピックだけ直前に分解する（`plan: detailed`）。まだ分解していない（`plan: outline`）状態は正常。
 - **着手は全体→詳細**。端まで通る最小の骨組み（入力→処理→出力→検証が一巡する最小の実装。いわゆる walking skeleton）を先に作り、`uv run verify` を全成功に保ったまま各部を本実装で差し替える。差し替えの順番は自由（例外と理由は `docs/method.md`）。
-- **進め方そのものも進化させる**。作業で得た気づきは `docs/learnings.md` に記録し、価値/一般性があると判断したら**即**（回数で待たない・DEC-0012）決定（DEC）を起こして、機械検査・抽象・スキル・規約のどれかへ昇格（ルール・部品への格上げ）する（歯止めは回数でなく一般性の判断。正本と昇格の流れは `docs/method.md`）。
+- **進め方そのものも進化させる**。作業で得た気づきは `docs/learnings.md` に記録し、価値/一般性があると判断したら**即**（回数で待たない・DEC-0012）決定（DEC）を起こして、機械検査・抽象・スキル・規約のどれかに落とし込む（＝再利用できるルールや部品にする）（歯止めは回数でなく一般性の判断。正本とこの流れは `docs/method.md`）。
 - **業界標準のライブラリを再発明しない**（DS プロファイル）。手書きは保守負債・バグの温床（`docs/decisions/DEC-0006`）（レビュー観点）。
   - メトリクス・交差検証の分割・スケーリング等は scikit-learn を、数値計算は numpy を使う。
   - 差し替えたいのは 2 つだけ：**モデルの具体**（config でモデル種を選ぶ＝`MODELS` レジストリ）と**保存形式**。
@@ -25,7 +25,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   DEC-0020 で core から降格）。**goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）
   を宣言済みの評価器（`AGENT_METRICS`＋`eval.passes`）が検査し、満たすまで続行させる
   （`src/harness/agent/goal.py`。`docs/decisions/DEC-0017`）。
-- **部品は入口（元コードを読まずに使えるようにする公開口）まで作って完了**。再利用する部品を作ったら、同じタスクでレジストリ登録＋docstring＋スキル/雛形からの、使い方にたどり着けるリンクまで更新する。エージェントが元コードを読まずに使えて初めて done（`docs/decisions/DEC-0009`。検査点：レジストリ項目の説明文必須は pytest が検査。スキルからのリンクはレビュー観点）。
+- **部品は、他の人が元コードを読まずに使える状態にして完了**。再利用する部品を作ったら、同じタスクでレジストリ登録＋docstring＋スキル/雛形からの、使い方にたどり着けるリンクまで更新する。エージェントが元コードを読まずに使えて初めて done（`docs/decisions/DEC-0009`。検査点：レジストリ項目の説明文必須は pytest が検査。スキルからのリンクはレビュー観点）。
 - **新しい CLI コマンドは、スキルか正本 docs から使い方にたどり着けるリンク・記載が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（`docs/decisions/DEC-0016`。検査点：coverage_lint が未到達コマンドを verify で失敗にする＝DEC-0009 の第 3 要件の機械化）。
 
 ## 作業単位（item）
@@ -44,9 +44,9 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - `uv run task-lint` … 作業単位の検査（ID の重複・depends_on の指す先が無い、を失敗にする）
 - `uv run commit-msg-lint <メッセージファイル>` … コミットメッセージ冒頭に `work/` 実在の作業単位 ID（例 `EP-20 T-0101：…`）があるか検査（commit-msg フックの実体。Merge/Revert/fixup!/squash! は免除）。
   有効化には `pre-commit install --hook-type commit-msg` が必要（既定の `pre-commit install` では commit-msg ステージは入らず素通りになる）。
-- `uv run data --help` … DS プロファイルの入口（テーブル・特徴量・実験・モデルのカタログ。使い方は eda / experiment / features スキル）
-- `uv run serve --help` … 配信プロファイルの入口（champion の FastAPI 配信。正本は `docs/serve.md`）
-- `uv run agent --help` … LLMOps プロファイルの入口（AgentSpec の評価・カタログ。正本は `docs/agent.md`）
+- `uv run data --help` … DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。使い方は eda / experiment / features スキル）
+- `uv run serve --help` … 配信プロファイルを使い始めるコマンド（champion の FastAPI 配信。正本は `docs/serve.md`）
+- `uv run agent --help` … LLMOps プロファイルを使い始めるコマンド（AgentSpec の評価・カタログ。正本は `docs/agent.md`）
 
 ## してはいけないこと
 - `STATUS.md` を手で編集しない（自動生成のファイル）。

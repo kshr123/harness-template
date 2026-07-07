@@ -10,7 +10,7 @@ description: 特徴量やエンコードを追加・変更する際に自動参�
 2. 無いとき、作る/使うの基準は「**sklearn がそれを十分うまくやっているか**」（DEC-0008。データ依存かどうかではない）：
    - sklearn にある → `src/harness/ds/pipeline.py` の ENCODERS に工場を 1 つ足す。焼き込む既定は「落ちない・漏れない・決定的」の 3 点だけ（性能の好みは焼かず params で上書き可能に）。
    - sklearn に無い隙間（list 列・target の mean 以外の統計・多キー結合の類）→ `features.py` に FeatureBlock を作り、BLOCKS に 1 行足す。
-3. 作ったら**同じタスクで**：docstring（何を作るか・有状態か・漏れ対策・config での書き方）＋ unit テスト（行数不変・列名・有状態なら fit/transform の分離・漏れ検知）＋ `uv run data blocks`/`data encoders` に載ることの確認（載らない＝登録漏れ＝入口の欠落）。
+3. 作ったら**同じタスクで**：docstring（何を作るか・有状態か・漏れ対策・config での書き方）＋ unit テスト（行数不変・列名・有状態なら fit/transform の分離・漏れ検知）＋ `uv run data blocks`/`data encoders` に載ることの確認（載らない＝登録漏れ＝使えるようにする一式の欠け）。
 
 ## 教師なしの量を特徴にする（クラスタ・異常スコア）
 目的変数なしで作った量を下流の入力にするなら encode 節（`uv run data encoders`）：`cluster`（クラスタとの距離が既定＝

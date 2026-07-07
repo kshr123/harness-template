@@ -7,7 +7,7 @@
 雛形を使うエンジニアが読む Reference（対象範囲の決定は DEC-0014）。
 
 実装は `src/harness/ops/`：`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
-**ops は CLI を持たない**＝入口はこの正本と、`uv run verify` に自動で乗る検査
+**ops は CLI を持たない**＝使い方はこの正本と、`uv run verify` に自動で乗る検査
 （そのプロファイルが公開する検査の集合＝pm_checks）だけ。中核へは `.harness/config.toml` の
 `profiles = [..., "harness.ops"]` 経由で PROFILE（プロファイル＝検査と部品の束）の
 検査だけを見せる（core はプロファイルを import しない境界＝DEC-0004・import を軽く保つ規律＝DEC-0013）。
@@ -87,7 +87,7 @@ shadow deployment（新版の並走・応答は返さずログだけ残す下見
 ## 継続学習（CT）雛形
 
 `templates/ci/.github/workflows/retrain.yml` は、**schedule（cron）→ experiment（再学習）→ `data monitor`
-（ドリフト確認）→ 閾値を満たせば promote** を**既存部品の結線だけ**で回す雛形。新しい学習・監視・昇格の
+（ドリフト確認）→ 閾値を満たせば promote** を**既存部品の結線だけ**で回す雛形。新しい学習・監視・採用の
 仕組みをワークフローには書かない。使い方：
 
 - 複製先のリポジトリ直下へ `.github/workflows/retrain.yml` としてコピーする。
@@ -103,11 +103,11 @@ shadow deployment（新版の並走・応答は返さずログだけ残す下見
   band（安定/要注意/大変化の 3 段の帯）で人が読み、exit 0（基準テーブルが
   読めないときだけ非 0）。ドリフトの解釈は文脈依存で、誤検知の自動停止は再学習ループ全体を止めてしまう
   ため。閉ループ（大変化での課題起票）は `--file-issue` を付けて接続する（下の「監視→課題起票の閉ループ」節）。
-- **昇格**＝`harness.ds.models.promote_model` が唯一の関門：絶対
+- **採用**＝`harness.ds.models.promote_model` が唯一の合否判定：絶対
   （thresholds＝`eval.passes` と同じ合否の辞書。「本番に出してよい最低ライン」を書く）かつ相対
   （現 champion に primary で勝つ）を満たすときだけ champion を更新する。版は手書きしない＝再学習 step の
-  結果記録（`results/metrics_<variant>.yaml` の `model.name`/`model.version`）から結線する。関門で不合格なら
-  step が落ちる＝昇格なし（意図した停止）。
+  結果記録（`results/metrics_<variant>.yaml` の `model.name`/`model.version`）から結線する。合否判定で不合格なら
+  step が落ちる＝採用なし（意図した停止）。
 
 verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を error にしない**（CT を回さない複製先を
 誤検知しない）。在るときだけ次を静的検査して腐りを止める（`_WORKFLOWS` の表の `required=False` の 1 行。
@@ -115,32 +115,32 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 区別する）：
 
 - schedule トリガの有無。
-- experiment→monitor→promote の step の**有無と登場順**（`ordered=True`。監視してから昇格の順序が意味を
+- experiment→monitor→promote の step の**有無と登場順**（`ordered=True`。監視してから採用の順序が意味を
   持つので、monitor↔promote を並べ替えると順序違反で error）。
 - Python 版・`--all-extras`。
 
 ### loops 語彙での位置づけ（time+goal 合成・T-0120）
 
 - **trigger = time**：`schedule.cron`（定期）＋`workflow_dispatch`（手動やり直し）。
-- **stop は 2 層**：(i) 1 周の停止＝`promote_model` 関門（絶対 thresholds＝ds `eval.passes` と同じ合否＋
-  相対＝champion 越え）。合格→champion 更新で退場・不合格→step が落ちて昇格なしで退場、どちらでも 1 周は
+- **stop は 2 層**：(i) 1 周の停止＝`promote_model` 合否判定（絶対 thresholds＝ds `eval.passes` と同じ合否＋
+  相対＝champion 越え）。合格→champion 更新で退場・不合格→step が落ちて採用なしで退場、どちらでも 1 周は
   必ず終わる（monitor は処理を止めない＝stop に関与しない、を再掲）。(ii) ループ全体の停止＝workflow 無効化・
   cron 削除（停止規律の正本は `docs/agent.md` の time-based routine の停止節＝T-0097。重複記述しない）。
 - **policy**：`retrain.yml`（結線の正本・ci_lint が構造検査）×実験フォルダの `config.yaml`（何を再学習
   するか）×thresholds/primary（合格ライン）。
 - **周回（閉ループ）**：前半円＝`data monitor --file-issue`（ドリフト→冪等起票・exit 0）、後半円＝
-  schedule→train→promote 関門。agent 版 proactive 閉ループ（`docs/agent.md` の proactive 節＝T-0098）と
+  schedule→train→promote 合否判定。agent 版 proactive 閉ループ（`docs/agent.md` の proactive 節＝T-0098）と
   対称（重複記述しない）。
 - **同型性＋実装非共有**：agent の goal ゲート（`GoalGate`＝`AGENT_METRICS`＋agent `eval.passes`）と
-  promote 関門（`promote_model`＝ds `eval.passes`〔絶対〕＋champion 越え〔相対〕）は同じ形＝「宣言済みの
+  promote 合否判定（`promote_model`＝ds `eval.passes`〔絶対〕＋champion 越え〔相対〕）は同じ形＝「宣言済みの
   成功基準を、作った側とは別の評価器が検査して合格したときだけ先へ進む」（AGENTS 第一原則の機械化）。
-  差分（同型≠同一）：goal ゲートは同一プロセス内で未達なら続行注入して反復・promote 関門はステートレスな
+  差分（同型≠同一）：goal ゲートは同一プロセス内で未達なら続行注入して反復・promote 合否判定はステートレスな
   1 周で退場（続行は次周の schedule）。実装は共有しない（DEC-0004・`eval.passes` の agent/ds 併存は意図
   した複製・共有したくなったら DEC-0012＝DEC-0018 の再判断トリガ）。
 - **実コード消費なしの確定**：(a) 実行体は GitHub Actions（利用者環境）＝`check()` を呼ぶ主体がハーネス側
   に無い。(b) 各 scheduled run はステートレスな 1 周＝プロセス内に反復が実在しない（反復を統べるのは
   cron）。(c) 停止は `promote_model` が既に完全に持つ＝StopCondition を挟むと判定の正本が二重になる
-  （DEC-0004 違反への入口）。`loops.py` の import は不要（T-0120 で確定・DEC-0018）。
+  （DEC-0004 違反の入り口）。`loops.py` の import は不要（T-0120 で確定・DEC-0018）。
 
 ## 監視→課題起票の閉ループ
 
