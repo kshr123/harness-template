@@ -6,7 +6,7 @@
 
 各項目は「状態」を持つ：
 - **記録のみ** … まだ昇格していない観察。
-- **昇格済み（→DEC-xxxx）** … 決定を起こし、機械検査・抽象・スキル・規約のどれかへ落とした。次の棚卸しで消す。
+- **昇格済み（→DEC-xxxx）** … 決定を起こし、機械検査・抽象・スキル・規約のどれかへ落とした。次の棚卸しで消す（ただし DEC や他の learnings の**根拠として引用されている**ものは、引用先が迷子にならないよう先例として保持する＝L-004 の扱い）。
 
 昇格の流れは `docs/method.md` C 節、実行手順は harvest スキル。L-001〜003・005〜006 は実装知識で昇格不要（記録のみ）。L-004 は昇格済み（→DEC-0002）で、昇格の後戻り防止（ratchet）の先例。
 
@@ -38,13 +38,8 @@
 - **対応**：`.gitattributes` に `* text=auto eol=lf` を置き、改行を LF に統一。
 - **設計への反映**：不要（テンプレートの標準装備として `.gitattributes` を含める）。
 
-## L-008 部品は作ったが「エージェントが発見して使う入口」を作る工程が無く、雛形すら部品を使っていなかった
-- **状態**：昇格済み → DEC-0009（「部品は入口まで作って完了」を DoD/AGENTS＋一覧コマンド＋説明文必須テストへ落とした。次の棚卸しで削除可）。
-- **要点**：features/pipeline の部品（BLOCKS/ENCODERS）は良い形だったが、一覧コマンドも experiment/features スキルも無く、E-0001 雛形が build_estimator を使わず手書きだった。作っただけで「同時に使える」状態でなかった。目的はエージェントファースト＝再コーディングせず部品を使えること。
-- **対応**：`uv run data blocks`/`data encoders`（レジストリから生成）・experiment/features スキル・E-0001 の雛形化・DoD/AGENTS に「部品は入口まで作って完了」を追加。L-007（部品があるのに手書き再発明）と合わせ再発明は 2 回目＝昇格。
-
 ## L-007 業界標準（scikit-learn）があるのに評価メトリクス・標準化・CV 分割を自前で書いていた
-- **状態**：昇格済み → DEC-0006（「標準ライブラリを再発明しない」を DEC＋AGENTS のレビュー観点に落とした。次の棚卸しで削除可）。
+- **状態**：昇格済み → DEC-0006（「標準ライブラリを再発明しない」を DEC＋AGENTS のレビュー観点に落とした。DEC-0006・DEC-0009 の根拠として引用されるため保持＝L-004 と同じく先例）。
 - **要点**：roc_auc・accuracy・StandardScale・fold 分割を numpy で手書きしていた。これは業界標準の再発明で、保守負債・バグの温床だった（参考リポも全メトリクスを sklearn 実装）。
 - **対応**：`scikit-learn` を ds の一級依存にし、eval のメトリクス・transforms.StandardScale・cv.make_folds を sklearn（accuracy_score/roc_auc_score・StandardScaler・KFold/StratifiedKFold）へ置換。置換後も既存テストが全通過＝手書きは純粋な再発明だった。モデルの具体・直列化の形式は注入して差し替え可能に保つ（sklearn→LightGBM の移行路は維持）。
 
@@ -69,22 +64,11 @@
 - **状態**：記録のみ（DEC-0012＝方針転換は即記録。転換の実装は T-0082・旧方針を書いた docstring も同時更新済み）。
 - **要点**：correlations・category_target_summary・id_like・duplicate_columns を個別に読み合わせてリークを察する運用は見落としが出る。入口 1 つ（`eda.leakage_scan`＝既存部品の合成のみ・新統計なし）へ転換し、怪しい列に理由を付けて返す。門番にはしない（値は事実・判断は実験側）。
 
-## L-012 現行モデルでは temperature で決定性を作れない（パラメータごと廃止＝送ると 400）
-- **状態**：昇格済み → DEC-0015（決定性軸を effort 固定＋無ネットワーク検証（dummy/cassette）へ落とした。次の棚卸しで削除可）。
-- **要点**：旧来の「`temperature=0` で LLM 出力を決定的にして verify に載せる」手は、現行の Claude モデル（Opus 4.7/4.8・Sonnet 5・Fable 5）では使えない。`temperature`/`top_p`/`top_k` はパラメータごと廃止され、**送ると 400 エラー**になる（EP-22 着手時の調査）。
-- **対応**：AgentSpec は temperature を持たない（`load_agent_spec` が専用エラーで弾き effort への移行を案内）。verify の決定性は入力側で作る：dummy（入力＋seed の正準 JSON ハッシュから決定的応答）＋cassette（記録再生・T-0092）でネットワーク 0。モデル出力自体の非決定性は許容し、分散は本番監視で見る。
-- **判断**：決定性は「モデルのノブ」でなく「ハーネスの構造」（宣言に固定する effort・無ネットワークの再生）で担保する。存在しないノブを宣言に残すと宣言が嘘をつく＝差し替え口ごと持たない。
-
 ## L-013 導線の書き忘れ（missing link）は一方向の doclint では捕まらない
-- **状態**：昇格済み → DEC-0016（導線カバレッジ検査 coverage_lint を verify に接続。次の棚卸しで削除可）。
+- **状態**：昇格済み → DEC-0016（導線カバレッジ検査 coverage_lint を verify に接続。DEC-0016 の根拠として引用されるため保持＝L-004 と同じく先例）。
 - **要点**：doclint は「書いた参照が実在するか」（dead link）だけを見る一方向の検査。逆向き＝新しい能力（CLI コマンド）が増えたのに、スキル/正本 docs に導線が書かれない（missing link）は機械で捕まらず、verify は緑のまま。実測で data の selectors・tuners・metrics（一覧コマンド）と issue の new（起票）がどのスキル/正本 docs からも到達不能だった（serve スキルに `data monitor` の 1 行が入ったのは作者が覚えていたから＝忘れても検査は落ちない）。
 - **対応**：coverage_lint（cli.py 群を ast 解析して `@*.command` を全抽出→スキル/正本 docs での出現を検査・未到達＝error・免除は理由必須の allowlist）を PM_CHECKS に接続し、欠けていた導線を experiment/session スキルに追記して緑化（DEC-0016）。DEC-0009 の第 3 要件（スキル/雛形からの導線）の機械化。
 
-## L-014 end_turn は「完了した気になった」であって「基準を満たした」ではない
-- **状態**：昇格済み → DEC-0017（loops の goal-based 停止ゲートを運用モデルへ昇格。次の棚卸しで削除可）。
-- **要点**：`run_agent` の turn-based ループは provider の `end_turn`（モデル自身の「もう答えた」という自己申告）で止まる。これは AGENTS 第一原則「完了＝検証にすべて成功したときだけ・自己申告で完了にしない」が禁じている形そのものが、エージェント実行の中に素通しで残っていた（end_turn＝モデルの自己申告・宣言済みの評価器による検査を経ていない）。
-- **対応**：goal-based ループ（`agent/goal.py`＝`Goal`/`GoalGate`/`run_agent_to_goal`・T-0095）で、end_turn の直後に宣言済みの評価器（`AGENT_METRICS`＋`eval.passes`・fail closed）を挟む。合格するまで続行を注入し（`run_agent` の続行口 `prior_messages`）、`max_cycles` で黙って無限ループしない backstop を持つ。
-- **判断**：「完了＝検証にすべて成功」の原則は人間・スキルの規律だけでなく、エージェント実行そのもの（maker＝モデルの end_turn、checker＝宣言済みの評価器）にも機械化できる・すべき対象だった。
 ## L-015 「同じ入口」は宣言でなく実測で確かめる（公式フックの走査対象が CI では空になりうる）
 - **状態**：記録のみ（T-0100 で対処済み。同型の執行点を足すとき＝T-0101〜T-0103 の参照用）。
 - **要点**：gitleaks の公式 pre-commit フックの entry は `gitleaks git --staged`＝**ステージ差分だけ**を走査する。CI のクリーンチェックアウト（差分ゼロ）で `pre-commit run gitleaks --all-files` を叩くと、緑だが**何も走査していない**（実測：ツリーに鍵を置いても Passed）。「ローカルと CI が同じ入口」はフック id の一致だけでは成立しない。

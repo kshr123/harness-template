@@ -1,11 +1,12 @@
 ---
 id: EP-25
 kind: epic
-status: in-progress
+status: done
 plan: detailed
 requirements: [REQ-001]
 depends_on: [EP-23]
 created: 2026-07-07
+closed: 2026-07-07
 ---
 # EP-25 理想の仕組みへの進化（自己整合・検査委譲・資産境界・レビュー比例化・メタ整合）
 
@@ -43,3 +44,17 @@ work 木＋pm.lint・goal-gate/judge/exit-1・maker≠checker・fail-closed・�
 各タスクは「効かせる guard を先に RED で書いてから直す」（method.md C 節・検査先行）。設計＝fable／実装＝sonnet／
 独立レビュー＝Opus（別モデル・ミューテーションで guard の RED を実測）。done は verified_by に受け入れ基準を確かめる
 テストの場所を明記（空・指す先無しは pm 検査で失敗）。
+
+## 残課題（フォロー・別タスク／ISS 候補）
+- **実験雛形の完全自己完結**（T-0140 由来）：`templates/experiment/train.py` が `--test` の schema 解決で
+  `work/EP-06/E-0001/data`（消す領域）を後方参照する（`load_schemas` が `work/**/data/*.yaml` を glob する設計に起因）。
+  複製先が work/EP-06 を消すと雛形の `--test` が空振りしうる（実運用では自分の WORK_ID・テーブル定義に差し替える前提）。
+  完全自己完結にするには、雛形が要するテーブル定義（schema）だけを templates 側へ持たせる／スモークを完全 synthetic 化する
+  ／`load_schemas` の探索元を見直す、のいずれか。実験機構全体に触れるため EP-25 の範囲外＝別タスクで判断。
+
+## 完了（2026-07-07・closed）
+全 7 タスク done：T-0133（loops 正直化）・T-0134（検査委譲の関門 DEC-0021）・T-0135（自前 lint 純化＋CI 配線）・
+T-0140（実験雛形を templates へ）・T-0137（templates オーナー検査ラチェット）・T-0138（レビュー比例化＝規約）・
+T-0139（メタ自己整合＝手作業）。方針転換（EP-24 の docs 機械化 rollback）を受け、T-0138/0139 は機械化を足さず
+「文書/プロセス規律は規約」に整合させた（機械化の射程は構造/コード不変条件だけ）。核（verify-gate・work 木・
+goal-gate・maker≠checker・fail-closed）は不変のまま、殻をより自己整合的に進化させた。
