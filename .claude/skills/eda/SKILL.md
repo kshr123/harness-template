@@ -20,7 +20,7 @@ description: データを見る（探索的データ分析・EDA）際に自動�
    `mutual_information`（MI 降順＝非線形依存）と `leakage`（リーク疑いの列・0 行＝疑いなし・乱数は `--seed`）も
    同じ `--target` 出力に載る。挙がった列は除外の前に「なぜ漏れるか」を確認する。
 3. train/test があれば `uv run data compare <train_id> <test_id> [--auc]`（統計量差・カテゴリの共通/固有・PSI／
-   `--auc` で分布差 AUC＝adversarial validation）。PSI 目安：0.1 未満=安定・0.25 以上=大きな変化（門番でなく目安）。
+   `--auc` で分布差 AUC＝adversarial validation）。PSI 目安：0.1 未満=安定・0.25 以上=大きな変化（止める検査でなく目安）。
 4. `--auc` が目安 0.7 以上なら分布シフトの疑い。原因列を `analysis.cv_permutation_importance` で特定し、
    除外・変換の仮説を experiment スキルへ渡す。※ cv_permutation_importance は T-0027 で追加。
 5. **人が見る・見せるとき**は `notebooks/eda.py` を調査フォルダへコピーし、

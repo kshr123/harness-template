@@ -21,7 +21,7 @@ GitHub Actions・k8s・スケジューラ・クラウドは**実行しない**�
 - **構造 lint**（`ci_lint.run_checks`）＝実行できない資産の参照整合を verify で静的に検査し、
   テンプレートが腐るのを止める（`src/harness/serve/deploy_lint.py` が `templates/serve/` を守るのと同型）。
 - **プロファイル境界**＝ops を外したい案件は config の 1 行を消すだけ（中核・ds・serve は無傷）。
-- **スキル・正本の導線**＝この文書（と関連スキル）から使い方に到達できる。
+- **スキル・正本の案内**＝この文書（と関連スキル）から使い方に到達できる。
 
 ci_lint はネットワーク 0・依存は stdlib＋pyyaml のみ。`templates/ci/` が無いプロジェクト
 （テンプレートを同梱しないコピー先の案件）では何も指摘しない（誤検知しない）。
@@ -99,7 +99,7 @@ shadow deployment（新版の並走・応答は返さずログだけ残す下見
 
 - **再学習**＝実験雛形の `code/train.py`（config→学習→評価→保存→results/ を一気通貫。作り方は
   experiment スキル。学習コードをワークフローに書かない＝config.yaml が変種・モデル・データの正本）。
-- **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**門番にしない**：分布ずれは
+- **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**処理を止めない**：分布ずれは
   band（安定/要注意/大変化の 3 段の帯）で人が読み、exit 0（基準テーブルが
   読めないときだけ非 0）。ドリフトの解釈は文脈依存で、誤検知の自動停止は再学習ループ全体を止めてしまう
   ため。閉ループ（大変化での課題起票）は `--file-issue` を付けて接続する（下の「監視→課題起票の閉ループ」節）。
@@ -124,7 +124,7 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 - **trigger = time**：`schedule.cron`（定期）＋`workflow_dispatch`（手動やり直し）。
 - **stop は 2 層**：(i) 1 周の停止＝`promote_model` 関門（絶対 thresholds＝ds `eval.passes` と同じ合否＋
   相対＝champion 越え）。合格→champion 更新で退場・不合格→step が落ちて昇格なしで退場、どちらでも 1 周は
-  必ず終わる（monitor は門番にしない＝stop に関与しない、を再掲）。(ii) ループ全体の停止＝workflow 無効化・
+  必ず終わる（monitor は処理を止めない＝stop に関与しない、を再掲）。(ii) ループ全体の停止＝workflow 無効化・
   cron 削除（停止規律の正本は `docs/agent.md` の time-based routine の停止節＝T-0097。重複記述しない）。
 - **policy**：`retrain.yml`（結線の正本・ci_lint が構造検査）×実験フォルダの `config.yaml`（何を再学習
   するか）×thresholds/primary（合格ライン）。
@@ -150,7 +150,7 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 `.harness/config.toml` の issues.backend）へ**冪等に**（同じ事象では 2 件目を作らずに）
 起票する（kind=risk・state=open）。
 
-- **処理を止める検査（門番）にはしない**：起票は副作用で exit code は常に 0
+- **処理を止める検査にはしない**：起票は副作用で exit code は常に 0
   （alert でも・起票済みでも 0。分布ずれで CI・再学習ループを止めない）。
 - `--file-issue` 無しの出力・exit code は従来と完全に同一（既定 off＝後方互換）。
 - 既存 2 部品の合成のみ：判定は `ds/monitor.py` の psi/band、起票は `issues.py` の既存 API

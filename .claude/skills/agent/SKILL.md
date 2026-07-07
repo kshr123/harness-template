@@ -36,7 +36,7 @@ verify 経路は dummy/cassette（記録再生）のみ＝
 6. 配信：`uv run agent serve --work <ID> --name <名>`（champion を FastAPI で配信。`POST /invoke`
    `{"input": "<発話>"}`＝会話×ツール往復 1 回。provider は宣言に従う・実行ログは `artifacts/agent/runs/**`
    へ 1 行ずつ＝そのまま監視が読む。champion が無ければ起動時エラー。要 `uv sync --extra agent`）。
-7. 監視：`uv run agent monitor`（実行ログの拒否/打ち切り率・コスト分位・ツール頻度。門番にしない＝常に
+7. 監視：`uv run agent monitor`（実行ログの拒否/打ち切り率・コスト分位・ツール頻度。処理を止めない＝常に
    exit 0・`--file-issue` で帯が要注意以上なら課題を冪等起票）。入出力の検査は `agent/guardrails.py`
    （`PiiRegexGuard`＝PII 正規表現スタブ・`validate_output_schema`＝JSON Schema 最小検証。詳細は `docs/agent.md`）。
    定期実行（time-based routine）は `templates/schedule/` をコピーする（正本は `docs/agent.md` の

@@ -1,14 +1,14 @@
 # serve — 学習済みモデルの配信（FastAPI）と予測ログの契約
 
 学習済みモデルの現在の採用版（champion）を FastAPI の予測 API として配信し、
-すべての予測を来歴つきの JSONL（prediction log＝予測ログ）へ記録する
+すべての予測を由来つきの JSONL（prediction log＝予測ログ）へ記録する
 プロファイル。配れるのは registry（保存済みの版の登録簿）で
 昇格（評価の関門を通って champion になること）済みの版だけ。
 モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
 
 実装は `src/harness/serve/`：`app.py`（API）・`runtime.py`（champion 解決・予測・ログ）・`cli.py`
 （uvicorn 起動）。予測ログは MLOps の prediction log パターンの翻案（設計の経緯は DEC-0013）。
-作業手順の導線は `.claude/skills/serve/SKILL.md`。
+作業手順の案内は `.claude/skills/serve/SKILL.md`。
 
 ## 使い方（How-to）
 
@@ -44,7 +44,7 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 | `time` | str | ISO 8601・UTC。同じリクエストの行は同じ値 |
 | `request_id` | str | uuid4 hex。同じリクエストの行は同じ値 |
 | `row` | int | リクエスト内の行番号（0 始まり） |
-| `model` | dict | `work`・`name`・`version`・`fingerprint`（str。モデル manifest と同じ来歴） |
+| `model` | dict | `work`・`name`・`version`・`fingerprint`（str。モデル manifest と同じ由来） |
 | `prediction_kind` | str | `proba` \| `multiclass_proba` \| `value` |
 | `input_fingerprint` | str | features の正準 JSON（キー昇順・区切り最小）の sha256。`runtime.input_fingerprint(features)` で再計算できる |
 | `features` | dict | 列名→入力値（受信した record そのまま） |

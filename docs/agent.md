@@ -41,7 +41,7 @@ uv run agent run --test                # 合成 spec のスモーク（評価＋
 ```
 
 実プロバイダ（`provider: anthropic`）は `uv sync --extra agent` で SDK を入れて使う
-（「実プロバイダと記録再生」の節）。作業手順の導線は `.claude/skills/agent/SKILL.md`。
+（「実プロバイダと記録再生」の節）。作業手順の案内は `.claude/skills/agent/SKILL.md`。
 
 ## loops（trigger×stop×policy＝エージェント運用の語彙）
 
@@ -73,7 +73,7 @@ from harness.agent.goal import Goal, GoalGate, run_agent_to_goal
 
 goal = Goal(expected="正解", thresholds={"exact_match": 1.0})
 run = run_agent_to_goal(spec, "問い", provider=provider, gate=GoalGate(goal=goal), seed=0, max_cycles=4)
-run.cycles, run.stop_reason, run.gate_reasons  # 各サイクルの判定＝来歴
+run.cycles, run.stop_reason, run.gate_reasons  # 各サイクルの判定＝由来
 ```
 
 CLI からは `agent run` の拡張だけで届く（新しいコマンドは足さない・DEC-0016）：
@@ -83,10 +83,10 @@ uv run agent run --spec <yaml> --input "<発話>" --goal-expected "<正解>" \
     --goal-threshold exact_match=1.0 --max-cycles 4
 ```
 
-- stdout は最終応答のみ。来歴（`cycles`/`stop_reason`/`gate_reasons`）は stderr に出す
+- stdout は最終応答のみ。由来（`cycles`/`stop_reason`/`gate_reasons`）は stderr に出す
   （既存 `agent run` と同じ分離）。
 - goal 未達のまま `max_cycles` に達したら **exit 1**。「評価器が合格と言うまで完了にしない」を exit code に
-  写す（常に exit 0 の `agent monitor`＝門番にしない、とは役割が違う）。
+  写す（常に exit 0 の `agent monitor`＝処理を止めない、とは役割が違う）。
 - verify 経路は extra 無し・ネットワーク 0 で全機能を検証できる（dummy/cassette のみ・DEC-0015）。
 
 ### llm_judge（自由文の成功基準をモデルに採点させる・goal の宣言化）
@@ -125,7 +125,7 @@ uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 
 ```
 
 **`--goal` と `--goal-expected` の併用は exit 2**（正本が二重になる二重管理を避ける）。それ以外の exit
-規約（stdout=最終応答・stderr=来歴・goal 未達は exit 1）は `--goal-expected` と同じ。
+規約（stdout=最終応答・stderr=由来・goal 未達は exit 1）は `--goal-expected` と同じ。
 
 横展開（ds/serve/ops のどこに適用し・しないか）の正本は DEC-0018。
 
@@ -225,7 +225,7 @@ T-0091 で `serve/runtime.py` から移設・DEC-0009）。agent は serve を i
 昇格の関門（評価の合格基準）を通った版だけを champion にする。ML の
 `ds/models.py` と同型だがプロファイル独立（`ds` を import しない・`harness.storage` のみ再利用）。
 **非対称**が 1 つ：agent の実体は宣言そのもの＝バイナリが無いので保存形式（FORMATS）は無く、manifest 1 枚
-（spec を config として畳み込み＋metrics＋`prompt_fingerprint`＝system_prompt の sha256＋git 来歴）が
+（spec を config として畳み込み＋metrics＋`prompt_fingerprint`＝system_prompt の sha256＋git 由来）が
 保存の全体。
 
 - `save_agent(root, spec, work=, name=, metrics=)`：評価済み宣言を版（UTC タイムスタンプ・再利用しない）として
@@ -259,7 +259,7 @@ agent は**会話×ツール往復**＝`POST /invoke`（1 発話 → `run_agent`
   provider=dummy の champion で無ネットワークのまま回る・DEC-0015）。
 - `POST /invoke`：本文 `{"input": "<発話>"}`。空 input は 422。返答は
   `{output, stop_reason, turns, tools_used, usage, request_id, agent:{name,work,version}}`。
-- `GET /health`（生存＋載っている版）・`GET /metadata`（来歴＝spec・metrics・prompt_fingerprint・created）。
+- `GET /health`（生存＋載っている版）・`GET /metadata`（由来＝spec・metrics・prompt_fingerprint・created）。
 - **1 実行＝AGENT_LOG_FIELDS の JSONL 1 行**を既定 `artifacts/agent/runs/<name>/<YYYYMMDD>.jsonl`
   （`--log-dir` で変更可）へ追記＝`agent monitor` の既定 glob がそのまま読む（配信が監視の入力を生む）。
 
@@ -271,12 +271,12 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 ストリーミング（SSE）・会話の永続・認証/レート制御は LLM ゲートウェイの関心＝この骨組みではやらない
 （/invoke は 1 発話→1 応答。ツール往復は内部で回る）。
 
-## 監視（`agent monitor`・門番にしない・`agent/monitor.py`）
+## 監視（`agent monitor`・処理を止めない・`agent/monitor.py`）
 
 実行ログ（上の AGENT_LOG_FIELDS の JSONL）だけを読み、**品質の代理（拒否/打ち切り率）・コスト
 （トークン/ターンの分位）・ツール使用頻度**を YAML で出す。`ds/monitor`（`data monitor`）と同じ規律で作る：
 
-- **門番にしない**：率は band（安定/要注意/大変化の 3 段の重大度の帯。0.05/0.2 の目安）で
+- **処理を止めない**：率は band（安定/要注意/大変化の 3 段の重大度の帯。0.05/0.2 の目安）で
   人が読む。exit code は常に 0（自動停止しない）。
 - **壊れ行・契約違反行は警告して読み飛ばす**（件数は `n_skipped` に出る）。全体が読めなくなるより縮退を選ぶ。
 - **消費するキー（time/stop_reason/usage/turns/tools_used）だけ検証する**。
@@ -335,7 +335,7 @@ close）は新しいコード・新しい CLI を足さずに、既存の関門�
 ### フロー（maker-checker＝作る側と確かめる側を分ける原則、の承認点つき）
 
 1. **front**：`agent monitor --file-issue` が帯（`non_end_turn_rate`）が要注意以上のとき決定的タイトルで
-   冪等に起票する（exit 0 のまま・門番化しない）。
+   冪等に起票する（exit 0 のまま・処理を止めない）。
 2. **[承認点 1] 人の triage**：`uv run issue list --open` で open 課題を拾い、対処するか
    （`promoted_to` にタスク ID を書いて in-progress にする）見送るか（`wontfix`＋「## 理由」）を人が決める。
 3. **maker**：拾った課題を修正するタスクを実装する。
@@ -361,7 +361,7 @@ close）は新しいコード・新しい CLI を足さずに、既存の関門�
 - **承認無しの自動 merge を作らない**：承認点 1・2 は常に人。
 - **`issue promote`/`issue close` の CLI を作らない**：状態遷移（`promoted_to`・`state`）は frontmatter の
   手編集＝人の行為が唯一の口。
-- **monitor は exit 0 のまま**（門番化しない＝起票は副作用という既存規律を壊さない）。
+- **monitor は exit 0 のまま**（処理を止めない＝起票は副作用という既存規律を壊さない）。
 
 ## ガードレール（`agent/guardrails.py`・入出力の入口だけ・委譲点を明示）
 
