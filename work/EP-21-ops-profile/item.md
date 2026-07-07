@@ -3,7 +3,7 @@ id: EP-21
 kind: epic
 status: todo
 title: 運用プロファイル harness.ops（CI/継続学習/リリース戦略/shadow/監視の閉ループ）
-plan: outline
+plan: detailed
 requirements: [REQ-002]
 depends_on: [EP-17, EP-19]
 created: 2026-07-06
@@ -40,3 +40,11 @@ S3/GCS 実装（`storage.resolve_uri` に差し替え口は用意済み・実需
 T：`harness.ops` プロファイル骨組み（PROFILE 登録・空 ci_lint・config 1 行）→ T：CI verify テンプレ＋ci_lint → T：リリース戦略の
 文書化 → T：shadow 配信（app/runtime/docs 契約）→ T：CT 雛形＋ci_lint 拡張 → T：`data monitor --file-issue`。歩く骨組み＝
 プロファイル境界＋CI テンプレを先に一巡させ、各部を差し替え。
+
+採番（detailed 化・2026-07-07）：
+- T-0110 harness.ops 歩く骨組み＝PROFILE 登録・空 ci_lint・config 1 行・docs/ops.md の器
+- T-0111 CI verify テンプレ（templates/ci の verify.yml）＋ci_lint 本実装（実行しない構造検査）
+- T-0112 リリース戦略の文書化＝templates/serve README に Blue-Green・Canary 節
+- T-0113 shadow 配信＝/predict の 1 プロセス内分岐・PREDICTION_LOG_FIELDS に role 後方互換追加
+- T-0114 CT 雛形 retrain.yml＋ci_lint 拡張（既存部品の結線のみ）
+- T-0115 data monitor --file-issue＝PSI_ALERT 超で issues に冪等起票（門番にしない・exit 0）
