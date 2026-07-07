@@ -1,7 +1,7 @@
 ---
 id: T-0101
 kind: task
-status: todo
+status: done
 title: commit-msg の作業単位 ID 検査（pm の ID 一覧を再利用・来歴を機械で守る）
 created: 2026-07-07
 depends_on: [T-0100]

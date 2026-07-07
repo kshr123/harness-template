@@ -13,7 +13,7 @@ from typing import Annotated
 
 import typer
 
-from harness import checks, issues, pm
+from harness import checks, commit_lint, issues, pm
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
 # クロスプラットフォームの前提（make 非依存と同じ理由）。
@@ -76,6 +76,23 @@ def verify_main() -> None:
     """完了判定＝check full と同じ。すべて成功したら done にできる。"""
 
     sys.exit(checks.run_check(_root(), "full"))
+
+
+def commit_msg_lint_main() -> None:
+    """コミットメッセージの作業単位 ID 検査（commit-msg フックの実体。引数＝git が渡すメッセージファイル）。
+
+    有効化は `pre-commit install --hook-type commit-msg`（既定の install では commit-msg ステージは
+    入らず素通り＝AGENTS.md のコマンド節参照）。判定の芯は harness.commit_lint（純関数）に置く。
+    """
+
+    def _run(message_file: Path) -> None:
+        problems = commit_lint.lint_message(_root(), message_file.read_text(encoding="utf-8"))
+        for p in problems:
+            typer.echo(f"✗ {p.message}")
+        if any(p.level == "error" for p in problems):
+            raise typer.Exit(1)
+
+    typer.run(_run)
 
 
 def changelog_main() -> None:

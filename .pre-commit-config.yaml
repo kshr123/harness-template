@@ -1,5 +1,8 @@
 # pre-commit（コミット直前の自動検査）。実行は `uvx pre-commit run --all-files`。
 # ローカルと CI が同じ共通の検証コマンド（uv run）を叩く＝完了の定義を一致させる。
+# 既定では全フックが全ステージで走るため、commit-msg を install すると check・gitleaks が
+# コミットごとに二重実行される。既存フックは pre-commit ステージに固定する（test_commit_lint が検査）。
+default_stages: [pre-commit]
 repos:
   - repo: local
     hooks:
@@ -9,6 +12,13 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      # コミットメッセージの作業単位 ID 検査（T-0101。ID の正本＝pm.load_tree・免除は接頭辞リストのみ）。
+      # 有効化には `pre-commit install --hook-type commit-msg` が必要（既定の install では素通り）。
+      - id: commit-msg-id-lint
+        name: コミットメッセージの作業単位 ID 検査（work/ 実在 ID を冒頭に）
+        entry: uv run commit-msg-lint
+        language: system
+        stages: [commit-msg]
   # 秘密情報検出＝gitleaks を採用（第一候補どおり。detect-secrets は実測で results/ のデータ指紋
   # （sha256）を偽陽性 7 件検出したため不採用）。CI もこの同じフック id を回す（tests/test_guardrails.py が検査）。
   - repo: https://github.com/gitleaks/gitleaks
