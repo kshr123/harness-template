@@ -6,8 +6,8 @@ description: 学習済みモデル（champion）を配信・サービングす�
 # serve（champion の配信＝FastAPI・予測は来歴つき JSONL）
 
 配信は学習の後工程。配るのは registry（保存済みの版の登録簿）の champion（昇格の関門を通った現在の採用版）
-だけ。契約（エンドポイント・予測 JSONL の行スキーマ）の正本は docs/serve.md（監視 data monitor はこの契約
-だけに依存する）。用語（champion・registry・shadow deployment・role など）の定義は docs/glossary.md。
+だけ。契約（エンドポイント・予測 JSONL の行スキーマ）と用語の正本は docs/serve.md（監視 data monitor はこの
+契約だけに依存する。champion・registry・shadow deployment・role などの用語は docs/serve.md の本文で説明する）。
 
 ## 手順
 1. 配る版を確認する：`uv run data saved --work <ID>`（★＝現 champion）。champion が無ければ先に実験→昇格

@@ -1,15 +1,15 @@
 # ops — 運用プロファイル（CI ゲート・継続学習・リリース戦略・監視の閉ループ）
 
 モデル配信の「その後」＝運用を扱うプロファイル。中身は 4 つ：CI の verify ゲート、継続学習
-（[CT](glossary.md#ct)＝Continuous Training。定期的な再学習の自動化）、リリース戦略（Blue-Green・Canary）、
+（CT＝Continuous Training。定期的な再学習の自動化）、リリース戦略（Blue-Green・Canary）、
 監視から課題起票までの閉ループ。運用の実行基盤（GitHub Actions・k8s・クラウド）そのものは動かさず、
 利用者がコピーして使うテンプレートと、その腐りを止める静的検査だけを持つ。案件の運用を組む・CI/CT の
 雛形を使うエンジニアが読む Reference（対象範囲の決定は DEC-0014）。
 
 実装は `src/harness/ops/`：`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
 **ops は CLI を持たない**＝入口はこの正本と、`uv run verify` に自動で乗る検査
-（[pm_checks](glossary.md#pm_checks)）だけ。中核へは `.harness/config.toml` の
-`profiles = [..., "harness.ops"]` 経由で [PROFILE](glossary.md#profile)（プロファイル＝検査と部品の束）の
+（そのプロファイルが公開する検査の集合＝pm_checks）だけ。中核へは `.harness/config.toml` の
+`profiles = [..., "harness.ops"]` 経由で PROFILE（プロファイル＝検査と部品の束）の
 検査だけを見せる（core はプロファイルを import しない境界＝DEC-0004・import を軽く保つ規律＝DEC-0013）。
 
 ## 思想（実行しない）
@@ -75,7 +75,7 @@ ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に
 ## shadow 配信
 
 `/predict` の **1 プロセス内分岐**で champion（primary）と
-[shadow deployment](glossary.md#shadow-deployment)（新版の並走・応答は返さずログだけ残す下見運用）を回す：
+shadow deployment（新版の並走・応答は返さずログだけ残す下見運用）を回す：
 
 - 応答は常に primary のみ。同じ入力の予測を `role: primary|shadow` の 2 行として同じ予測 JSONL に残す
   （同じ `request_id`・`input_fingerprint` で突き合わせられる＝新版の本番下見）。
@@ -100,10 +100,10 @@ ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に
 - **再学習**＝実験雛形の `code/train.py`（config→学習→評価→保存→results/ を一気通貫。作り方は
   experiment スキル。学習コードをワークフローに書かない＝config.yaml が変種・モデル・データの正本）。
 - **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**門番にしない**：分布ずれは
-  [band](glossary.md#band重大度の帯)（安定/要注意/大変化の 3 段の帯）で人が読み、exit 0（基準テーブルが
+  band（安定/要注意/大変化の 3 段の帯）で人が読み、exit 0（基準テーブルが
   読めないときだけ非 0）。ドリフトの解釈は文脈依存で、誤検知の自動停止は再学習ループ全体を止めてしまう
   ため。閉ループ（大変化での課題起票）は `--file-issue` を付けて接続する（下の「監視→課題起票の閉ループ」節）。
-- **昇格**＝`harness.ds.models.promote_model` が唯一の[関門](glossary.md#関門昇格ゲート)：絶対
+- **昇格**＝`harness.ds.models.promote_model` が唯一の関門：絶対
   （thresholds＝`eval.passes` と同じ合否の辞書。「本番に出してよい最低ライン」を書く）かつ相対
   （現 champion に primary で勝つ）を満たすときだけ champion を更新する。版は手書きしない＝再学習 step の
   結果記録（`results/metrics_<variant>.yaml` の `model.name`/`model.version`）から結線する。関門で不合格なら
@@ -144,13 +144,13 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 
 ## 監視→課題起票の閉ループ
 
-`uv run data monitor --baseline <テーブル id> --file-issue` は、[PSI](glossary.md#psi)
+`uv run data monitor --baseline <テーブル id> --file-issue` は、PSI
 （Population Stability Index＝母集団安定性指標。分布のずれを 1 つの数にした監視の定番指標）の band が
 大変化（`PSI_ALERT`＝0.25 以上）の列があるとき、issues の登録簿（`uv run issue` と同じ置き場・
-`.harness/config.toml` の issues.backend）へ**[冪等](glossary.md#冪等)に**（同じ事象では 2 件目を作らずに）
+`.harness/config.toml` の issues.backend）へ**冪等に**（同じ事象では 2 件目を作らずに）
 起票する（kind=risk・state=open）。
 
-- **[門番](glossary.md#門番blocking-な検査)にしない思想は維持**：起票は副作用で exit code は常に 0
+- **処理を止める検査（門番）にはしない**：起票は副作用で exit code は常に 0
   （alert でも・起票済みでも 0。分布ずれで CI・再学習ループを止めない）。
 - `--file-issue` 無しの出力・exit code は従来と完全に同一（既定 off＝後方互換）。
 - 既存 2 部品の合成のみ：判定は `ds/monitor.py` の psi/band、起票は `issues.py` の既存 API

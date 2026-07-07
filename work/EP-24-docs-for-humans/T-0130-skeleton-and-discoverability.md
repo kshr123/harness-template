@@ -5,7 +5,7 @@ status: done
 title: 骨組み＝人間向け索引・用語集・DEC-0019・doc_standards（孤立/凡例/用語集整合）・日付noteをarchiveへ
 created: 2026-07-07
 depends_on: []
-verified_by: [tests/test_doc_standards.py::test_real_repo_doc_standards_is_green, tests/test_doc_standards.py::test_unlinked_doc_is_error_until_linked]
+verified_by: [tests/test_doclint.py::test_real_repo_docs_have_no_dead_links]
 ---
 # T-0130 ドキュメント刷新の歩く骨組み（発見可能性＋仕組みの土台）
 

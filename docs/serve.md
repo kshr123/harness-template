@@ -1,9 +1,9 @@
 # serve — 学習済みモデルの配信（FastAPI）と予測ログの契約
 
-学習済みモデルの現在の採用版（[champion](glossary.md#champion)）を FastAPI の予測 API として配信し、
-すべての予測を来歴つきの JSONL（[prediction log](glossary.md#prediction-log)＝予測ログ）へ記録する
-プロファイル。配れるのは [registry](glossary.md#registry)（保存済みの版の登録簿）で
-[昇格](glossary.md#昇格モデルエージェントchampion)（評価の関門を通って champion になること）済みの版だけ。
+学習済みモデルの現在の採用版（champion）を FastAPI の予測 API として配信し、
+すべての予測を来歴つきの JSONL（prediction log＝予測ログ）へ記録する
+プロファイル。配れるのは registry（保存済みの版の登録簿）で
+昇格（評価の関門を通って champion になること）済みの版だけ。
 モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
 
 実装は `src/harness/serve/`：`app.py`（API）・`runtime.py`（champion 解決・予測・ログ）・`cli.py`
@@ -49,14 +49,14 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 | `input_fingerprint` | str | features の正準 JSON（キー昇順・区切り最小）の sha256。`runtime.input_fingerprint(features)` で再計算できる |
 | `features` | dict | 列名→入力値（受信した record そのまま） |
 | `prediction` | float \| list[float] | proba/value は float・multiclass_proba はクラス 0..k-1 の確率の list[float] |
-| [`role`](glossary.md#role) | str | `primary`（応答を返した champion）\| `shadow`（並走した shadow 版）。**常に付与**（shadow 未設定でも `primary`）＝読み手は有無で場合分けしない |
+| `role` | str | `primary`（応答を返した champion）\| `shadow`（並走した shadow 版）。**常に付与**（shadow 未設定でも `primary`）＝読み手は有無で場合分けしない |
 
 この契約は後続の監視（`data monitor`）が唯一依存するもの。キーの増減・改名は契約の変更＝
 `PREDICTION_LOG_FIELDS`・この表・消費側を同時に直すこと。
 
 ## shadow 配信（1 プロセス内分岐・env で明示有効化）
 
-[shadow deployment](glossary.md#shadow-deployment)（シャドー配信）＝本番のリクエストを新版にも並走させ、
+shadow deployment（シャドー配信）＝本番のリクエストを新版にも並走させ、
 応答は返さずログだけ残す下見運用。champion（primary）の応答は変えずに、**同じ入力**を shadow 版でも予測して
 同じ JSONL に `role: "shadow"` の行を残す。実行時基盤（トラフィック分割・サイドカー）には踏み込まない
 （運用上の位置づけは `docs/ops.md` の shadow 節）。
@@ -85,7 +85,7 @@ SERVE_SHADOW_NAME=challenger uv run serve --work E-0001 --name baseline
 ## loops との関係（serve は loop でない）
 
 serve はリクエスト駆動（`/predict`・`/invoke` とも 1 呼び 1 応答のレイテンシ契約）で、「停止条件が満たされる
-まで作業サイクルを繰り返す」[loops](glossary.md#loops)（DEC-0017）には該当しない。応答経路に評価器ゲートを
+まで作業サイクルを繰り返す」loops（DEC-0017）には該当しない。応答経路に評価器ゲートを
 挟むのは配信の関心（レイテンシ・可用性）と衝突するため、意図的に適用しない（適用しない、という判断自体が
 正本＝DEC-0018）。serve を回す loop は serve の外側にある：予測 JSONL→`data monitor`（→`--file-issue`）→
 retrain という ops の周回（`docs/ops.md`）。

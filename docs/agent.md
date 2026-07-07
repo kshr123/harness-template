@@ -1,15 +1,15 @@
 # agent — LLM エージェントの開発・評価・配信（契約と CLI）
 
-LLM エージェントを、コードでなく **1 つの宣言**（[AgentSpec](glossary.md#agentspec)＝プロンプト＋モデル＋
+LLM エージェントを、コードでなく **1 つの宣言**（AgentSpec＝プロンプト＋モデル＋
 ツール＋方針の YAML）として作り、育て、配るためのプロファイル。宣言を
-[golden set](glossary.md#golden-set)（期待する出力つきの評価例集）で採点し、基準を満たした版だけを
-[champion](glossary.md#champion)（現在の採用版）に昇格して配信・監視する。エージェントを作る・評価する・
+golden set（期待する出力つきの評価例集）で採点し、基準を満たした版だけを
+champion（現在の採用版）に昇格して配信・監視する。エージェントを作る・評価する・
 運用する人が、手順と契約（宣言のキー・ログの行形式）を確かめるために読む Reference。
 
 ライフサイクルは機械学習モデルと同型：**宣言 → golden set で採点 → 合否 → 保存 → 昇格 → 配信 → 監視**。
 検証（`uv run verify`）はネットワークを使わない：実 API の代わりに dummy（合成応答）と
-[cassette](glossary.md#cassette)（実 API 応答を JSON に固定して再生する記録再生フィクスチャ）だけで
-全機能を確かめる。再現性の軸は [effort](glossary.md#effort)（推論の深さ）を宣言に固定して作る
+cassette（実 API 応答を JSON に固定しておき、ネットワークなしで再生する記録再生の仕組み）だけで
+全機能を確かめる。再現性の軸は effort（推論の深さの指定）を宣言に固定して作る
 （現行モデルは temperature を受け付けないため。DEC-0015）。
 
 実装は `src/harness/agent/`。役割ごとに 1 ファイル：
@@ -45,7 +45,7 @@ uv run agent run --test                # 合成 spec のスモーク（評価＋
 
 ## loops（trigger×stop×policy＝エージェント運用の語彙）
 
-[loops](glossary.md#loops) は「**停止条件が満たされるまで作業サイクルを繰り返す**」エージェント運用の語彙
+loops は「**停止条件が満たされるまで作業サイクルを繰り返す**」エージェント運用の語彙
 （Anthropic「Getting started with loops」の分類）。trigger（何が起動するか）× stop（何が止めるか）×
 policy（何を方針に動くか）の組で 4 類型に分ける。正本の決定は
 `docs/decisions/DEC-0017-loops-operating-model.md`。語彙（`StopDecision`・`StopCondition`）は元は core の
@@ -59,11 +59,11 @@ policy（何を方針に動くか）の組で 4 類型に分ける。正本の�
 | time-based | 時間間隔（cron/CI schedule・Claude 側 /loop・/schedule スキル） | cancel・無効化 | `templates/schedule/`＋schedule_lint |
 | proactive | event/schedule＋goal の合成 | タスク＝goal 達成で退場・routine＝無効化まで | `agent monitor --file-issue`（前半円のみ実装済み。T-0098・outline） |
 
-**goal-based の停止は評価器ゲート（[goal-based gate](glossary.md#goal-based-gate)）**：
+**goal-based の停止は評価器ゲート（goal-based gate＝評価器が合格と言うまで続行させる停止判定）**：
 
 - モデルの `end_turn`（モデル自身の「完了した」判断）をそのまま信用しない。
 - 宣言済みの評価器（`AGENT_METRICS`＋`eval.passes`・
-  [fail-closed](glossary.md#fail-closed--fail-open)＝判定できないときは不合格に倒す）が出力を検査し、
+  fail-closed＝判定できないときは不合格に倒す）が出力を検査し、
   未達なら「続けろ」を注入して続行させる（「検証に合格して初めて完了」＝AGENTS 第一原則のエージェント実行版）。
 - 実装は `run_agent` の丸ごと再利用。続行は keyword-only 引数 `prior_messages`（会話履歴を保ったまま
   続きから始める続行口。省略時は従来どおり）で行う。
@@ -143,7 +143,8 @@ uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 
     `output_config={"effort": spec.effort}`＝宣言に固定した effort で作る。
 - **`cassette`（記録再生・replay 専用・テスト/CI 用・`agent/cassette.py`）**：
   - cassette＝JSON ファイル `{キー: 応答 dict（model_dump 相当）}`。キーは
-    `(model, system_prompt, messages, tools)` の[正準 JSON](glossary.md#正準-json) の sha256
+    `(model, system_prompt, messages, tools)` の正準 JSON（キー順・区切りを固定し、同じデータからは
+    常に同じバイト列になる JSON）の sha256
     （`cassette_key`＝`harness.fingerprint.input_fingerprint` を再利用）。
   - 記録が無いキーは ValueError（**fail-closed**＝dummy へフォールバックしない）。
   - record モードは無い（実記録はネットワーク＝verify 外）。フィクスチャは API 契約から手で書く＝
@@ -220,8 +221,8 @@ T-0091 で `serve/runtime.py` から移設・DEC-0009）。agent は serve を i
 
 ## 保存→昇格→champion→experiments（ライフサイクルの後半・`agent/store.py`）
 
-評価済みの宣言は [registry](glossary.md#registry)（保存済みの版の登録簿）に版として残し、
-[昇格](glossary.md#昇格モデルエージェントchampion)の関門を通った版だけを champion にする。ML の
+評価済みの宣言は registry（保存済みの版の登録簿）に版として残し、
+昇格の関門（評価の合格基準）を通った版だけを champion にする。ML の
 `ds/models.py` と同型だがプロファイル独立（`ds` を import しない・`harness.storage` のみ再利用）。
 **非対称**が 1 つ：agent の実体は宣言そのもの＝バイナリが無いので保存形式（FORMATS）は無く、manifest 1 枚
 （spec を config として畳み込み＋metrics＋`prompt_fingerprint`＝system_prompt の sha256＋git 来歴）が
@@ -275,13 +276,13 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 実行ログ（上の AGENT_LOG_FIELDS の JSONL）だけを読み、**品質の代理（拒否/打ち切り率）・コスト
 （トークン/ターンの分位）・ツール使用頻度**を YAML で出す。`ds/monitor`（`data monitor`）と同じ規律で作る：
 
-- **門番にしない**：率は [band](glossary.md#band重大度の帯)（安定/要注意/大変化の 3 段。0.05/0.2 の目安）で
+- **門番にしない**：率は band（安定/要注意/大変化の 3 段の重大度の帯。0.05/0.2 の目安）で
   人が読む。exit code は常に 0（自動停止しない）。
 - **壊れ行・契約違反行は警告して読み飛ばす**（件数は `n_skipped` に出る）。全体が読めなくなるより縮退を選ぶ。
 - **消費するキー（time/stop_reason/usage/turns/tools_used）だけ検証する**。
 - 分位はニアレストランク法（補間しない）。実装は stdlib のみ（numpy/polars/ds 非依存＝core の軽さと
   DEC-0004 の境界を保つ）。
-- 基準分布との比較（[PSI](glossary.md#psi)）はしない：agent のログには基準特徴表が無い。必要が 3 個目に
+- 基準分布との比較（PSI＝Population Stability Index。分布のずれを測る監視指標）はしない：agent のログには基準特徴表が無い。必要が 3 個目に
   見えたら DEC-0012 の流れで core 昇格を検討する。
 
 ```
@@ -291,7 +292,7 @@ uv run agent monitor --file-issue                 # 帯が要注意以上なら�
 ```
 
 `--file-issue` は決定的タイトル `[agent-monitor] non_end_turn_rate <帯>` で起票し、同タイトルの open 課題が
-既に在れば再起票しない（**[冪等](glossary.md#冪等)**＝二度叩いても 1 件。github: backend では起票せず
+既に在れば再起票しない（**冪等**＝二度叩いても 1 件。github: backend では起票せず
 案内だけ・exit 0 のまま）。
 
 ## time-based routine（monitor の定期実行・templates/schedule/）
@@ -331,7 +332,7 @@ proactive（event/schedule＋goal の合成。写像表は `work/EP-23-loops/ite
 close）は新しいコード・新しい CLI を足さずに、既存の関門（`issues.run_checks` の不変条件＋monitor の
 再起票）だけで閉じる。
 
-### フロー（[maker-checker](glossary.md#maker-checker) の承認点つき）
+### フロー（maker-checker＝作る側と確かめる側を分ける原則、の承認点つき）
 
 1. **front**：`agent monitor --file-issue` が帯（`non_end_turn_rate`）が要注意以上のとき決定的タイトルで
    冪等に起票する（exit 0 のまま・門番化しない）。

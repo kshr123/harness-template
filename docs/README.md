@@ -14,7 +14,6 @@
 5. [DoD.md](DoD.md) … 「完了」と言ってよい条件のチェックリスト。
 6. 必要な領域だけ：[agent.md](agent.md)（LLM エージェント）・[serve.md](serve.md)（モデル配信）・
    [ops.md](ops.md)（CI・継続学習・監視）。
-7. 分からない言葉が出たら [glossary.md](glossary.md)（用語集）を引く。
 
 ## ID・略語の凡例
 
@@ -32,7 +31,7 @@
 
 | 略語 | 意味 |
 | --- | --- |
-| `PSI` | Population Stability Index（分布のずれを測る監視指標。用語集参照） |
+| `PSI` | Population Stability Index（分布のずれを測る監視指標） |
 | `CV` | Cross-Validation（交差検証。データを分割してモデルを繰り返し評価する方法） |
 | `CT` | Continuous Training（継続学習。定期的な再学習の自動化） |
 | `PII` | Personally Identifiable Information（個人を特定できる情報） |
@@ -50,7 +49,6 @@
 | [method.md](method.md) | Explanation | 開発の進め方（歩く骨組み）と、進め方自体を進化させる仕組み |
 | [../AGENTS.md](../AGENTS.md) | Reference | 従うべき決まりごと（機械検査つき・正本） |
 | [DoD.md](DoD.md) | Reference | 完了の定義（チェックリスト） |
-| [glossary.md](glossary.md) | Reference | 造語・内部用語の定義と標準用語の対応 |
 | [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
 | [serve.md](serve.md) | Reference | モデル配信（FastAPI）と予測ログの契約 |
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
@@ -65,11 +63,4 @@ Tutorial に当たる文書は現状無い（最も近いのは experiment ス�
 
 ## archive
 
-[archive/](archive/) は日付付きの作業メモ（過去のレビュー記録・一時的な計画）の保管庫。正本ではなく、
-この索引の孤立検査（doc_standards）の対象外。
-
----
-
-この索引の腐り（リンクされない文書・凡例に無い ID 接頭辞・用語集の不整合）は `doc_standards`
-（`src/harness/doc_standards.py`・`uv run verify` に接続）が機械的に検出する。標準の正本は
-[decisions/DEC-0019-documentation-standards.md](decisions/DEC-0019-documentation-standards.md)。
+[archive/](archive/) は日付付きの作業メモ（過去のレビュー記録・一時的な計画）の保管庫。正本ではない。

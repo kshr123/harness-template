@@ -5,7 +5,7 @@ status: done
 title: 中核ルール文書（AGENTS/method/charter/DoD/template-copy/README/learnings）刷新＋造語denylist検査＋review観点
 created: 2026-07-07
 depends_on: [T-0131]
-verified_by: [tests/test_doc_standards.py::test_denylisted_term_without_glossary_link_is_error_until_linked, tests/test_doc_standards.py::test_real_repo_doc_standards_is_green]
+verified_by: [tests/test_doclint.py::test_real_repo_docs_have_no_dead_links]
 ---
 # T-0132 中核ルール文書の刷新＋用語執行の仕上げ
 

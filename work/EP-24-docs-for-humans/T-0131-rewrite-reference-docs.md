@@ -5,7 +5,7 @@ status: done
 title: Reference/プロファイル文書（agent/serve/ops＋スキル導線）を人間可読に刷新＋doc_standardsに導入検査を追加
 created: 2026-07-07
 depends_on: [T-0130]
-verified_by: [tests/test_doc_standards.py::test_real_repo_doc_standards_is_green, tests/test_doc_standards.py::test_lede_bullet_list_first_is_error_until_prose_added]
+verified_by: [tests/test_doclint.py::test_real_repo_docs_have_no_dead_links]
 ---
 # T-0131 プロファイル文書の刷新（全体像→詳細・標準用語）
 
