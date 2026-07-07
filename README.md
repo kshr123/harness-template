@@ -37,9 +37,9 @@ uvx pre-commit run --all-files   # コミット直前の検査
 - `docs/` … 案件レベルの文書：`README.md`（索引）／`charter.md`（立ち上げ）／`requirements/`（要件 REQ）／`data/`（テーブル定義の正本 YAML）／`decisions/`（決定 DEC・不変）／`learnings.md`（気づき）／`DoD.md`（完了の定義）
 - `issues/` … 課題（発見された問題・リスク・疑問 ISS。置き場がローカルのときだけ実体を持つ）
 - `work/` … 作業単位（エピック・タスク・調査・実験）。**親はフォルダ**。1 まとまりのもの（説明・SPEC・コード・結果・メモ）を同居させる。
-  - `work/EP-01-foundation/item.md` … エピックの目的と計画の詳しさ
-  - `work/EP-01-foundation/T-0001-*.md` … 軽いタスクはファイル 1 つ／`INV-*.md` … 調査
-  - `work/EP-06-ds-experiment-loop/E-0001-*/` … 実験は自分のフォルダに仮説・設定・結果を同居
+  - `work/<エピック>/item.md` … エピックの目的と計画の詳しさ
+  - `work/<エピック>/<タスク>.md` … 軽いタスクはファイル 1 つ（`T-…` / 調査は `INV-…`）
+  - `work/<エピック>/<実験>/` … 実験は自分のフォルダに仮説・設定・結果を同居（`E-…`）
 - `src/<pkg>/` … 再利用する共有コード（データ分割・評価・特徴量・テーブル定義など）／`tests/` … その単体テスト
 - `.harness/config.toml` … 置き場の切り替え（データ・課題・メタデータの各URI）／`.harness/templates/` … 文書の型
 - `data/` … データ実体（正本は config の保存先URI・不変・指紋で管理・コミットしない）

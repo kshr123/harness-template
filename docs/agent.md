@@ -327,7 +327,7 @@ Claude 側で回したいときは `/loop`（間隔指定の繰り返し）や `
 
 ## proactive 閉ループ（前半円＋後半円）
 
-proactive（event/schedule＋goal の合成。写像表は `work/EP-23-loops/item.md`）は 2 つの半円からなる：
+proactive（event/schedule＋goal の合成。loops 語彙の ds/serve/ops への写像は `docs/decisions/DEC-0018`）は 2 つの半円からなる：
 **前半円**（監視→冪等起票）は `agent monitor --file-issue` で実装済み。**後半円**（issue→修正→検証緑で
 close）は新しいコード・新しい CLI を足さずに、既存の合否判定（`issues.run_checks` の不変条件＋monitor の
 再起票）だけで閉じる。

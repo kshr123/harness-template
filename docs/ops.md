@@ -30,7 +30,8 @@ ci_lint はネットワーク 0・依存は stdlib＋pyyaml のみ。`templates/
 
 GitHub ランナー・k8s・クラウド基盤の実装／A/B テスト（実トラフィックの出し分け）／streaming（Kafka 等）／
 S3・GCS の実装／retry・timeout・circuit breaker／オンライン特徴量ストア／prediction cache／gRPC。
-理由と順序の判断は `work/EP-21-ops-profile/item.md` の「やらないこと」を参照。
+いずれも対象範囲（ML ライフサイクル全体・`docs/decisions/DEC-0014`）の内側だが、実行時の重い基盤は
+利用者環境の関心なので順序で後回しにする（差し替え口だけ用意し、実需要が出るまで作らない）。
 
 ## CI（verify ゲート）テンプレートと ci_lint
 
