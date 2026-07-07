@@ -12,8 +12,8 @@
 3. [method.md](method.md) … 開発の進め方と、進め方自体を改善する仕組み（考え方の核）。
 4. [../AGENTS.md](../AGENTS.md) … 人と AI が従う決まりごと（強制ルールの正本）。
 5. [DoD.md](DoD.md) … 「完了」と言ってよい条件のチェックリスト。
-6. 必要な領域だけ：[agent.md](agent.md)（LLM エージェント）・[serve.md](serve.md)（モデル配信）・
-   [ops.md](ops.md)（CI・継続学習・監視）。
+6. 必要な領域だけ：[ds.md](ds.md)（表データの学習）・[agent.md](agent.md)（LLM エージェント）・
+   [serve.md](serve.md)（モデル配信）・[ops.md](ops.md)（CI・継続学習・監視）。
 
 ## ID・略語の凡例
 
@@ -49,6 +49,7 @@
 | [method.md](method.md) | Explanation | 開発の進め方（歩く骨組み）と、進め方自体を進化させる仕組み |
 | [../AGENTS.md](../AGENTS.md) | Reference | 従うべき決まりごと（機械検査つき・正本） |
 | [DoD.md](DoD.md) | Reference | 完了の定義（チェックリスト） |
+| [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と入口の地図 |
 | [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
 | [serve.md](serve.md) | Reference | モデル配信（FastAPI）と予測ログの契約 |
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
