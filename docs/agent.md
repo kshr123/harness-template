@@ -50,7 +50,7 @@ uv run agent run --test                # 合成 spec のスモーク（評価＋
 | `tools` | list[str]（省略可・既定 []） | TOOLS の kind（一覧は `uv run agent tools`・lint が実在を検査） |
 | `effort` | low/medium/high/xhigh/max（既定 medium） | 推論の深さ。**宣言に固定**＝再現性の軸 |
 | `max_turns` | int（既定 8） | ツール往復の上限（到達で `stop_reason="max_turns"` に打ち切り） |
-| `output_schema` | mapping（省略可） | 構造化出力の JSON Schema（検証は T-0093） |
+| `output_schema` | mapping（省略可） | 構造化出力の JSON Schema（検証は `agent/guardrails.py` の `validate_output_schema`） |
 
 **`temperature` は書けない**（現行モデルはパラメータごと廃止＝送ると 400・DEC-0015）。書くと専用の
 エラーで effort＋cassette への移行を案内する。
@@ -74,8 +74,8 @@ I/O をするツールは書かない（verify の無ネットワーク契約＝
 ## ログ契約（AGENT_LOG_FIELDS・1 実行＝JSONL 1 行）
 
 正本は `agent/runtime.py` の `AGENT_LOG_FIELDS`（`serve.PREDICTION_LOG_FIELDS` と同型の「キー集合ドリフトを
-止める」規律＝`build_log_row(run, spec=, request_id=, time=)` がキー集合の一致を検査する）。後続の監視
-（T-0093）はこの契約だけに依存する。
+止める」規律＝`build_log_row(run, spec=, request_id=, time=)` がキー集合の一致を検査する）。監視
+（`agent monitor`・下の節）はこの契約だけに依存する。
 
 | キー | 型・意味 |
 | --- | --- |
@@ -123,6 +123,36 @@ uv run agent experiments --results work/…/results           # 変種比較（m
 
 `agent experiments` は `ds.experiment.leaderboard`（polars＋yaml の純関数）を CLI 内で遅延 import して
 再利用する（結果記録の形式 `metrics_<variant>.yaml` は ML の実験と共通＝比較の作法を二重化しない）。
+
+## 監視（`agent monitor`・門番にしない・`agent/monitor.py`）
+
+実行ログ（上の AGENT_LOG_FIELDS の JSONL）だけを読み、**品質の代理（拒否/打ち切り率）・コスト
+（トークン/ターンの分位）・ツール使用頻度**を YAML で出す。`ds/monitor`（`data monitor`）と同じ規律：
+**門番にしない**（率は band＝安定/要注意/大変化（0.05/0.2 の目安）で人が読む・**常に exit 0**）・壊れ行や
+契約違反行は警告して読み飛ばす（`n_skipped` に出る＝盲目になるより縮退）・消費するキー
+（time/stop_reason/usage/turns/tools_used）だけ検証する。分位はニアレストランク法（補間しない）。
+実装は stdlib のみ（numpy/polars/ds 非依存＝core の軽さと DEC-0004 の境界を保つ。基準分布との比較（psi）は
+agent のログに基準特徴表が無いのでしない＝必要が 3 個目に見えたら DEC-0012 で core 昇格）。
+
+```
+uv run agent monitor                              # 既定 glob artifacts/agent/runs/**/*.jsonl
+uv run agent monitor --since 2026-07-01           # 境界日を含む・YYYY-MM-DD
+uv run agent monitor --file-issue                 # 帯が要注意以上なら課題を冪等起票
+```
+
+`--file-issue` は決定的タイトル `[agent-monitor] non_end_turn_rate <帯>` で起票し、同タイトルの open 課題が
+既に在れば再起票しない（**冪等**＝二度叩いても 1 件。github: backend では起票せず案内だけ・exit 0 のまま）。
+
+## ガードレール（`agent/guardrails.py`・入出力の入口だけ・委譲点を明示）
+
+入出力を通す前に確かめる薄い層。共通の口は `Guard` Protocol（`check(text) -> GuardResult`＝ok・reason・
+matches）。骨組みは 2 つだけ（Registry 化は 2 実装目で＝YAGNI）：
+
+- `PiiRegexGuard`（入力ガードの**正規表現スタブ**）：email・電話番号を検出（見つかれば `ok=False`＋
+  `matches`）。実際の PII 検出は検出モデルへ**委譲**（入口だけ作って委譲点を明示＝DEC-0009 の作法）。
+- `validate_output_schema(output, schema)`（出力ガード）：出力を JSON として解釈し、JSON Schema の
+  **最小部分集合**（トップレベル `type`・`required`・`properties` の型）だけ検証。`AgentSpec.output_schema`
+  をそのまま渡せる。完全検証は jsonschema へ**委譲**（base 依存に無い＝必要になったら extra として足す）。
 
 ## 宣言の構造 lint（verify に接続）
 

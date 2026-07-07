@@ -1,7 +1,7 @@
 ---
 id: T-0093
 kind: task
-status: todo
+status: done
 created: 2026-07-07
 depends_on: [T-0091]
 verified_by: [tests/test_agent_monitor.py::test_monitor_rates_and_cost_from_constructed_logs]
@@ -93,7 +93,20 @@ T-0091 で 1 実行の JSONL 契約（`AGENT_LOG_FIELDS`）を作った。運用
 - OpenTelemetry 実エクスポート・SSE・レートリミッタは item.md の later のまま。
 
 ## 独立レビュー（maker≠checker・差分のみ・実測・変異）
-（レビュー後に記入。観点：monitor が門番でない＝exit 0 で判定を載せない・壊れ行で盲目にならず縮退する・
-率/分位/ツール頻度が構成から導け金メッキでない・`--file-issue` が冪等＝同タイトル open を再作成しない・
-guardrails が非 JSON/required 欠け/型違い/PII を取りこぼさない＝変異で検出・agent は ds/numpy/polars を
-import しない＝軽さと境界の維持・ネットワーク 0）
+実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。4 変異はいずれも
+狙ったテストだけが RED になることを確認し、バイト同一に復元。
+- **拒否率の式＝変異で確認**：`monitor` の `1.0 - stops.get("end_turn")/n` を `stops.get("end_turn")/n` に変異
+  → `test_monitor_rates_and_cost_from_constructed_logs`（verified_by）と縮退テストが RED（率の意味を守る）。
+- **寛容な読みの契約検査＝変異で確認**：`_contract_error` を dict 判定直後に `return None`（全行を通す）へ変異
+  → `test_read_agent_logs_skips_broken_rows_with_warning` が RED（壊れ行を数え warn して読み飛ばす縮退を守る）。
+- **`--file-issue` の冪等＝変異で確認**：CLI の既存 open 探索の `title == title` を `!=` に変異
+  → `test_cli_agent_monitor_file_issue_is_idempotent` が RED（2 連続で 2 件になる＝同タイトル再起票の抑止を守る）。
+- **guardrails の bool≠number＝変異で確認**：`"number": isinstance(int|float) and not isinstance(bool)` から
+  `and not isinstance(bool)` を外す → `test_output_schema_wrong_property_type_fails_with_reason` が RED
+  （JSON の true を数として通さない＝bool-is-int の罠を守る）。
+- **門番でない**：CLI は band によらず exit 0（空ログ・大変化でも 0）。`--since` の書式違いだけ usage error
+  （判定でなく引数の検査）＝`test_cli_agent_monitor_yaml_via_default_glob` が固定。
+- **軽さと境界**：`monitor.py`／`guardrails.py` は stdlib のみ（numpy/polars/ds/anthropic を import しない・実測）。
+  `agent/__init__.py` から re-export せず＝`import harness.agent` は軽いまま（既存 subprocess テストが緑）。
+- **分位・PII・schema は構成から導出**（金メッキ禁止）。psi は流用せず（設計判断のとおり・soon で core 昇格）。
+- **verify 全体緑**（`成功（すべて通過）`）。指摘なし。

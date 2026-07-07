@@ -181,6 +181,78 @@ def _agent_champion(
     typer.echo(f"prompt_fingerprint={champ.prompt_fingerprint}")
 
 
+@agent_app.command("monitor")
+def _agent_monitor(
+    log: Annotated[
+        str, typer.Option("--log", help="エージェント実行ログの glob（root 相対）")
+    ] = "artifacts/agent/runs/**/*.jsonl",
+    since: Annotated[
+        str | None, typer.Option("--since", help="この日付（YYYY-MM-DD・境界日を含む）以降の行だけ")
+    ] = None,
+    file_issue: Annotated[
+        bool, typer.Option("--file-issue", help="non_end_turn_rate の帯が要注意以上なら課題を冪等起票")
+    ] = False,
+) -> None:
+    """エージェント実行ログ（AGENT_LOG_FIELDS）の監視表を YAML で出す（拒否/打ち切り率・コスト分位・ツール頻度）。
+
+    門番にしない（率は exit code に載せず band で人が読む・**常に exit 0**）。壊れ行は警告して読み飛ばす
+    （n_skipped に出る）。--file-issue は帯が要注意/大変化のとき課題を 1 件だけ起票する（決定的タイトル
+    `[agent-monitor] non_end_turn_rate <帯>` の open が既に在れば再起票しない＝冪等）。
+    """
+    from datetime import date
+
+    import yaml
+
+    from harness.agent import monitor as monitor_mod
+
+    since_date: date | None = None
+    if since is not None:
+        try:
+            since_date = date.fromisoformat(since)
+        except ValueError as exc:
+            raise typer.BadParameter(f"--since は YYYY-MM-DD 形式（受領: {since!r}）") from exc
+
+    root = _root()
+    files = sorted(root.glob(log))
+    logs = monitor_mod.read_agent_logs(files, since=since_date)
+    report = monitor_mod.monitor(logs)
+    out: dict[str, object] = {"log": log, **report.to_dict()}
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+
+    if not file_issue:
+        return
+    band = monitor_mod.rate_band(report.non_end_turn_rate)
+    if band == "安定":
+        return
+    from harness import issues
+
+    # 冪等起票：決定的タイトルの open 課題が既に在れば作らない（二度叩いても 1 件・item.md の受け入れ基準）。
+    title = f"[agent-monitor] non_end_turn_rate {band}"
+    existing = [
+        li for li in issues.load_issues(root) if li.issue.state is issues.IssueState.open and li.issue.title == title
+    ]
+    if existing:
+        typer.echo(f"既存の open 課題あり: {existing[0].issue.id}（再起票しない）")
+        return
+    directory = issues.local_dir(root)
+    if directory is None:  # github: backend＝起票は GitHub 側（issue new と同じ案内。監視は exit 0 のまま）
+        typer.echo("github: backend では起票は GitHub 側で行う")
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    iid = issues.next_id(root)
+    # issue new（harness/cli.py）と同じファイル作法。title は '[' 始まりなので YAML として引用符で守る。
+    body = (
+        f"# {iid} {title}\n\n## 事象\n\n"
+        f"non_end_turn_rate={report.non_end_turn_rate:.4f}（帯: {band}）・n_rows={report.n_rows}。\n\n"
+        f"## 根拠・影響\n\n`uv run agent monitor` の集計（stop_reason 分布はログ参照）。"
+        f"失敗/打ち切りの増加は品質かコストの異常の代理＝原因（プロンプト変更・ツール障害・上限設定）を確認する。\n"
+    )
+    path = directory / f"{iid}.md"
+    meta = f'id: {iid}\nkind: risk\nstate: open\ncreated: {date.today().isoformat()}\ntitle: "{title}"'
+    path.write_text(f"---\n{meta}\n---\n{body}", encoding="utf-8")
+    typer.echo(f"起票: {path}")
+
+
 @agent_app.command("experiments")
 def _agent_experiments(
     results: Annotated[Path, typer.Option(help="実験の results ディレクトリ（metrics_*.yaml の置き場所）")],

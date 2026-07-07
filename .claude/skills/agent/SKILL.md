@@ -25,6 +25,9 @@ description: LLM エージェント（AgentSpec）を作る・評価する・昇
 5. 昇格：`uv run agent promote --work <ID> --name <名> --version <版> --primary <指標> --threshold 名=値`
    （絶対関門＝閾値・相対関門＝現 champion に primary で勝つ。落ちたら非ゼロ終了）。現 champion の確認は
    `uv run agent champion --work <ID> --name <名>`。
+6. 監視：`uv run agent monitor`（実行ログの拒否/打ち切り率・コスト分位・ツール頻度。門番にしない＝常に
+   exit 0・`--file-issue` で帯が要注意以上なら課題を冪等起票）。入出力の検査は `agent/guardrails.py`
+   （`PiiRegexGuard`＝PII 正規表現スタブ・`validate_output_schema`＝JSON Schema 最小検証。詳細は `docs/agent.md`）。
 
 ## してはいけないこと
 - verify 経路で実プロバイダ（実 API）を叩かない（dummy/cassette だけ＝無ネットワーク・DEC-0015）。
