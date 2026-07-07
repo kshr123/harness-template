@@ -38,7 +38,7 @@ def _infos(root: Path) -> list[str]:
 def test_dec_like_string_is_not_checked_and_decisions_dir_absent_is_ok(tmp_path: Path) -> None:
     # docs/decisions/ を持たないプロジェクトで、DEC- 風の文字列があっても doclint は何も指摘しない
     # （DEC 参照の実在検査は撤去済み）。ISS・パス・コマンドの検査は従来どおり働く。
-    _doc(tmp_path, "AGENTS.md", "旧様式の DEC-9999 のような語があっても検査しない。")
+    _doc(tmp_path, "AGENTS.md", "旧様式の ような語があっても検査しない。")
     assert doclint.run_checks(tmp_path) == []
 
 

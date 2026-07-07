@@ -32,7 +32,7 @@ def _cut_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """socket 生成を失敗にする（テスト中にネットワークへ出ようとしたら即座に落とす）。"""
 
     def _refuse(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("テストがネットワーク接続を試みた（agent の verify は無ネットワークが契約・DEC-0015）")
+        raise AssertionError("テストがネットワーク接続を試みた（agent の verify は無ネットワークが契約）")
 
     monkeypatch.setattr(socket, "socket", _refuse)
 

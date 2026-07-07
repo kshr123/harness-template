@@ -3,7 +3,7 @@
 - uvicorn.run は monkeypatch で捕まえ、渡る引数（app・host・port）だけを検査する。
 - extra 未導入（fastapi/uvicorn 不在）は sys.modules に None を差して再現し、案内＋exit 1 を検査する。
 - 軽 import は subprocess の素の Python で `import harness.serve` し、fastapi/uvicorn が読み込まれない
-  ことを固定する（プロファイルのモジュールは重い依存を top で import しない規約＝DEC-0013）。
+  ことを固定する（プロファイルのモジュールは重い依存を top で import しない規約）。
 """
 
 from __future__ import annotations

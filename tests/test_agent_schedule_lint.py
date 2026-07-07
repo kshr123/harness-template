@@ -73,7 +73,7 @@ def test_missing_required_file_is_error(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_broken_yaml_does_not_crash_and_is_not_self_reported(tmp_path: Path) -> None:
-    # YAML 妥当性の自前検査は削った（DEC-0021：actionlint/check-jsonschema が同じ壊し方を RED にする）。
+    # YAML 妥当性の自前検査は削った（：actionlint/check-jsonschema が同じ壊し方を RED にする）。
     # 壊れた YAML でもクラッシュしない（run_checks が例外を投げたらこのテスト自体が失敗する）ことと、
     # 「YAML として読めない」という自己申告 error がもう出ないことを確かめる。
     root = _copy_templates(tmp_path)
@@ -165,7 +165,7 @@ def test_unknown_script_is_error(tmp_path: Path) -> None:
 @pytest.mark.integration
 def test_schedule_template_commands_resolve() -> None:
     # 雛形の `uv run agent <sub>` の <sub>（monitor）が typer app に実在するか＝サブコマンド腐り検知。
-    # lint 本体に typer を持ち込まない分業（DEC-0013）なので、この確認はテスト側に置く。
+    # lint 本体に typer を持ち込まない分業なので、この確認はテスト側に置く。
     from harness.agent.cli import agent_app
 
     text = TEMPLATES.joinpath("monitor.yml").read_text(encoding="utf-8")

@@ -4,12 +4,12 @@
 ＝実装は差し替え可能で、いまは骨組みの 2 つだけ：
 
 - `PiiRegexGuard`：入力ガードの**正規表現スタブ**（email・電話番号）。実際の PII 検出はモデルへ委譲する
-  （入口だけ作って委譲点を明示する DEC-0009 の作法）。
+  （入口だけ作って委譲点を明示する 作法）。
 - `validate_output_schema`：出力を JSON として解釈し、JSON Schema の**最小部分集合**で検証する。
   完全検証は jsonschema へ委譲する（base 依存に無い＝推移的のみ。必要になったら extra として足す）。
 
-Registry 化はしない（YAGNI・guards の 2 実装目が出たら昇格＝DEC-0012）。依存は stdlib のみ
-（DEC-0013 の軽さ・agent プロファイルは ds を import しない＝DEC-0004）。
+Registry 化はしない（YAGNI・guards の 2 実装目が出たら昇格）。依存は stdlib のみ
+（軽さ・agent プロファイルは ds を import しない）。
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class PiiRegexGuard:
     """入力の PII（email・電話番号）を正規表現で見つける**スタブ**（入力ガードの入口）。
 
     正規表現は取りこぼす（表記ゆれ・氏名・住所・番号の変則形は見ない）＝ここは入口だけで、
-    実際の PII 検出は検出モデル（LLM/専用モデル）へ**委譲**する（DEC-0009 の作法＝委譲点を明示した骨組み。
+    実際の PII 検出は検出モデル（LLM/専用モデル）へ**委譲**する（作法＝委譲点を明示した骨組み。
     差し替えは Guard Protocol の別実装を足すだけ）。見つかれば ok=False＋matches（検出片）を返す。
     """
 

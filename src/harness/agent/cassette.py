@@ -6,13 +6,13 @@
 - cassette＝JSON ファイル：`{ <キー>: <応答 dict（model_dump 相当）> }`。
   キー＝`(model, system_prompt, messages, tools)` の正準 JSON の sha256（`harness.fingerprint.input_fingerprint`
   を再利用＝導出は cassette_key の 1 か所。テストも同じ関数で期待キーを組む）。
-- **record モードは無い**（実記録はネットワーク＝verify 外・DEC-0015。フィクスチャは API 契約から手で書く
+- **record モードは無い**（実記録はネットワーク＝verify 外。フィクスチャは API 契約から手で書く
   ＝実装出力のコピーでなく仕様の写し）。記録が無いキーは ValueError（**fail closed**＝黙って dummy へ
   フォールバックしない）。
 - PROVIDERS へは providers.py 側が `cassette` kind（工場 cassette_replay・遅延 import）で登録する
-  （カタログ `agent providers` に載せる＝DEC-0009 の発見性。登録をここに置くと import 順で一覧が変わるため）。
+  （カタログ `agent providers` に載せるの発見性。登録をここに置くと import 順で一覧が変わるため）。
 - import は stdlib＋harness.fingerprint＋harness.agent.{providers,spec} のみ（anthropic は import しない
-  ＝軽 import・DEC-0013・無ネットワーク）。
+  ＝軽 import・無ネットワーク）。
 """
 
 from __future__ import annotations

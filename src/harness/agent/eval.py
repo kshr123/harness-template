@@ -1,6 +1,6 @@
 """採点器（AGENT_METRICS）と合否ゲート。exact_match（純関数）と llm_judge（provider 束ね・T-0096）。
 
-- 採点器は ds の指標と同じ形（Registry[MetricEntry]・description は docstring 1 行目＝DEC-0009）。
+- 採点器は ds の指標と同じ形（Registry[MetricEntry]・description は docstring 1 行目）。
   thresholds に書ける名前＝このレジストリの kind（一覧は `uv run agent metrics`）。
 - `passes` は `harness.ds.eval.passes` と同じ規約（合格条件を正の形で問う＝NaN は不合格・fail closed・L-009）。
   ds 版は名前を ds の METRICS で検証するため exact_match 等を渡せない＝向きの解決だけ AGENT_METRICS に

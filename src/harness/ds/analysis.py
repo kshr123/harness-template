@@ -171,7 +171,7 @@ def permutation_importance(
 
     importance は「その列を壊すと指標がどれだけ悪くなるか」で、METRICS の向きで符号を揃える（常に大きいほど効く）。
     estimator は学習済みの Pipeline 丸ごと（モデル非依存）。x は fit に使っていない行（fold の valid / holdout）で呼ぶ。
-    sklearn.inspection.permutation_importance を使わない理由（DEC-0008）：numpy/pandas 入力前提で、polars 入力
+    sklearn.inspection.permutation_importance を使わない理由：numpy/pandas 入力前提で、polars 入力
     （特に MultiHot の list 列）の Pipeline に入らない。並べ替えの繰り返しだけ自作し、指標計算は METRICS へ委譲する。
     """
     cols = list(columns) if columns is not None else x.columns
@@ -252,7 +252,7 @@ def partial_dependence_table(
     置換は feature 列の**元 dtype を保つ**（Int64 列を Float64 に化かすと CountEncode/GroupAggregate 等の join 系
     エンコーダが SchemaError で落ちるため）。**二値分類（proba＝陽性確率 1 次元）か回帰（value）向け**：多クラス proba
     （n×クラス数）は平均が無意味になるため非対応（クラス別に呼ぶか value を使う・下で fail-closed に検出する）。
-    sklearn.inspection.partial_dependence を使わない理由（DEC-0008）：numpy/pandas 入力前提で、polars 入力
+    sklearn.inspection.partial_dependence を使わない理由：numpy/pandas 入力前提で、polars 入力
     （特に MultiHot の list 列）の Pipeline に入らない。グリッドの置換だけ自作し、予測は _predict へ委譲する。
     """
     if grid is not None:

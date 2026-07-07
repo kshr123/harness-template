@@ -462,7 +462,7 @@ def test_brier_from_construction() -> None:
 
 
 def test_brier_registered_direction_and_passes() -> None:
-    # カタログ規約（DEC-0009）：説明文つきで METRICS に載る。向き（小さいほど良い）が passes で効く。
+    # カタログ規約：説明文つきで METRICS に載る。向き（小さいほど良い）が passes で効く。
     m = ev.METRICS["brier"]
     assert (m.task, m.input, m.higher_is_better) == ("classification", "score", False)
     assert m.tasks == ("binary",)  # 既定 classification→binary
@@ -602,7 +602,7 @@ def test_pinball_alpha_validation() -> None:
 
 
 def test_pinball_quantile_metrics_registered_and_evaluated() -> None:
-    # DEC-0009：代表分位（q10/q90）が説明文つきで METRICS に載り、evaluate_regression から名前で引ける。
+    # ：代表分位（q10/q90）が説明文つきで METRICS に載り、evaluate_regression から名前で引ける。
     for name in ("pinball_q10", "pinball_q90"):
         m = ev.METRICS[name]
         assert m.description

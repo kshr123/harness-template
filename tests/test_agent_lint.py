@@ -2,7 +2,7 @@
 
 lint は一時プロジェクトで検査する（deploy_lint のテストと同じ思想：実行せず構造だけを見る）。
 軽 import は subprocess の素の Python で `import harness.agent` し、anthropic/fastapi/uvicorn/polars が
-読み込まれないことを固定する（プロファイルのモジュールは重い依存を top で import しない規約＝DEC-0013）。
+読み込まれないことを固定する（プロファイルのモジュールは重い依存を top で import しない規約）。
 """
 
 from __future__ import annotations

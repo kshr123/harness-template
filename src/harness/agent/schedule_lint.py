@@ -3,11 +3,11 @@
 実行しない・ネットワークも使わない。GitHub Actions の scheduled workflow は「利用者がコピーする雛形」
 なので実 schedule は動かせないが、trigger（schedule.cron）・stop 宣言（「止め方の無い routine を
 作らない」の機械化）・叩いている CLI サブコマンドが `pyproject.toml` の `[project.scripts]` に実在するか、
-は静的に検査できる（serve の deploy_lint と同じ思想の実行できない資産版・DEC-0009）。
+は静的に検査できる（serve の deploy_lint と同じ思想の実行できない資産版）。
 
-`templates/schedule/` が無いプロジェクト（＝コピーして使う先の案件）では何も指摘しない（誤検知しない）。
+`templates/schedule/` が無いプロジェクト（コピーして使う先の案件）では何も指摘しない（誤検知しない）。
 依存は stdlib＋pyyaml のみ（agent extra 無しでも verify で走る）。yaml・tomllib は関数内で遅延取り込みする
-（プロファイルのモジュールを軽く保つ規約＝DEC-0013）。
+（プロファイルのモジュールを軽く保つ規約）。
 """
 
 from __future__ import annotations

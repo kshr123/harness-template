@@ -1,18 +1,18 @@
-"""goal-based 停止ゲート（評価器が合格と言うまで続行する loop・T-0095・DEC-0017）。
+"""goal-based 停止ゲート（評価器が合格と言うまで続行する loop・T-0095）。
 
 AGENTS 第一原則「完了＝検証にすべて成功したときだけ・自己申告で完了にしない」をエージェント実行そのものへ
 機械化したもの：モデルの `end_turn`（「完了した気になった」）を、宣言済みの評価器（`AGENT_METRICS`＋
 `eval.passes`・fail closed）が検査し、未達なら続行を注入する。maker（モデル）≠checker（評価器）の構図が
 ループ内に入る（docs/learnings.md 参照）。
 
-- `run_agent` を丸ごと再利用し、goal ループはその外側に巻く（往復ループの再実装をしない＝DEC-0006）。
+- `run_agent` を丸ごと再利用し、goal ループはその外側に巻く（往復ループの再実装をしない）。
 - ゲートの合否は既存 `eval.passes`（NaN・欠けは不合格・未登録名は ValueError）をそのまま使う＝
   新しい合否機構を作らない。
 - 「止めさせない」の backstop は `max_cycles`（黙って無限ループしない＝`runtime.run_agent` の `max_turns`
   と同じ規律）。
-- 依存は stdlib＋agent 内のみ（軽 import・DEC-0013）。`StopDecision`／`StopCondition`（trigger×stop×policy の
-  停止語彙）は元は core `harness.loops` にあったが、実消費が本ファイルの 1 つだけだったため DEC-0020 で
-  ここへ畳み込んだ（core 再昇格は 2 個目の実 import 消費が出たときに DEC-0012 で判断）。
+- 依存は stdlib＋agent 内のみ（軽 import）。`StopDecision`／`StopCondition`（trigger×stop×policy の
+  停止語彙）は元は core `harness.loops` にあったが、実消費が本ファイルの 1 つだけだったため
+  ここへ畳み込んだ（core 再昇格は 2 個目の実 import 消費が出たときに判断）。
 - goal は**宣言（YAML）が正本**（`goal_from_mapping`/`load_goal`）：自由文の成功基準は `llm_judge`（rubric＝
   `expected`）で採点する（T-0096）。`GoalGate` は metric 名の entry 型（`JudgeEntry` か否か）でしか分岐しない
   ＝exact_match だけの goal は無変更（「ゲートは metric 名しか見ない」の証明）。provider の束ね（judge の
@@ -40,7 +40,7 @@ class StopDecision:
     enum にしない：消費は表示と来歴（ログ・CLI 出力）だけで、新しい理由の追加を型変更にしたくない
     （閉じた集合にすると新しい stop 理由を足すたびに型を直す羽目になる＝YAGNI）。
 
-    元は core `harness.loops` の型（DEC-0017）。実消費が本ファイルの 1 つだけだったため DEC-0020 で
+    元は core `harness.loops` の型。実消費が本ファイルの 1 つだけだったため
     agent へ畳み込んだ（trigger×stop×policy の 4 類型の分類そのものは docs/agent.md の loops 節が正本）。
     """
 
@@ -53,7 +53,7 @@ class StopCondition(Protocol):
 
     骨組みでは**テキスト出力への門だけ**（`output: str`）。引数をもっと一般化する（構造化出力・複数指標の
     生スコアを直接渡す等）のは 2 個目の消費（ds sweep の閾値探索等）が実際に必要になってから
-    DEC-0012 で判断する（早すぎる一般化はしない＝EP-23 item.md）。シグネチャは DEC-0018 で agent 形状に
+    判断する（早すぎる一般化はしない＝EP-23 item.md）。シグネチャは当面 agent 形状に
     固定済み（`tests/test_agent_goal.py::test_stop_condition_signature_stays_agent_shaped_until_dec` が番人）。
     """
 

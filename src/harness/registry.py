@@ -1,7 +1,7 @@
 """汎用レジストリ（config の kind 文字列 → 工場）の共通形。DS の 9 レジストリを 1 つの形に揃える。
 
 - 各項目は `Entry`（factory＋description＋task＋tags）。説明文は factory の docstring 1 行目から自動で取る
-  （無ければ登録時に ValueError＝「部品は入口まで作って完了」DEC-0009 を登録時点で強制する）。
+  （無ければ登録時に ValueError＝「部品は入口まで作って完了」を登録時点で強制する）。
   クラス工場は**自前の** `__doc__` だけを見る（親の docstring を継承して空振りさせない・test_catalog の規約）。
 - `Registry` は `Mapping[str, Entry]`：`in`・`sorted()`・`len()`・`.items()` がそのまま効く（既存の呼び方を壊さない）。
 - 未知 kind のエラーは `resolve` の 1 か所（候補一覧＋カタログコマンド案内＋optional extra の導入ヒント）。
@@ -17,7 +17,7 @@ from typing import Any, Literal, cast
 
 @dataclass(frozen=True, kw_only=True)
 class Entry:
-    """レジストリ 1 項目。description はカタログ（`uv run data <一覧>`）に載る 1 行（DEC-0009）。
+    """レジストリ 1 項目。description はカタログ（`uv run data <一覧>`）に載る 1 行。
 
     task：この部品が解ける課題（モデルの classification/regression 等）。無関係なレジストリは None のまま。
     tags：自由な分類ラベル（現状は空が既定・カタログの絞り込み用の拡張点）。
@@ -90,7 +90,7 @@ class Registry[E: Entry](Mapping[str, E]):
         if not description:
             raise ValueError(
                 f"{self.name} '{kind}' に説明文が無い（factory の docstring 1 行目か description= が必須。"
-                "説明文が無いとカタログに載れない＝DEC-0009 に反する）"
+                "説明文が無いとカタログに載れない＝カタログ規約に反する）"
             )
         # 既定の Entry は E の下限（bound）。entry_cls 未指定のレジストリは Registry[Entry] として使う前提。
         cls = entry_cls if entry_cls is not None else cast("type[E]", Entry)
@@ -146,8 +146,8 @@ def render_catalog(
     """レジストリを 1 行 1 項目（タブ区切り）で出す共通レンダラ（ds・agent の全カタログコマンドが使う）。
 
     列は kind［・task］［・向き（指標のみ）］［・引数一覧］・説明文。説明文はレジストリが登録時に
-    docstring 1 行目から確定させている（空は登録できない＝DEC-0009）。prefix は data unsupervised の
-    グループ名（dimred/cluster/anomaly）用。ds/cli.py から引き上げた（二重管理を作らない＝DEC-0009）。
+    docstring 1 行目から確定させている（空は登録できない）。prefix は data unsupervised の
+    グループ名（dimred/cluster/anomaly）用。ds/cli.py から引き上げた（二重管理を作らない）。
     """
     import inspect
 

@@ -1,7 +1,7 @@
 """部品カタログ（BLOCKS/ENCODERS）の発見性の検査。
 
 レジストリの全項目に説明文（docstring）があることを固定する。説明文が無い＝一覧に載れない
-＝エージェントが元コードを読まずに使えない＝「部品は入口まで作って完了」（DEC-0009）に反する。
+＝エージェントが元コードを読まずに使えない＝「部品は入口まで作って完了」に反する。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.unit
 # description が実在することをカタログ視点で確かめる（Entry の __doc__ は常に真なので使わない）。
 def test_blocks_have_docstrings() -> None:
     for kind, entry in BLOCKS.items():
-        assert entry.description, f"BLOCKS['{kind}'] に説明文が無い（自前 docstring か description= が必須・DEC-0009）"
+        assert entry.description, f"BLOCKS['{kind}'] に説明文が無い（自前 docstring か description= が必須）"
 
 
 def test_encoders_have_docstrings() -> None:
@@ -74,7 +74,7 @@ def test_dimred_and_anomaly_have_docstrings() -> None:
 
 
 def test_formats_have_descriptions() -> None:
-    # 保存形式も config/save_model の語彙＝カタログ対象（DEC-0009）。説明文と実体ファイル名が全項目に在ること。
+    # 保存形式も config/save_model の語彙＝カタログ対象。説明文と実体ファイル名が全項目に在ること。
     from harness.ds.models import FORMATS
 
     for name, fmt in FORMATS.items():
@@ -112,7 +112,7 @@ def test_catalog_commands_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert "random" in out  # チューナーカタログ（data tuners）
     assert "halving" in out
     assert "roc_auc" in out  # 指標カタログ
-    assert "pinball_q10" in out  # 分位変種（T-0080）が説明つきで載る（DEC-0009）
+    assert "pinball_q10" in out  # 分位変種（T-0080）が説明つきで載る
     assert "timeseries" in out  # 古典時系列（statsmodels 導入環境・all-extras）
     # 保存形式カタログ（data formats）。pickle は常時・skops/onnx は optional extra（all-extras 環境）。
     assert "pickle" in out

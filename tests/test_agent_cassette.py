@@ -224,7 +224,7 @@ def test_anthropic_provider_sends_effort_not_temperature(monkeypatch: pytest.Mon
     spec = AgentSpec(name="real", provider="anthropic", model="claude-opus-4-8", system_prompt="検証用", effort="high")
     messages = build_messages("ping")
     reply = AnthropicProvider(seed=0).reply(messages=messages, tools=[], spec=spec)
-    assert "temperature" not in captured  # 現行モデルは temperature を受けない（送ると 400・DEC-0015）
+    assert "temperature" not in captured  # 現行モデルは temperature を受けない（送ると 400）
     assert captured["output_config"] == {"effort": "high"}  # 決定性の軸＝宣言に固定した effort
     assert captured["model"] == "claude-opus-4-8"
     assert captured["system"] == "検証用"
@@ -234,7 +234,7 @@ def test_anthropic_provider_sends_effort_not_temperature(monkeypatch: pytest.Mon
     assert reply == _reply_from_anthropic(_TEXT_RESPONSE)  # 応答は共有 adapter を通る
 
 
-# --- カタログ（DEC-0009：全 provider に説明文） ---
+# --- カタログ（：全 provider に説明文） ---
 
 
 @pytest.mark.unit
@@ -242,4 +242,4 @@ def test_all_providers_have_descriptions() -> None:
     for kind in ("dummy", "anthropic", "cassette"):
         assert kind in PROVIDERS, f"PROVIDERS に '{kind}' が登録されていない"
     for kind, entry in PROVIDERS.items():
-        assert entry.description, f"PROVIDERS['{kind}'] に説明文が無い（カタログに載れない・DEC-0009）"
+        assert entry.description, f"PROVIDERS['{kind}'] に説明文が無い（カタログに載れない）"

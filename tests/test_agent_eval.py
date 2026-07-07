@@ -48,4 +48,4 @@ def test_passes_unknown_threshold_name_raises() -> None:
 
 @pytest.mark.unit
 def test_exact_match_registered_in_catalog() -> None:
-    assert "exact_match" in AGENT_METRICS  # `uv run agent metrics` に載る（DEC-0009）
+    assert "exact_match" in AGENT_METRICS  # `uv run agent metrics` に載る

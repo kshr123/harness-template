@@ -1,6 +1,6 @@
 """DS プロファイルの CLI 入口（typer）。`uv run data <サブコマンド>` で呼ぶ。
 
-中核の CLI（src/harness/cli.py＝status/verify 等）とは分ける（プロファイル境界・DEC-0004）。
+中核の CLI（src/harness/cli.py＝status/verify 等）とは分ける（プロファイル境界）。
 重い依存（polars・sklearn）は各コマンドの中で遅延取り込みする（一覧系を軽く保つ）。
 """
 
@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import typer
 
-# render_catalog は harness/registry.py へ引き上げた（agent CLI と共用・二重管理を作らない＝DEC-0009）。
+# render_catalog は harness/registry.py へ引き上げた（agent CLI と共用・二重管理を作らない）。
 from harness.registry import render_catalog
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
@@ -63,9 +63,7 @@ def _data_blocks() -> None:
     from harness.ds.features import BLOCKS
 
     render_catalog(BLOCKS, show_params=True)
-    typer.echo(
-        "\n使い方は experiment / features スキル。無いものは DEC-0008（sklearn が十分なら data encoders を見る）。"
-    )
+    typer.echo("\n使い方は experiment / features スキル。無いものは （sklearn が十分なら data encoders を見る）。")
 
 
 @data_app.command("encoders")

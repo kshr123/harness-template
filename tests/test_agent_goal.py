@@ -1,6 +1,6 @@
 """agent の goal-based 停止ゲート（`GoalGate`／`run_agent_to_goal`）と `run_agent` の続行口。
 
-**無ネットワークが契約**（DEC-0015）。期待値はすべて dummy の台本（replies）の構成から導出する
+**無ネットワークが契約**。期待値はすべて dummy の台本（replies）の構成から導出する
 （実装出力のコピーで固定しない）。続行文の台本鍵は実装の既定値 `DEFAULT_CONTINUE_PROMPT` をそのまま使う
 （テストが独自の文字列を決め打ちしない＝実装と噛み合わなくなる心配がない）。
 """
@@ -39,7 +39,7 @@ def _cut_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """socket 生成を失敗にする（テスト中にネットワークへ出ようとしたら即座に落とす）。"""
 
     def _refuse(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("テストがネットワーク接続を試みた（goal ループの verify は無ネットワーク契約・DEC-0015）")
+        raise AssertionError("テストがネットワーク接続を試みた（goal ループの verify は無ネットワーク契約）")
 
     monkeypatch.setattr(socket, "socket", _refuse)
 
@@ -281,15 +281,15 @@ def test_gate_from_goal_yaml_with_cassette_judge_no_network(tmp_path: Path, monk
     assert decision.reason == "goal_met"
 
 
-# --- 旧 `tests/test_loops.py` からの統合（T-0133・DEC-0020：loops 語彙は core から agent へ畳み込み） ---
-# stdlib-only import テスト（軽 import・DEC-0013）は harness.loops モジュールの消滅と共に退場（対象が無い）。
+# --- 旧 `tests/test_loops.py` からの統合（T-0133：loops 語彙は core から agent へ畳み込み） ---
+# stdlib-only import テスト（軽 import）は harness.loops モジュールの消滅と共に退場（対象が無い）。
 
 
 @pytest.mark.unit
 def test_stop_condition_signature_stays_agent_shaped_until_dec() -> None:
-    # StopCondition.check は当面 agent 特化の (*, output: str, iteration: int) に固定（DEC-0018）。
-    # ds/ops の 2 個目の消費が実在して初めて広げる＝そのときは DEC-0018 の再判断トリガを満たし
-    # 新 DEC を書いてからこのテストを更新する（DEC-0012：ルール昇格は違反すると失敗する検査を先に）。
+    # StopCondition.check は当面 agent 特化の (*, output: str, iteration: int) に固定。
+    # ds/ops の 2 個目の消費が実在して初めて広げる＝そのときは 再判断トリガを満たし
+    # 新 DEC を書いてからこのテストを更新する（：ルール昇格は違反すると失敗する検査を先に）。
     sig = inspect.signature(StopCondition.check)
     params = list(sig.parameters.values())
     # self, output, iteration の 3 つ・output/iteration は keyword-only・output は str アノテーション
@@ -311,6 +311,6 @@ def test_goal_gate_check_returns_stop_decision() -> None:
 
 @pytest.mark.unit
 def test_harness_loops_module_does_not_exist() -> None:
-    # 墓標テスト（DEC-0020：loops 語彙は agent へ降格・死んだ語彙のゾンビ再導入を止める）。
+    # 墓標テスト（：loops 語彙は agent へ降格・死んだ語彙のゾンビ再導入を止める）。
     # harness.loops を空 re-export 等で復活させると RED になる。
     assert importlib.util.find_spec("harness.loops") is None

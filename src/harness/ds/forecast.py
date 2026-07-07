@@ -1,10 +1,10 @@
 """古典時系列（ARIMA/SARIMA/ETS）の別バックボーン経路。
 
-sklearn 背骨（pipeline/cv/experiment）とは別経路。**run_cv・clone・build_estimator に載せない**（DEC-0007）。
+sklearn 背骨（pipeline/cv/experiment）とは別経路。**run_cv・clone・build_estimator に載せない**。
 理由：古典時系列は fit(y)→forecast(h)（単変量・構築時に y を抱く）で、clone(get_params 前提)・predict_proba に
 載らない。だから別レジストリ `TS_MODELS`＋薄い翻訳層（_StatsmodelsForecaster 1 つ）＋バックテスト（run_forecast）で
 閉じる。評価（eval.METRICS/passes）・fold 表（cv.make_backtest_folds）・保存（store）は流用のみ（二重化しない）。
-モデル本体は statsmodels を「使う」（自作ゼロ・DEC-0008）。statsmodels 未導入でもこのモジュールは import できる
+モデル本体は statsmodels を「使う」（自作ゼロ）。statsmodels 未導入でもこのモジュールは import できる
 （工場内で遅延 import・TS_MODELS は条件登録で空になる）。
 """
 
@@ -149,7 +149,7 @@ def run_forecast(
     """時間順バックテスト：窓 k ごとに「過去で fit → horizon 点を forecast → 実測と比較」。
 
     指標は eval.evaluate_regression（rmse/mae/mape）・合否は eval.passes・fold 表は cv.make_backtest_folds
-    （評価・合否・分割の正本を二重化しない）。run_cv・clone・predict_proba には触れない（DEC-0007）。
+    （評価・合否・分割の正本を二重化しない）。run_cv・clone・predict_proba には触れない。
     リーク防止は構造：train は常に検証窓より前の行だけ・forecast(h) は先の h 点しか返せない（未来が学習に入らない）。
     """
     folds = make_backtest_folds(df, order_by=order_by, horizon=horizon, n_windows=n_windows, id_column=id_column)

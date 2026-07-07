@@ -6,7 +6,7 @@
   テキストを導く（グローバル種は使わない）。replies で「この入力にはこの応答」を仕込める（テスト・スモーク用）。
 - このモジュールは軽い（stdlib＋harness.registry のみ）。anthropic SDK は top では import しない：
   AnthropicProvider.reply() の中で遅延 import する（extra `agent` 無しでも `import harness.agent` が
-  壊れない＝軽 import・DEC-0013。verify 経路は dummy/cassette のみ＝無ネットワーク・DEC-0015）。
+  壊れない＝軽 import。verify 経路は dummy/cassette のみ＝無ネットワーク）。
 - 応答 adapter `_reply_from_anthropic`（Anthropic Messages API 応答 dict → ProviderReply）は
   AnthropicProvider（実呼び出し）と CassetteProvider（記録再生・cassette.py）が共有する＝
   SDK 応答形状のドリフトを無ネットワークのテストで検知する 1 か所。
@@ -200,10 +200,10 @@ _ANTHROPIC_MAX_TOKENS = 4096
 
 @dataclass(frozen=True)
 class AnthropicProvider:
-    """実 Anthropic 呼び出し。SDK は reply() 内で遅延 import（軽 import・DEC-0013）＝verify 経路外。
+    """実 Anthropic 呼び出し。SDK は reply() 内で遅延 import（軽 import）＝verify 経路外。
 
     決定性は effort（`output_config={"effort": spec.effort}`）＝宣言に固定した推論の深さで作る。
-    **temperature は送らない**（現行モデルはパラメータごと廃止＝送ると 400・DEC-0015）。
+    **temperature は送らない**（現行モデルはパラメータごと廃止＝送ると 400）。
     API キーは環境変数から SDK が読む（コードでは読まない・書かない）。seed は明示 seed 規約の
     署名合わせ（実 API に乱数種は無い＝未使用）。
     """
@@ -217,7 +217,7 @@ class AnthropicProvider:
         tools: Sequence[Mapping[str, Any]],
         spec: AgentSpec,
     ) -> ProviderReply:
-        import anthropic  # 遅延 import：extra `agent` 無しでも本モジュールの import は壊れない（DEC-0013）
+        import anthropic  # 遅延 import：extra `agent` 無しでも本モジュールの import は壊れない
 
         client = anthropic.Anthropic()  # API キーは環境変数（コードは読まない・プロンプトに書かない）
         resp = client.messages.create(
@@ -227,7 +227,7 @@ class AnthropicProvider:
             messages=cast("Any", [dict(m) for m in messages]),
             tools=cast("Any", [dict(t) for t in tools]),
             max_tokens=_ANTHROPIC_MAX_TOKENS,
-            output_config={"effort": spec.effort},  # temperature/top_p/top_k は送らない（DEC-0015）
+            output_config={"effort": spec.effort},  # temperature/top_p/top_k は送らない
         )
         return _reply_from_anthropic(resp.model_dump())
 
@@ -237,7 +237,7 @@ def anthropic_provider(seed: int, *, replies: Mapping[str, Any] | None = None) -
 
     工場の署名は dummy と互換（`factory(seed, replies=…)` 呼びを壊さない）。replies は実呼び出しでは
     未使用＝無視する（台本は dummy/cassette の関心）。決定性は effort を宣言に固定して作る＝
-    temperature は送らない（DEC-0015）。
+    temperature は送らない。
     """
     del replies  # 署名互換のためだけの引数（実 API に台本は無い）
     return AnthropicProvider(seed=seed)
@@ -247,7 +247,7 @@ def cassette_replay(seed: int, *, path: Path | str | None = None) -> CassettePro
     """記録再生（replay 専用・fail closed・無ネットワーク）。テスト/CI 用＝path（記録 JSON）が必須。
 
     実体は harness.agent.cassette（関数内 import は循環回避＝cassette.py が共有 adapter を
-    ここから import するため）。PROVIDERS へは本 kind で登録しカタログに載せる（DEC-0009 の発見性）。
+    ここから import するため）。PROVIDERS へは本 kind で登録しカタログに載せる（発見性）。
     `agent run` の `factory(seed)` 呼びは path を渡せない＝省略は cassette 側の明示エラーで止まる。
     """
     from harness.agent.cassette import cassette

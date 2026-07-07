@@ -3,7 +3,7 @@
 - 正本は宣言的な YAML。共有は `docs/data/<id>.yaml`、実験スコープは `work/<単位ID>/data/<id>.yaml`、
   雛形提供は `templates/<雛形>/data/<id>.yaml`（雛形が持ち歩く schema。T-0141）。
 - 検証の実行器は正本から導出する（列の型・NULL可否・一意・取りうる値・範囲・checks（SQL 式）を polars で確かめる）。
-  pandera は検討の上で不採用（DEC-0011）。YAML を正本のまま、checks は polars の sql_expr で
+  pandera は検討の上で不採用。YAML を正本のまま、checks は polars の sql_expr で
   ネイティブに評価する（新規依存ゼロ）。より本格的な検証が要る案件は差し替え可能（実行器は導出物）。
 - polars は実データを扱う save/load/validate でだけ使う（遅延取り込み）。静的検査は polars 無しで動く。
 """
@@ -152,7 +152,7 @@ def data_lint(root: Path) -> list[Problem]:
 def _eval_checks(df: Any, checks: list[str], *, where: str, errs: list[str]) -> None:  # noqa: ANN401
     """checks（SQL 式の文字列）を実データに対して評価し、違反を errs に積む。
 
-    - 式は polars の sql_expr で評価する（pandera は検討の上で不採用＝DEC-0011。
+    - 式は polars の sql_expr で評価する（pandera は検討の上で不採用。
       YAML を正本のまま、新規依存ゼロでネイティブに評価する）。
     - NULL は違反に数えない（NULL 可否は nullable の責務。式が NULL になった行は合格扱い）。
     - 不正な式・存在しない列の参照は、例外で落とさず違反メッセージにして続行する。

@@ -178,7 +178,7 @@ def test_retrain_template_out_of_order_steps_flagged(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_repo_retrain_template_passes() -> None:
-    # 自リポ同梱の retrain.yml が表（_WORKFLOWS）に載っていて（＝検査対象で空振りでない）、0 件で通る（腐り番人）。
+    # 自リポ同梱の retrain.yml が表（_WORKFLOWS）に載っていて（検査対象で空振りでない）、0 件で通る（腐り番人）。
     assert RETRAIN in {spec.rel for spec in ci_lint._WORKFLOWS}
     assert (TEMPLATES / RETRAIN).is_file()
     assert ci_lint.run_checks(REPO_ROOT) == []
@@ -189,7 +189,7 @@ def test_repo_retrain_template_passes() -> None:
 
 @pytest.mark.unit
 def test_broken_yaml_does_not_crash_and_is_not_self_reported(tmp_path: Path) -> None:
-    # YAML 妥当性の自前検査は削った（DEC-0021：actionlint/check-jsonschema が同じ壊し方を RED にする）。
+    # YAML 妥当性の自前検査は削った（：actionlint/check-jsonschema が同じ壊し方を RED にする）。
     # 壊れた YAML でもクラッシュしない（run_checks が例外を投げたらこのテスト自体が失敗する）ことと、
     # 「YAML として読めない」という自己申告 error がもう出ないことを確かめる。
     root = _copy_templates(tmp_path)

@@ -48,7 +48,7 @@ def test_unknown_key_raises(tmp_path: Path) -> None:
 
 
 def test_temperature_key_raises_with_clear_message(tmp_path: Path) -> None:
-    # 現行モデルは temperature を受け付けない（送ると 400）＝宣言の段階で明示エラーにする（DEC-0015）。
+    # 現行モデルは temperature を受け付けない（送ると 400）＝宣言の段階で明示エラーにする。
     path = _write(tmp_path, _VALID + "temperature: 0.0\n")
     with pytest.raises(ValueError, match="temperature") as exc_info:
         load_agent_spec(path)

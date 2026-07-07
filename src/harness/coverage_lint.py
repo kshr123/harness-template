@@ -1,10 +1,10 @@
 """CLI コマンドの導線カバレッジ検査（coverage_lint）。
 
 doclint（参照実在＝dead link）の逆向きを止める：**新しい能力（CLI コマンド）が増えたのに、
-スキル/正本 docs に導線が書かれない（missing link）**を機械で検出する。DEC-0009「部品は入口まで
-作って完了」の第 3 要件（スキル/雛形からの導線）の機械化（DEC-0016）。core の検査（プロファイル非依存）。
+スキル/正本 docs に導線が書かれない（missing link）**を機械で検出する。「部品は入口まで
+作って完了」の第 3 要件（スキル/雛形からの導線）の機械化。core の検査（プロファイル非依存）。
 
-方針（doclint と同じテキスト/AST 作法＝プロファイル境界 DEC-0004 を壊さない）:
+方針（doclint と同じテキスト/AST 作法＝プロファイル境界を壊さない）:
 - 走査対象は **2 経路**：typer 装飾子（下記 ast 走査）＋ ルート `pyproject.toml` の `[project.scripts]` の
   キー（plain main。stdlib の tomllib で読む・無ければ読み飛ばす）。到達可能性の判定は両経路とも同一で、
   同じトークンを両経路が拾っても error は 1 回だけ（ISS-0014＝plain main が検査の死角だった穴を塞ぐ）。
@@ -137,7 +137,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
                     "error",
                     f"{rel}: コマンド '{token}' への導線が無い（.claude/skills/**・AGENTS.md・README.md・"
                     f"docs/*.md のどこにも現れない）。スキルか正本 docs に使い方を 1 行足すこと"
-                    f"（真に内部専用なら coverage_lint の _EXEMPT に理由つきで。DEC-0009 の第 3 要件）",
+                    f"（真に内部専用なら coverage_lint の _EXEMPT に理由つきで。第 3 要件）",
                 )
             )
     for token in _script_tokens(root):
@@ -148,7 +148,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
                 "error",
                 f"pyproject.toml: [project.scripts] のコマンド '{token}' への導線が無い（.claude/skills/**・"
                 f"AGENTS.md・README.md・docs/*.md のどこにも現れない）。スキルか正本 docs に使い方を 1 行"
-                f"足すこと（真に内部専用なら coverage_lint の _EXEMPT に理由つきで。DEC-0016）",
+                f"足すこと（真に内部専用なら coverage_lint の _EXEMPT に理由つきで）",
             )
         )
     return problems

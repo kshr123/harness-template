@@ -1,7 +1,7 @@
 """教師なし学習（目的変数なしの構造把握）：次元圧縮・クラスタリング・異常検知の探索用途 (A)。
 
 - 第一の出力は構造化レポート（polars/dict）。図は marimo ビュー（notebooks/unsupervised.py）の中だけ（eda と同じ流儀）。
-- モデルは sklearn を「使う」（自作ゼロ・DEC-0008）。工場は seed 配線と前処理前置（中央値埋め＋標準化）だけ焼く。
+- モデルは sklearn を「使う」（自作ゼロ）。工場は seed 配線と前処理前置（中央値埋め＋標準化）だけ焼く。
 - 特徴量用途 (B)（クラスタ番号・異常スコア・圧縮成分を下流モデルの入力にする）は ENCODERS 側（fit-on-train は
   run_cv の clone-per-fold で担保）。ここ (A) は記述的で全データに当てる（結論を学習に戻さないこと）。
 - CLUSTERERS/DIMRED/ANOMALY は config の種ではなく関数の method 引数＋CLI（`data cluster/embed/anomaly`）で選ぶ。
@@ -22,7 +22,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 from harness.registry import Entry, Registry
 
-# --- (B) 特徴量用途の薄い包み（sklearn に無い隙間だけ・DEC-0008 の「作る」側） ---
+# --- (B) 特徴量用途の薄い包み（sklearn に無い隙間だけの「作る」側） ---
 # 工場（_cluster/_anomaly_score）は他のエンコーダと同じく pipeline.py に置き、この 2 クラスだけを import する。
 # fit-on-train は run_cv の clone-per-fold が構造で担保する（この包みは漏れ対策の分岐を持たない）。
 

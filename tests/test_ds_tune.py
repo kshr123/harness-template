@@ -157,7 +157,7 @@ def test_unknown_tuner_and_missing_params_raise() -> None:
 
 @pytest.mark.unit
 def test_tuners_have_docstrings() -> None:
-    # カタログ規約（DEC-0009）：全チューナーに説明文（sklearn 3 種は常時・optuna は入っていれば条件登録）。
+    # カタログ規約：全チューナーに説明文（sklearn 3 種は常時・optuna は入っていれば条件登録）。
     assert {"random", "grid", "halving"} <= set(TUNERS)
     for kind, entry in TUNERS.items():
         assert entry.description, f"TUNERS['{kind}'] に説明文が無い（カタログに載れない）"

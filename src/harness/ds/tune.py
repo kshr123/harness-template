@@ -1,4 +1,4 @@
-"""ハイパラ探索の継ぎ目（*SearchCV でモデルを包む＝sklearn 素通し・DEC-0006）。
+"""ハイパラ探索の継ぎ目（*SearchCV でモデルを包む＝sklearn 素通し）。
 
 - SearchCV を **model 段**に被せるだけ：`cv.run_cv` が fold ごとに clone→fit する既存構造がそのまま
   **nested CV**（外側=run_cv の fold・内側=SearchCV の cv）になり、リークなしのチューニングが追加コード無しで手に入る。
@@ -81,8 +81,8 @@ def _optuna_available() -> bool:
     return False
 
 
-# config の tuner → *SearchCV の工場（sklearn 素通し・DEC-0006）。足したら 1 行。
-# 説明文は工場の docstring 1 行目から自動で載る（無ければ登録時に失敗＝DEC-0009）。
+# config の tuner → *SearchCV の工場（sklearn 素通し）。足したら 1 行。
+# 説明文は工場の docstring 1 行目から自動で載る（無ければ登録時に失敗）。
 TUNERS: Registry[Entry] = Registry(
     "チューナー", catalog="data tuners", extras_hint={"optuna": "optuna optuna-integration"}
 )

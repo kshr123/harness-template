@@ -3,7 +3,7 @@
 - `FeatureBlock`：特徴量作成の1単位。polars 入→polars 出。sklearn 互換（BaseEstimator+TransformerMixin）
   なので `clone` でき、モデルと一緒に1本の `Pipeline` に入る。fold ごとに clone→train で fit されるので
   漏れ防止は構造で担保される（cv.run_cv 参照）。
-- **「作る/使う」の基準は sklearn が十分うまくやっているか**（データ依存かどうかではない・DEC-0008）。
+- **「作る/使う」の基準は sklearn が十分うまくやっているか**（データ依存かどうかではない）。
   sklearn が良くやるもの（OneHot/Ordinal/TargetEncoder/KBins/PCA/Tfidf）は作らず ColumnTransformer に直接入れる。
   sklearn に無い隙間（list 列の multi-hot・target の mean 以外の統計・多キー結合）はデータ依存でもここに作る。
 - `FeaturePipeline`：ブロックを横に束ねる薄い sklearn 互換 transformer。どのブロックが何列を出したかを
@@ -146,9 +146,9 @@ class FeaturePipeline(BaseEstimator, TransformerMixin):  # type: ignore[misc]
 
 
 # --- 具体ブロック ---
-# 「作る/使う」の基準は **sklearn（最新）がそれを十分うまくやっているか**（データ依存かどうかではない・DEC-0008）。
+# 「作る/使う」の基準は **sklearn（最新）がそれを十分うまくやっているか**（データ依存かどうかではない）。
 # 使う（作らない）：OneHot/Ordinal/TargetEncoder(平滑化平均・OOF 内蔵)/KBins/PCA/Tfidf は sklearn を
-#   ColumnTransformer に直接入れる（set_output(transform="polars") で polars 出力・再発明禁止 DEC-0006）。
+#   ColumnTransformer に直接入れる（set_output(transform="polars") で polars 出力・再発明禁止 ）。
 # 作る（sklearn に無い隙間・データ依存でも）：MultiHot（list 列のタグ）・TargetAggregate（target の mean 以外の
 #   統計・OOF 内蔵）・CombineKeys（多キーを sklearn TargetEncoder に渡す前段）。
 

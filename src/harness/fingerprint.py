@@ -1,8 +1,8 @@
 """入力指紋（正準 JSON の sha256）。serve と agent が共有する中核部品（stdlib のみ＝軽い）。
 
-`serve/runtime.py` から移設した（T-0091・DEC-0009 の二重管理排除）。serve は予測 1 行（features）、
+`serve/runtime.py` から移設した（T-0091の二重管理排除）。serve は予測 1 行（features）、
 agent は 1 実行の入力（{"input": テキスト}）の指紋に使う。agent はここから import する
-（serve を import しない＝プロファイル境界・DEC-0004）。
+（serve を import しない＝プロファイル境界）。
 """
 
 from __future__ import annotations

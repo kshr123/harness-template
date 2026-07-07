@@ -3,7 +3,7 @@
 - 指標そのものは業界標準の `sklearn.metrics` を使う（再発明しない）。ここが担うのは
   「案件ごとに閾値で合否を決める」ハーネス固有の接続（指標レジストリ・evaluate の辞書化・passes の合否）だけ。
 - 指標は `METRICS` レジストリ（BLOCKS/ENCODERS/MODELS と同型）。指標名は既に config の語彙（thresholds）なので
-  カタログの対象（DEC-0009）。回帰指標（小さいほど良い）が入るため、**向き（higher_is_better）は指標の属性**
+  カタログの対象。回帰指標（小さいほど良い）が入るため、**向き（higher_is_better）は指標の属性**
   として持つ（`passes` はこれで `>=`/`<=` を切り替える）。本体は全部 sklearn 素通し。
 - 合否の閾値はコードに埋めず、設定（辞書）で外から与える（案件ごとに決める）。
 - `passes` が返す合否は、共通の検証コマンドと同じ「成功/失敗」に接続できる。
@@ -110,7 +110,7 @@ def _calibration_gap(y_true: NDArray[Any], y_score: NDArray[Any]) -> float:  # n
     return abs(1.0 - float(np.asarray(y_score, dtype=np.float64).mean()) / mean_true)
 
 
-# 多クラス分類の包み（average="macro"・multi_class="ovr" を sklearn へ素通し・DEC-0006。手書きしない）。
+# 多クラス分類の包み（average="macro"・multi_class="ovr" を sklearn へ素通し。手書きしない）。
 # labels は proba の列数から明示する（fold にクラスが欠けても sklearn が黙って列対応をずらさない）。
 # ラベルは 0..n_classes-1 が前提（proba の列順と一致。cv._predict の多クラス出力・evaluate_multiclass と同じ契約）。
 def _macro_f1(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
@@ -150,7 +150,7 @@ def _r2(y_true: NDArray[Any], y_pred: NDArray[Any]) -> float:  # noqa: ANN401
 
 
 def pinball(y_true: NDArray[Any], y_pred: NDArray[Any], *, alpha: float = 0.5) -> float:  # noqa: ANN401
-    """ピンボール損失（分位 α の非対称誤差・小さいほど良い）。mean_pinball_loss 素通し（DEC-0006）。
+    """ピンボール損失（分位 α の非対称誤差・小さいほど良い）。mean_pinball_loss 素通し。
 
     α は狙う分位（0 < α < 1）：loss = α·max(y−pred, 0) + (1−α)·max(pred−y, 0)。過小予測に α・
     過大予測に 1−α の重み（α=0.9 は上側分位＝過小予測に重い罰）。α=0.5 は |誤差|/2＝mae/2（中央値の点予測）。
@@ -400,7 +400,7 @@ def metric_fn_for(
 ) -> MetricFn:
     """run_cv / run_experiment の metric_fn に渡す形へ束ねる（task の分岐はここ 1 か所）。
 
-    classification（＝二値）は evaluate（threshold でラベル化）・multiclass は evaluate_multiclass
+    classification（二値）は evaluate（threshold でラベル化）・multiclass は evaluate_multiclass
     （予測は (n, n_classes) の proba・threshold は使わない）・regression は evaluate_regression を包む。
     いずれも (y_true, 予測) → dict の同じ形で返す（run_cv は中身を知らないまま fold ごとに呼ぶ）。
     """

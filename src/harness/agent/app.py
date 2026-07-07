@@ -1,9 +1,9 @@
-"""champion（昇格済み AgentSpec）を配信する FastAPI アプリ（agent プロファイル・DEC-0013）。
+"""champion（昇格済み AgentSpec）を配信する FastAPI アプリ（agent プロファイル）。
 
 fastapi はこのモジュールの top で import する（profile.py/__init__.py からは辿られない＝
 `import harness.agent` の軽 import を壊さない・subprocess テストで固定）。champion は起動時
 （create_app）に読み込み、無ければ明示エラーで落とす（リクエスト時に初めて壊れる・黙って空で
-立つ、をしない＝serve/app.py と同じ規律。`harness.serve` は import しない＝プロファイル境界・DEC-0004）。
+立つ、をしない＝serve/app.py と同じ規律。`harness.serve` は import しない＝プロファイル境界）。
 
 serve の `/predict`（予測 1 発）と違い、agent は **会話×ツール往復**＝`POST /invoke`（1 発話 →
 run_agent の往復ループ → 最終応答）。1 実行ごとに AGENT_LOG_FIELDS の JSONL 行を
@@ -45,7 +45,7 @@ def create_app(
       （既定 artifacts/agent/runs/<name>/<YYYYMMDD>.jsonl）へ 1 行追記する。
 
     provider は**宣言（spec.provider）に従う**＝override 口は作らない（champion の宣言が正本。
-    verify は provider=dummy の champion で無ネットワークのまま回る・DEC-0015）。
+    verify は provider=dummy の champion で無ネットワークのまま回る）。
     """
     if version is not None:
         record = store.load_agent(root, work=work, name=name, version=version)
@@ -55,7 +55,7 @@ def create_app(
             raise ValueError(f"{work}/{name}: champion が無い（先に `uv run agent promote` で昇格する）")
         record = maybe
     # 保存済み宣言（dict）から検証つきで AgentSpec を復元する（temperature 拒否・未知キー・effort・
-    # tools→tuple を load_agent_spec と共用＝検証を二重管理しない・DEC-0009）。
+    # tools→tuple を load_agent_spec と共用＝検証を二重管理しない）。
     spec = spec_from_mapping(record.spec, source=f"{work}/{name}/{record.version}")
     provider = PROVIDERS.resolve(spec.provider).factory(seed)  # 未知 provider は起動時に候補つき ValueError
 

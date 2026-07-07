@@ -1,10 +1,10 @@
 """AgentSpec（エージェントの宣言＝prompt＋model＋tools＋方針）と、宣言的 YAML の読み込み。
 
-- 1 エージェント＝1 つの宣言（学習済みバイナリではない）。config が正本・コードは読むだけ（DEC-0004 と同型）。
+- 1 エージェント＝1 つの宣言（学習済みバイナリではない）。config が正本・コードは読むだけ（ と同型）。
 - `temperature` は持たない：現行モデル（Opus 4.7/4.8・Sonnet 5・Fable 5）は temperature/top_p/top_k を
   受け付けない（送ると 400）。決定性は effort（宣言に固定）＋verify の無ネットワーク（dummy/cassette）で作る
-  （DEC-0015）。
-- 依存は stdlib＋pyyaml のみ（yaml は関数内で遅延取り込み・プロファイル経路を軽く保つ＝DEC-0013）。
+  。
+- 依存は stdlib＋pyyaml のみ（yaml は関数内で遅延取り込み・プロファイル経路を軽く保つ）。
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def spec_from_mapping(raw: Mapping[str, Any], *, source: str = "<mapping>") -> A
     """キー→値の写像を検証して AgentSpec にする（検証の正本＝load_agent_spec と配信 T-0094 が共用）。
 
     - 未知キーは失敗（extra forbid・typo を黙って捨てない）。`temperature` は専用のエラーで弾く
-      （現行モデルは 400＝DEC-0015。effort を使うよう案内する）。
+      （現行モデルは 400。effort を使うよう案内する）。
     - tools は list（YAML・`dataclasses.asdict` 由来）でも tuple に正規化する。output_schema は
       dict/None をそのまま通す。呼び手の写像は変更しない（copy して扱う）。
     - source はエラー文言に出す出所（YAML ならファイルパス・保存済み宣言なら work/name/version）。
@@ -53,7 +53,7 @@ def spec_from_mapping(raw: Mapping[str, Any], *, source: str = "<mapping>") -> A
     data = dict(raw)  # 呼び手の写像（AgentRecord.spec 等）を変更しない
     if "temperature" in data:
         raise ValueError(
-            f"{source}: temperature は指定できない（現行モデルはパラメータごと廃止＝送ると 400・DEC-0015）。"
+            f"{source}: temperature は指定できない（現行モデルはパラメータごと廃止＝送ると 400）。"
             "決定性は effort（low〜max）を宣言に固定し、verify は無ネットワーク（dummy/cassette）で作る"
         )
     unknown = sorted(set(data) - _FIELDS)

@@ -1,6 +1,6 @@
 """配信プロファイルの CLI 入口（typer）。`uv run serve` で champion を FastAPI 配信する。
 
-中核・ds の CLI とはモジュールを分ける（プロファイル境界・DEC-0004）。fastapi/uvicorn（extra serve）が
+中核・ds の CLI とはモジュールを分ける（プロファイル境界）。fastapi/uvicorn（extra serve）が
 無い環境では導入方法を案内して exit 1 する（生の ImportError の栈を吐かない）。重い import（uvicorn・
 fastapi 経由の app）はコマンドの中で遅延取り込みする（--help を軽く保つ・未導入の案内を出せる）。
 """

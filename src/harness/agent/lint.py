@@ -1,10 +1,10 @@
 """エージェント宣言（docs/agents/**/*.yaml）の構造 lint（参照整合を verify で守る）。
 
 実行しない・ネットワークも使わない。宣言の `provider` が PROVIDERS に・`tools[]` が TOOLS に実在するかを
-静的に検査する（serve の deploy_lint と同じ思想＝実行できない資産の参照整合・DEC-0009）。
+静的に検査する（serve の deploy_lint と同じ思想＝実行できない資産の参照整合）。
 `docs/agents/` が無いプロジェクトでは何も指摘しない（誤検知しない）。
 依存は stdlib＋pyyaml＋agent.{providers,tools}（軽い）のみ。yaml は関数内で遅延取り込みする
-（プロファイルのモジュールを軽く保つ規約＝DEC-0013）。
+（プロファイルのモジュールを軽く保つ規約）。
 """
 
 from __future__ import annotations

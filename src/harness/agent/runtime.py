@@ -5,7 +5,7 @@
   （黙って無限ループしない）。ネットワーク・ファイル I/O はしない（無ネットワークの verify 契約）。
 - AGENT_LOG_FIELDS は JSONL 1 行の契約の正本（serve.PREDICTION_LOG_FIELDS と同型の「キー集合ドリフトを
   止める」規律）。監視（T-0093）はこの契約だけに依存する（勝手にキーを増減・改名しない）。
-- 依存は stdlib＋agent 内＋harness.fingerprint のみ（軽 import・DEC-0013）。
+- 依存は stdlib＋agent 内＋harness.fingerprint のみ（軽 import）。
 """
 
 from __future__ import annotations
@@ -165,7 +165,7 @@ def append_run_log(path: Path, row: Mapping[str, Any]) -> None:
     """JSONL に 1 行追記する（1 行＝1 JSON・UTF-8・非 ASCII 素通し）。親ディレクトリは無ければ作る。
 
     `build_log_row` の返り値をそのまま書ける（stdlib のみ。serve の append_jsonl は import しない＝
-    プロファイル境界・DEC-0004。小さな重複は境界維持の許容コスト＝3 個目の消費で core 昇格を DEC-0012 判断）。
+    プロファイル境界。小さな重複は境界維持の許容コスト＝3 個目の消費で core 昇格を  判断）。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:

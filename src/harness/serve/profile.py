@@ -1,7 +1,7 @@
 """serve プロファイルの宣言。中核は config（profiles = [..., "harness.serve"]）経由でだけこれを知る。
 
 ここに載せるのは検査の結線だけ。重い依存（fastapi・uvicorn・polars）はここから import しない
-（プロファイルのモジュールは軽く保つ規約＝DEC-0013）。deploy_lint は stdlib＋pyyaml のみ・yaml を
+（プロファイルのモジュールは軽く保つ規約）。deploy_lint は stdlib＋pyyaml のみ・yaml を
 遅延取り込みするので、ここから import しても配信依存（fastapi 等）は引き込まない。
 """
 

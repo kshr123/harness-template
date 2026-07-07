@@ -1,4 +1,4 @@
-"""champion を配信する FastAPI アプリ（sync 配信・DEC-0013）。
+"""champion を配信する FastAPI アプリ（sync 配信）。
 
 fastapi・polars はこのモジュールの top で import する（profile.py/__init__.py からは辿られない＝
 `import harness.serve` の軽 import を壊さない）。モデルは起動時（create_app）に読み込み、champion が

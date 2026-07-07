@@ -1,9 +1,9 @@
 """ツール（TOOLS レジストリ）＝エージェントが呼べる純関数と、provider へ渡す宣言形。
 
 - 1 ツール＝名前＋input_schema（JSON Schema）＋**純粋・決定的な** Python 関数（`fn(**args) -> str`）。
-  description は factory の docstring 1 行目（DEC-0009・空は登録できない）。一覧は `uv run agent tools`。
-- ネットワーク・ファイル I/O は禁止（verify の無ネットワーク契約＝DEC-0015 をツール実行でも守る）。
-- スキーマ検証は required の充足＋未宣言キーの拒否だけ（jsonschema は入れない＝軽 import・DEC-0013。
+  description は factory の docstring 1 行目（空は登録できない）。一覧は `uv run agent tools`。
+- ネットワーク・ファイル I/O は禁止（verify の無ネットワーク契約をツール実行でも守る）。
+- スキーマ検証は required の充足＋未宣言キーの拒否だけ（jsonschema は入れない＝軽 import。
   型の検証まで要る実ツールが出たら、その時に検証の厚みを決める＝YAGNI）。
 """
 

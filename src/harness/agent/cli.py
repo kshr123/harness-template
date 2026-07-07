@@ -1,6 +1,6 @@
 """agent プロファイルの CLI 入口（typer）。`uv run agent <サブコマンド>` で呼ぶ。
 
-中核・ds・serve の CLI とはモジュールを分ける（プロファイル境界・DEC-0004）。重い依存
+中核・ds・serve の CLI とはモジュールを分ける（プロファイル境界）。重い依存
 （実プロバイダの SDK 等）は各コマンドの中で遅延取り込みする（一覧系と --help を軽く保つ）。
 `agent run --test` は合成 spec＋合成 cases のスモーク（無ネットワーク）＝「実験は --test 必須」の規律を
 verify（tests/test_agent_e2e.py）に接続する。
@@ -49,7 +49,7 @@ def _agent_providers() -> None:
     from harness.agent.providers import PROVIDERS
 
     render_catalog(PROVIDERS)
-    typer.echo("\nverify は dummy/cassette のみ（無ネットワーク・DEC-0015）。実プロバイダは `uv sync --extra agent`。")
+    typer.echo("\nverify は dummy/cassette のみ（無ネットワーク）。実プロバイダは `uv sync --extra agent`。")
 
 
 @agent_app.command("metrics")
@@ -95,7 +95,7 @@ def _agent_run(
     """AgentSpec で 1 実行（ツール往復ループ）。--test は --spec/--input を使わず組み込みスモークを回す。
 
     --goal-expected を指定すると turn-based（1 回きり）でなく goal-based ループになる：評価器ゲート
-    （`AGENT_METRICS`＋`eval.passes`）が合格と言うまで続行注入し、`max_cycles` で必ず打ち切る（DEC-0017）。
+    （`AGENT_METRICS`＋`eval.passes`）が合格と言うまで続行注入し、`max_cycles` で必ず打ち切る。
     --goal（goal 宣言 YAML）を指定すると同じ goal-based ループを宣言経由で回す（自由文の成功基準は
     llm_judge・T-0096）。--goal-expected と --goal の併用は exit 2（正本が二重になる二重管理を避ける）。
     """

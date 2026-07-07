@@ -25,7 +25,7 @@ def _cut_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """socket 生成を失敗にする（テスト中にネットワークへ出ようとしたら即座に落とす）。"""
 
     def _refuse(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("テストがネットワーク接続を試みた（agent の verify は無ネットワークが契約・DEC-0015）")
+        raise AssertionError("テストがネットワーク接続を試みた（agent の verify は無ネットワークが契約）")
 
     monkeypatch.setattr(socket, "socket", _refuse)
 
@@ -90,7 +90,7 @@ def test_input_fingerprint_is_canonical_json_sha256() -> None:
 
 @pytest.mark.unit
 def test_tools_catalog_entries_have_description_and_schema() -> None:
-    # DEC-0009：カタログに載れない（説明の無い）ツールを作らない。宣言形（input_schema）も必須。
+    # ：カタログに載れない（説明の無い）ツールを作らない。宣言形（input_schema）も必須。
     assert len(TOOLS) >= 1
     for kind, entry in TOOLS.items():
         assert entry.description, kind

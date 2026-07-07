@@ -3,7 +3,7 @@
 GitHub Actions は実行しない・ネットワークも使わない。テンプレートは「利用者がコピーする雛形」なので
 実行はできないが、構造（必須ファイルの存在・verify step の有無・Python 版・extras の規約）は静的に
 検査できる。deploy_lint（templates/serve/ の構造 lint）と同型の「実行できない資産を verify で腐らせない」
-検査（DEC-0009）。使い方の正本は docs/ops.md の「CI（verify ゲート）テンプレートと ci_lint」。
+検査。使い方の正本は docs/ops.md の「CI（verify ゲート）テンプレートと ci_lint」。
 
 検査対象は**データ駆動**（_WORKFLOWS の表）：ワークフロー雛形を足すときは表に 1 行足すだけで
 欠落検査・必須 step 検査・トリガ検査・版/extras 検査が増える（retrain.yml＝T-0114 がその 1 行）。
@@ -20,9 +20,9 @@ GitHub Actions は実行しない・ネットワークも使わない。テン�
   リポの正を導出できない root（pyproject が無いコピー先）では版検査を行わない（誤検知しない）。
 - `uv sync` の step に `--all-extras` が無い＝error（開発・verify 環境は全部入り＝AGENTS の規約）。
 
-`templates/ci/` が無いプロジェクト（＝テンプレートを同梱しないコピー先の案件）では何も指摘しない
+`templates/ci/` が無いプロジェクト（テンプレートを同梱しないコピー先の案件）では何も指摘しない
 （誤検知しない）。依存は stdlib＋pyyaml のみ・yaml は関数内で遅延取り込み（deploy_lint と同じ規約。
-プロファイルのモジュールを軽く保つ＝DEC-0013）。
+プロファイルのモジュールを軽く保つ）。
 """
 
 from __future__ import annotations

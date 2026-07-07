@@ -34,7 +34,7 @@ def test_register_without_description_or_docstring_raises() -> None:
     def no_doc(seed: int) -> int:
         return seed
 
-    # docstring も description= も無い＝カタログに載れない＝DEC-0009 違反として登録時に失敗。
+    # docstring も description= も無い＝カタログに載れない 違反として登録時に失敗。
     with pytest.raises(ValueError, match="説明文が無い"):
         reg.register("nodoc", no_doc)
 

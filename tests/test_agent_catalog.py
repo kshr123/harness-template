@@ -1,4 +1,4 @@
-"""agent の部品カタログ（PROVIDERS/AGENT_METRICS）の発見性の検査（test_catalog.py と同型・DEC-0009）。"""
+"""agent の部品カタログ（PROVIDERS/AGENT_METRICS）の発見性の検査（test_catalog.py と同型）。"""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ pytestmark = pytest.mark.unit
 
 def test_providers_have_descriptions() -> None:
     for kind, entry in PROVIDERS.items():
-        assert entry.description, f"PROVIDERS['{kind}'] に説明文が無い（カタログに載れない・DEC-0009）"
+        assert entry.description, f"PROVIDERS['{kind}'] に説明文が無い（カタログに載れない）"
 
 
 def test_agent_metrics_have_descriptions_and_direction() -> None:
     for kind, entry in AGENT_METRICS.items():
-        assert entry.description, f"AGENT_METRICS['{kind}'] に説明文が無い（カタログに載れない・DEC-0009）"
+        assert entry.description, f"AGENT_METRICS['{kind}'] に説明文が無い（カタログに載れない）"
         assert isinstance(entry.higher_is_better, bool)  # passes が向きを読む属性（MetricEntry）
 
 

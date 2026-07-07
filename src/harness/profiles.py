@@ -3,7 +3,7 @@
 中核（pm・issues・checks）はプロファイルのコードを import しない。.harness/config.toml の
 `profiles`（モジュールパスの一覧・例 `["harness.ds"]`）を読み、各モジュールが公開する
 `PROFILE` を集めて検査に繋ぐ。非 DS の案件は profiles を空にする（または行ごと消す）だけで
-DS の検査が外れる（checks.py の手動編集は不要・DEC-0004 のプロファイル境界）。
+DS の検査が外れる（checks.py の手動編集は不要のプロファイル境界）。
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 - 特徴量段（features）：我々の `FeatureBlock`（`BLOCKS`）を横に束ねる。**生のカテゴリ/テキスト列も Columns で通す**
   （Pipeline は逐次で、後段の encode は features の出力しか見えないため）。
 - エンコード段（encode）：sklearn のエンコーダ（`ENCODERS`）を `ColumnTransformer` に入れる。**再発明しない**
-  （DEC-0008）が「必要なときに確実に使える」よう、**落ちない・漏れない・決定的**に関わる既定だけ焼き込む：
+  が「必要なときに確実に使える」よう、**落ちない・漏れない・決定的**に関わる既定だけ焼き込む：
   OneHot は未知カテゴリでエラーを出さない・Ordinal は未知/欠損を -1・TargetEncoder は非推奨 shuffle/random_state を
   使わず分類=StratifiedKFold(seed)・回帰=KFold(seed) で決定的な OOF（task は model から知る＝is_classifier）・
   KBins/PCA は NaN で落ちるので中央値埋めを前置・Tfidf は null を空文字に。
@@ -230,7 +230,7 @@ def _missing_flags(seed: int, **params: Any) -> object:  # noqa: ANN401  seed �
 
 
 # config の kind → sklearn エンコーダの工場（落ちない・漏れない・決定的の既定つき）。足したら 1 行。
-# 説明文は工場の docstring 1 行目から自動で載る（無ければ登録時に失敗＝DEC-0009）。
+# 説明文は工場の docstring 1 行目から自動で載る（無ければ登録時に失敗）。
 ENCODERS: Registry[Entry] = Registry("エンコーダ", catalog="data encoders")
 ENCODERS.register("onehot", _onehot)
 ENCODERS.register("ordinal", _ordinal)
@@ -298,7 +298,7 @@ def _from_model(seed: int, *, estimator: Any | None = None, **params: Any) -> ob
     return SelectFromModel(base, **params)
 
 
-# config の select 節の kind → 特徴選択の工場（sklearn 素通し・DEC-0006）。足したら 1 行。
+# config の select 節の kind → 特徴選択の工場（sklearn 素通し）。足したら 1 行。
 SELECTORS: Registry[Entry] = Registry("特徴選択", catalog="data selectors")
 SELECTORS.register("variance_threshold", _variance_threshold)
 SELECTORS.register("selectkbest", _selectkbest)
@@ -498,7 +498,7 @@ ModelTask = Literal["classification", "multiclass", "regression"]
 # optional 依存の kind → 導入すべき extra 名（未導入で使われたときのヒント）。
 OPTIONAL_MODEL_EXTRAS: dict[str, str] = {"lightgbm": "lightgbm", "lightgbm_reg": "lightgbm"}
 
-# config の kind → モデルの登録（工場＋task）。sklearn を足すときはここに 1 行（DEC-0006）。
+# config の kind → モデルの登録（工場＋task）。sklearn を足すときはここに 1 行。
 # task は Entry.task に持ち、build_model が config の task と突き合わせる（回帰モデル×分類 task を実行前に止める）。
 # 説明文は factory の docstring 1 行目（`uv run data models` に載る・test_catalog が必須検査）。
 # optional 依存（lightgbm 等）のモデルはファイル末尾で「入っていれば登録」する（§5 条件登録）。

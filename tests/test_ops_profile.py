@@ -5,7 +5,7 @@
   期待値は config と profile.py の構成（何を登録したか）から導出する。
 - 軽 import：subprocess の素の Python で `import harness.ops` しても重い依存（fastapi・uvicorn・
   polars・sklearn・anthropic）が sys.modules に入らないことを固定する（プロファイルのモジュールは
-  重い依存を top で import しない規約＝DEC-0013。serve/agent の同種テストと同型）。
+  重い依存を top で import しない規約。serve/agent の同種テストと同型）。
 """
 
 from __future__ import annotations

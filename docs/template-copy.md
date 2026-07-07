@@ -7,17 +7,17 @@
 手順は 4 歩：
 1. リポジトリを丸ごとコピーする。
 2. 「消す・作り直す」の一覧に従って前案件の中身を消し、新案件の内容（charter・REQ）を書く（「残す」の一覧は触らない）。
-3. 「複製で壊れやすい点」を直す（プロファイルの選択）。
+3. 案件タイプ（DS / 非 DS）に合わせて設定する。
 4. 「複製後の確認」を行い、`uv run verify` にすべて成功させる。
 
 ## 残す（基盤そのもの・触らない）
 - `src/harness/` … 中核（pm・issues・checks・config・testing）と DS プロファイル（`src/harness/ds/`）。
-- `tests/` … 上記の検査（e2e は `templates/experiment/` を叩くので複製で直す箇所は無い。T-0140）。
+- `tests/` … 上記の検査。
 - `docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）。
 - `.claude/skills/`（スキル）・`AGENTS.md`・`CLAUDE.md`・`pyproject.toml`・`checks.toml`・`.pre-commit-config.yaml`。
 - `docs/data/` のテーブル定義の仕組み（中身は案件のデータに合わせて入れ替える）。
-- `templates/experiment/`（実験正本雛形＝train.py・config*.yaml・data/*.yaml（テーブル定義。T-0141 で持ち歩く）。
-  T-0140 で work/ から移設。以後の実験はこれを丸ごとコピーする＝experiment スキル参照）。
+- `templates/experiment/`（実験の正本雛形＝`train.py`・`config*.yaml`・`data/*.yaml` のテーブル定義。以後の実験は
+  これを丸ごとコピーして使う＝experiment スキル参照。雛形は自己完結＝work/ を消しても壊れない）。
 
 ## 消す・作り直す（前の案件の中身）
 - `work/` 配下の前案件エピック（`EP-*`・`T-*`・`E-*`）… 前案件の作業単位。**消す**（新案件のエピックを作り直す。
@@ -29,18 +29,12 @@
 - `docs/structure-review-*.md` … 基盤のレビュー記録。**消してよい**（履歴）。
 - `data/` の実体・保存済みモデル（`data/**/models/`）… コミットしない生成物。**消す**。
 
-## 複製で壊れやすい点（必ず直す）
-1. **（T-0140 で解消）e2e のパス直書き**：以前は `tests/test_e2e_experiment.py` が
-   `work/EP-06-ds-experiment-loop/E-0001-interaction-feature/` 配下の実験コード（前案件の実験フォルダ＝
-   「消す」領域）を直接叩いており、複製のたびに手で直す必要があった。実験正本雛形を `templates/experiment/`
-   （「残す」領域）へ移設したことで、e2e は `templates/experiment/train.py` を叩く＝複製で経路が変わらない。
-   **複製時にこのパスを直す作業は不要**（前案件のエピックを「消す」際に `work/EP-06-ds-experiment-loop/` ごと
-   消してもテストは壊れない）。
-2. **非 DS の案件**：`.harness/config.toml` で `profiles = []` にする（または行ごと消す）。これだけで
+## 案件タイプに合わせる（DS / 非 DS）
+1. **非 DS の案件**：`.harness/config.toml` で `profiles = []` にする（または行ごと消す）。これだけで
    DS の検査（テーブル定義 data_lint）が verify から外れる（`checks.py` の手動編集は不要）。
    `pyproject.toml` の `[project.optional-dependencies].ds` は使わないなら残していてよい（入れなければ効かない）。
    AGENTS・DoD の「（DS プロファイル）」印の項目は非 DS では外す。
-3. **DS の案件**：`uv sync --extra ds` を入れる。テーブル定義（`docs/data/*.yaml`）を新データに合わせて作り直す。
+2. **DS の案件**：`uv sync --extra ds` を入れる。テーブル定義（`docs/data/*.yaml`）を新データに合わせて作り直す。
    最初の実験は experiment スキルの手順で作る（`templates/experiment/` をコピー元にする）。
 
 ## 複製後の確認

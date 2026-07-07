@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# 中核へ移設（T-0091・DEC-0009）。`as` 付きで明示的に再輸出する＝serve の呼び手（app.py・テスト・
+# 中核へ移設（T-0091）。`as` 付きで明示的に再輸出する＝serve の呼び手（app.py・テスト・
 # docs/serve.md）は従来どおり `runtime.input_fingerprint(features)` で再計算できる（指紋の値も不変）。
 from harness.fingerprint import input_fingerprint as input_fingerprint
 

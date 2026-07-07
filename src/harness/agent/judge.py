@@ -12,7 +12,7 @@
   `eval.passes` の既存規約でそのまま不合格になる（fail closed・L-009）＝0.0（明確な低評価）と欠測
   （パース不能）を区別する。
 - このモジュールは軽い（stdlib＋`harness.agent.{providers,spec}` のみ）。`anthropic` は import しない
-  （DEC-0013）。`goal.py`/`eval.py` も import しない（循環回避＝eval.py が本モジュールを import する側）。
+  。`goal.py`/`eval.py` も import しない（循環回避＝eval.py が本モジュールを import する側）。
 """
 
 from __future__ import annotations

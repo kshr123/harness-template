@@ -30,10 +30,10 @@ _JUDGE_SPEC = AgentSpec(name="judge-smoke", provider="dummy", model="dummy-model
 
 
 def _cut_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """socket 生成を失敗にする（judge テストの verify は無ネットワーク契約・DEC-0015）。"""
+    """socket 生成を失敗にする（judge テストの verify は無ネットワーク契約）。"""
 
     def _refuse(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("テストがネットワーク接続を試みた（judge の verify は無ネットワーク契約・DEC-0015）")
+        raise AssertionError("テストがネットワーク接続を試みた（judge の verify は無ネットワーク契約）")
 
     monkeypatch.setattr(socket, "socket", _refuse)
 
@@ -113,7 +113,7 @@ def test_rubric_judge_replays_cassette_fixture_no_network(tmp_path: Path, monkey
         judge(rubric, "記録に無い候補")
 
 
-# --- JudgeEntry（.fn は案内つき ValueError）・登録（カタログ・DEC-0009） ---
+# --- JudgeEntry（.fn は案内つき ValueError）・登録（カタログ） ---
 
 
 @pytest.mark.unit
@@ -128,7 +128,7 @@ def test_llm_judge_entry_fn_raises_binding_guidance() -> None:
 def test_llm_judge_registered_with_description() -> None:
     assert "llm_judge" in AGENT_METRICS
     entry = AGENT_METRICS["llm_judge"]
-    assert entry.description  # docstring 1 行目から自動（DEC-0009・空は登録できない）
+    assert entry.description  # docstring 1 行目から自動（空は登録できない）
     assert entry.higher_is_better is True
     assert entry.tasks == ("rubric",)
 

@@ -19,7 +19,7 @@ LEVELS = ("fast", "standard", "full")
 
 # 中核のプロジェクト管理の検査（どの段階でも走る・順不同で全件集める）。
 # プロファイルの検査（例：DS のテーブル定義 data_lint）は .harness/config.toml の profiles から
-# 実行時に集める（プロファイル境界・DEC-0004。中核はプロファイルを import しない）。
+# 実行時に集める（プロファイル境界。中核はプロファイルを import しない）。
 PM_CHECKS: list[PmCheck] = [
     pm.lint,
     pm.spec_lint,
