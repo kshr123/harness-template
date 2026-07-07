@@ -16,8 +16,26 @@ uv run agent run --spec <yaml> --input "<発話>"   # 宣言で 1 実行（ツ�
 uv run agent run --test                # 合成 spec のスモーク（評価＋ツール往復・無ネットワーク・verify 用）
 ```
 
-実プロバイダ（Anthropic SDK）は `uv sync --extra agent`（骨組みでは未使用・T-0092 で結線）。
+実プロバイダ（`provider: anthropic`）は `uv sync --extra agent` で SDK を入れて使う（下の節）。
 **verify 経路は extra 無し・ネットワーク 0 で全機能が検証できる**（dummy/cassette のみ＝DEC-0015）。
+
+## 実プロバイダ（anthropic）と記録再生（cassette）
+
+どちらも `providers.py` の**共有 adapter** `_reply_from_anthropic`（Anthropic Messages API 応答 dict →
+`ProviderReply` の純変換・欠損や未知 block は明示 ValueError）を通る＝変換の 1 か所をテストすれば
+実呼び出しと再生の両方が守られる。
+
+- **`anthropic`（実 Anthropic 呼び出し・verify 経路外）**：SDK は `reply()` 内で遅延 import＝
+  `import harness.agent` は extra 無しでも軽いまま（DEC-0013・subprocess テストで固定）。API キーは環境変数
+  から SDK が読む（コードでは読まない）。**temperature は送らない**（現行モデルはパラメータごと廃止＝
+  送ると 400・DEC-0015）。決定性は `output_config={"effort": spec.effort}`＝宣言に固定した effort で作る。
+- **`cassette`（記録再生・replay 専用・テスト/CI 用・`agent/cassette.py`）**：cassette＝JSON ファイル
+  `{キー: 応答 dict（model_dump 相当）}`。キー＝`(model, system_prompt, messages, tools)` の正準 JSON の
+  sha256（`cassette_key`＝`harness.fingerprint.input_fingerprint` を再利用）。記録が無いキーは ValueError
+  （**fail closed**＝dummy へフォールバックしない）。record モードは無い（実記録はネットワーク＝verify 外。
+  フィクスチャは API 契約から手で書く）＝実 SDK の応答形状が変わったら再記録で検知する形状ガード。
+  path（記録 JSON）が必須のため `agent run` の宣言 provider には使えない（`factory(seed)` 規約＝
+  path 省略は明示エラー）。テストからは `cassette(seed, path=…)` で作る。
 
 ## AgentSpec（宣言 YAML の契約）
 

@@ -1,7 +1,7 @@
 ---
 id: T-0092
 kind: task
-status: todo
+status: done
 title: 実プロバイダ（AnthropicProvider・遅延/verify 経路外）＋CassetteProvider（記録再生・fail-closed）
 created: 2026-07-06
 depends_on: [T-0089, T-0091]
@@ -59,6 +59,24 @@ cassette の再記録で検知できる（記録が無ければ **fail closed**�
 - 期待値は応答フィクスチャ・呼び出し引数の構成から導く（金メッキ禁止）。`uv run verify` 全体緑。`verified_by` の名がテストに実在。
 
 ## 独立レビュー（maker≠checker・差分のみ・実測・変異）
-（レビュー後に記入。観点：cassette が記録欠けで fail closed＝変異でフォールバック抜け道が無いこと・adapter が
-tool_use/text/usage/stop_reason を取りこぼさない＝変異で検出・AnthropicProvider が temperature を送らない・
-実行時 anthropic import が遅延＝軽 import 維持・run_agent が cassette 差し替えで不変・ネットワーク 0 の担保が本物）
+実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。3 変異はいずれも
+バイト同一に復元、変異中は狙ったテストだけが RED になることを確認済み。
+- **cassette の fail closed＝変異で確認**：`CassetteProvider.reply` の `if record is None:` を `and False` で
+  無効化 → `test_cassette_replay_matches_adapter_no_network`・`test_cassette_provider_is_replay_only` が RED
+  （記録欠けで黙って dummy へ落ちる抜け道が無いことを捕捉）。
+- **temperature を送らない＝変異で確認**：`output_config={"effort": …}` を `temperature=0` に差し替え →
+  `test_anthropic_provider_sends_effort_not_temperature` が RED（現行モデルが 400 を返す送信を捕捉・DEC-0015）。
+- **adapter の fail loud＝変異で確認**：未知 block type の `raise` を `continue`（黙って捨てる）に差し替え →
+  `test_adapter_rejects_unknown_block_type` が RED（SDK 応答形状のドリフトを見逃す抜け道が無いことを捕捉）。
+- **run_agent 不変**：`test_run_agent_through_cassette_tool_loop` が cassette 2 応答で tool_use→tool_result→
+  end_turn を 2 ターン・無ネットワークで回す（実プロバイダ差し替えで往復ループが不変。期待 usage 30/12 は
+  フィクスチャの構成から導出＝金メッキでない）。
+- **軽 import 維持**：`test_import_harness_agent_stays_light` に providers/cassette/AnthropicProvider の import を
+  足しても anthropic/fastapi/uvicorn/polars/sklearn は未ロード（reply() 内の遅延 import の証明・DEC-0013）。
+- **無ネットワークの担保が本物**：両 integration テストは `block_network`（`socket.socket` を raise 差し替え）で
+  実ネットワークへ出た瞬間に失敗する。AnthropicProvider のテストは `anthropic.Anthropic` を偽物に差し替え＝
+  実クライアントを作らない（create の引数だけ捕捉）。
+- **プロファイル境界／発見性**：cassette は `cassette` kind で PROVIDERS に登録され `agent providers` カタログに
+  説明つきで載る（DEC-0009）が、工場 `cassette_replay` は providers.py 側の遅延 import で循環を避ける。全 provider
+  （dummy/anthropic/cassette）に description（`test_all_providers_have_descriptions`）。
+- **verify 全体緑**（`成功（すべて通過）`）。指摘なし。
