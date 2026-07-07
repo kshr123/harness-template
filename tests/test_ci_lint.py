@@ -19,6 +19,7 @@ from harness.ops import ci_lint
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = REPO_ROOT / "templates" / "ci"
 WORKFLOW = ".github/workflows/verify.yml"
+RETRAIN = ".github/workflows/retrain.yml"
 
 # リポの正（pyproject の requires-python ">=3.14"）と同じ版を持つ最小 pyproject。
 # 版の期待値はこの構成（3.14 と書いたこと）から導く。
@@ -32,11 +33,11 @@ def _copy_templates(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _mutate(root: Path, old: str, new: str) -> None:
+def _mutate(root: Path, old: str, new: str, rel: str = WORKFLOW) -> None:
     """ワークフロー雛形の 1 箇所を置換して壊す。old が無い＝fixture の前提が崩れているので失敗にする。"""
-    path = root / "templates" / "ci" / WORKFLOW
+    path = root / "templates" / "ci" / rel
     text = path.read_text(encoding="utf-8")
-    assert old in text, f"fixture の前提が崩れている: {WORKFLOW} に {old!r} が無い"
+    assert old in text, f"fixture の前提が崩れている: {rel} に {old!r} が無い"
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
@@ -123,6 +124,64 @@ def test_missing_all_extras_flagged(tmp_path: Path) -> None:
     errors = _errors(root)
     assert len(errors) == 1
     assert "--all-extras" in errors[0]
+
+
+# --- 継続学習（CT）雛形 retrain.yml（任意テンプレ＝在れば内容を検査・無くても error にしない） ---
+
+
+@pytest.mark.unit
+def test_retrain_template_missing_promote_step_flagged(tmp_path: Path) -> None:
+    # promote step（既存 promote_model の呼び出し）だけを意図的に潰す→壊したのは 1 箇所なので error は 1 件。
+    root = _copy_templates(tmp_path)
+    _mutate(root, "promote_model", "echo_no_gate", rel=RETRAIN)
+    errors = _errors(root)
+    assert len(errors) == 1
+    assert "promote_model" in errors[0] and "retrain.yml" in errors[0]
+
+
+@pytest.mark.unit
+def test_retrain_template_missing_schedule_flagged(tmp_path: Path) -> None:
+    # schedule トリガだけを別名へ潰す（step は全部残す）→定期実行の起点が抜けた構成＝error 1 件。
+    root = _copy_templates(tmp_path)
+    _mutate(root, "schedule:", "not-a-trigger:", rel=RETRAIN)
+    errors = _errors(root)
+    assert len(errors) == 1
+    assert "schedule" in errors[0] and "retrain.yml" in errors[0]
+
+
+@pytest.mark.unit
+def test_no_retrain_template_is_ok(tmp_path: Path) -> None:
+    # retrain.yml を置かない構成（CT は任意の雛形＝verify.yml と違い必須にしない）→誤検知しない（指摘 0 件）。
+    root = _copy_templates(tmp_path)
+    (root / "templates" / "ci" / RETRAIN).unlink()
+    assert ci_lint.run_checks(root) == []
+
+
+@pytest.mark.unit
+def test_retrain_template_out_of_order_steps_flagged(tmp_path: Path) -> None:
+    # monitor↔promote を入れ替える（両 step は残す＝有無だけ見る検査は通る）→CT の順序（監視してから昇格）
+    # が崩れた構成＝順序検査だけが error 1 件。壊したのは並びの 1 箇所なので error はちょうど 1 件。
+    root = _copy_templates(tmp_path)
+    path = root / "templates" / "ci" / RETRAIN
+    lines = path.read_text(encoding="utf-8").split("\n")
+    # monitor step の 2 行（`- name:` ＋ その run 行）を切り出し、末尾（promote step の後ろ）へ移す
+    # ＝両 step は残るが登場順で monitor が promote より後になる（有無検査は通し、順序検査だけ落とす）。
+    start = next(i for i, ln in enumerate(lines) if ln.strip().startswith("- name: ドリフト確認"))
+    assert lines[start + 1].strip().startswith("run: uv run data monitor"), "fixture の前提: monitor step は 2 行"
+    block = lines[start : start + 2]
+    rest = lines[:start] + lines[start + 2 :]
+    path.write_text("\n".join(rest).rstrip("\n") + "\n" + "\n".join(block) + "\n", encoding="utf-8")
+    errors = _errors(root)
+    assert len(errors) == 1
+    assert "promote_model" in errors[0] and "uv run data monitor" in errors[0] and "順" in errors[0]
+
+
+@pytest.mark.integration
+def test_repo_retrain_template_passes() -> None:
+    # 自リポ同梱の retrain.yml が表（_WORKFLOWS）に載っていて（＝検査対象で空振りでない）、0 件で通る（腐り番人）。
+    assert RETRAIN in {spec.rel for spec in ci_lint._WORKFLOWS}
+    assert (TEMPLATES / RETRAIN).is_file()
+    assert ci_lint.run_checks(REPO_ROOT) == []
 
 
 # --- 壊れた YAML ---

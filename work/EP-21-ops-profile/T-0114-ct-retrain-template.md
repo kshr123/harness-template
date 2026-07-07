@@ -1,7 +1,7 @@
 ---
 id: T-0114
 kind: task
-status: todo
+status: done
 title: 継続学習（CT）雛形＝retrain.yml＋ci_lint 拡張（既存部品の結線のみ・実行しない）
 created: 2026-07-07
 depends_on: [T-0113]

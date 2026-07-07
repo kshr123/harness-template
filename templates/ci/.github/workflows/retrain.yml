@@ -1,0 +1,62 @@
+# 継続学習（CT）の雛形（複製先のリポジトリ直下へ .github/workflows/retrain.yml としてコピーして使う・任意）。
+# 定期トリガ→experiment（再学習）→data monitor（ドリフト確認）→閾値を満たせば promote の骨格を、
+# 既存部品の結線だけで回す（新しい学習・監視・昇格のロジックをこのファイルに書かない）。
+#
+# この雛形は当リポでは実行されない（GitHub Actions はリポ直下の .github/ しか読まない）。代わりに
+# ci_lint（src/harness/ops/ci_lint.py）が uv run verify のたびに構造（定期トリガ・experiment→monitor→
+# promote の step 系列・Python 版・--all-extras）を静的検査し、雛形が腐るのを止める。verify.yml と違い
+# この雛形は任意＝置かない複製先を ci_lint は error にしない。使い方の正本は docs/ops.md の「継続学習（CT）雛形」。
+name: retrain
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # ← 複製先が編集する箇所：再学習の周期（例＝毎週月曜 03:00 UTC）
+  workflow_dispatch: # 手動でも回せる（初回・障害後のやり直し用）
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest # ← 複製先が編集する箇所：verify.yml と同じ流儀（OS を増やすなら matrix）
+    steps:
+      - uses: actions/checkout@v4
+      - name: uv をセットアップ（Python 版はリポの正＝pyproject の requires-python と一致させる）
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: 依存を同期（全部入り＝optional 依存のテストも skip しない・AGENTS の規約）
+        run: uv sync --all-extras
+      # 再学習＝実験雛形の train.py を本規模で実行（config→学習→評価→保存→results/ を一気通貫）。
+      # 学習スクリプトをここに書かない：実験フォルダの config.yaml が変種・モデル・データの正本（experiment スキル）。
+      - name: 再学習（実験雛形の train.py）
+        # ← 複製先が編集する箇所：自分の実験フォルダの train.py と variant へ差し替える。
+        run: uv run python work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py --variant interaction
+      # ドリフト確認＝data monitor は門番にしない（分布ずれで exit code を非 0 にしない・band は人が読む。
+      # 基準テーブルが読めないときだけ非 0）。自動停止しない理由：ドリフトの解釈は文脈依存で、誤検知の
+      # 自動停止は再学習ループ全体を止めてしまうため。閉ループは monitor --file-issue（課題起票）側で作る。
+      - name: ドリフト確認（門番にしない）
+        run: uv run data monitor --baseline train_table # ← 複製先が編集する箇所：学習基準テーブルの id
+      # 昇格＝既存の promote_model が唯一の関門：絶対（thresholds＝eval.passes と同じ合否）かつ
+      # 相対（現 champion に primary で勝つ）を満たすときだけ champion を更新する。版は手書きしない＝
+      # 再学習 step の結果記録（results/metrics_<variant>.yaml の model.name/version）から結線する。
+      # 関門で不合格なら ValueError で step が落ちる＝昇格なし（意図した停止。赤で残したくなければ
+      # continue-on-error: true をこの step に付ける）。
+      - name: 閾値を満たしたときだけ昇格（関門は promote_model）
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          import yaml
+
+          from harness.ds.models import promote_model
+
+          exp = Path("work/EP-06-ds-experiment-loop/E-0001-interaction-feature")  # ← 複製先が編集する箇所：実験フォルダ
+          meta = yaml.safe_load((exp / "results" / "metrics_interaction.yaml").read_text())  # ← variant 名も合わせる
+          promotion = promote_model(
+              Path("."),
+              work="EP-06-ds-experiment-loop/E-0001-interaction-feature",  # ← 複製先が編集する箇所（exp と同じ）
+              name=meta["model"]["name"],  # 再学習 step が保存した名前（結果記録から結線）
+              version=meta["model"]["version"],  # 再学習 step が保存した版（結果記録から結線）
+              thresholds={"auc": 0.85},  # ← 複製先が編集する箇所：合格ライン（eval.passes と同じ辞書）
+              primary="auc",  # ← 複製先が編集する箇所：現 champion と比べる主要指標
+          )
+          print(promotion)
+          PY

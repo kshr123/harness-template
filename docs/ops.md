@@ -71,8 +71,29 @@ replicas 比率で流量を近似的に分ける段階リリース。コピペ�
 
 ## 継続学習（CT）雛形
 
-（T-0114 で記載：schedule→experiment→monitor→閾値を満たせば promote の雛形と ci_lint の拡張。
-既存部品の結線のみ。）
+`templates/ci/.github/workflows/retrain.yml` は、**schedule（cron）→experiment（再学習）→`data monitor`
+（ドリフト確認）→閾値を満たせば promote** を**既存部品の結線だけ**で回す雛形（新しい学習・監視・昇格の
+仕組みをワークフローに書かない）。複製先のリポジトリ直下へ `.github/workflows/retrain.yml` としてコピーし、
+雛形内の「← 複製先が編集する箇所」を差し替える：cron の周期・実験フォルダ（train.py と variant）・監視の
+基準テーブル id・promote の thresholds/primary。手動起動（`workflow_dispatch`）も付いている（初回・
+障害後のやり直し用）。各 step が呼ぶのはすべて既存部品：
+
+- **再学習**＝実験雛形の `code/train.py`（config→学習→評価→保存→results/ を一気通貫。作り方は
+  experiment スキル。学習コードをワークフローに書かない＝config.yaml が変種・モデル・データの正本）。
+- **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**門番にしない**（分布ずれは band で
+  人が読む・exit 0。基準テーブルが読めないときだけ非 0）＝ドリフトの解釈は文脈依存で、誤検知の自動停止は
+  再学習ループ全体を止めてしまうため。閉ループ（PSI_ALERT 超で課題起票）は `data monitor --file-issue`
+  （T-0115）がここに接続される。
+- **昇格**＝`harness.ds.models.promote_model` が唯一の関門：絶対（thresholds＝`eval.passes` と同じ合否の
+  辞書。「本番に出してよい最低ライン」を書く）かつ相対（現 champion に primary で勝つ）を満たすときだけ
+  champion を更新する。版は手書きしない＝再学習 step の結果記録（`results/metrics_<variant>.yaml` の
+  `model.name`/`model.version`）から結線する。関門で不合格なら step が落ちる＝昇格なし（意図した停止）。
+
+verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を error にしない**（CT を回さない複製先を
+誤検知しない）。在るときだけ、schedule トリガの有無・experiment→monitor→promote の step の**有無と登場順**
+（`ordered=True`＝監視してから昇格の順序が意味を持つので、monitor↔promote を並べ替えると順序違反で error）・
+Python 版・`--all-extras` を静的検査して腐りを止める（`_WORKFLOWS` の表の `required=False` の 1 行。存在検査
+＝`required`、内容検査＝`required_runs`／順序＝`ordered`／トリガ＝`required_triggers` を表の列で区別する）。
 
 ## 監視→課題起票の閉ループ
 
