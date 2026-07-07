@@ -1,8 +1,10 @@
-# ds のコード — どのファイルが何を担い、どう組まれ、今後どこへ広がるか
+# ds のコード — どのファイルが何を担い、どう組まれているか
 
 `docs/ds.md`（作業の流れとカタログの地図）の姉妹。こちらは**中身の設計**を説明する：`src/harness/ds/` の
-各ファイルが何を担うか、内容がどこにどう書かれているか、そして今後どう広がりそうかを、コードを読む前に
-つかめるようにする。読み手は、ds プロファイルを**理解したい・拡張したいエンジニア**（と、それを助けるエージェント）。
+各ファイルが何を担うか、内容がどこにどう書かれているかを、コードを読む前につかめるようにする。読み手は、
+ds プロファイルを**理解したい・拡張したいエンジニア**（と、それを助けるエージェント）。この文書が実装と
+食い違わないことは `code_doc_lint`（`uv run verify`）が保証する＝モジュールを足したのにここで触れていないと
+検査が落ちる。
 
 ## 設計の 5 つの芯
 
@@ -20,6 +22,22 @@
 5. **中核とプロファイルの境界**。中核（`src/harness/`）は ds を知らない。ds は config（`profiles=["harness.ds"]`）
    経由でだけ中核に現れる（`profile.py` が `data lint` を verify に載せるだけ）。だから非 DS の案件は
    config 1 行で ds を丸ごと外せる。
+
+## 全体像（流れとファイルの関係）
+
+学習の主経路は左から右へ進む（`①入力 → ③組み立て → ④評価 → ⑤保存`）。`experiment.py` が ③〜⑤ を 1 回で
+束ねる指揮者。②探索は主経路の枝、時系列・教師なしは主経路とは別のレジストリ経路。
+
+```text
+  ①入力・定義          ③組み立て              ④評価・実験          ⑤保存・採用
+  schema.py            features.py            eval.py              models.py
+  data.py       ──▶    pipeline.py     ──▶    experiment.py  ──▶   onnx_format.py
+  store.py             cv.py / tune.py        （指標・合否）        （保存・champion 昇格）
+
+  ②探索（主経路の枝）  : eda.py・analysis.py
+  別経路（別レジストリ）: forecast.py（時系列）・unsupervised.py（教師なし）
+  配線                 : cli.py（uv run data の入口）・monitor.py（配信後の監視）・profile.py（verify 結線）
+```
 
 ## どのコードがどんな役割か
 
@@ -87,14 +105,3 @@ docstring の 1 行目が説明文になる＝無いとエラー）。config の
 | 保存形式 | `models.py`/`onnx_format.py`: `FORMATS` | `data formats` |
 | 時系列モデル | `forecast.py`: `TS_MODELS` | `data models`（[timeseries] 群） |
 | 教師なし（圧縮/クラスタ/異常） | `unsupervised.py`: `DIMRED`/`CLUSTERERS`/`ANOMALY` | `data unsupervised` |
-
-## 今後どうなりそうか（広がり方）
-
-- **モデルを増やす**のが最も多い変化＝`MODELS` に 1 行（sklearn 互換なら即。LightGBM 等は optional extra で
-  条件登録）。核（学習ループ・評価・保存）は触らない。
-- **可搬な保存形式**は `FORMATS` に枝を足す（ONNX 済み）。核 `models.py` は特定の形式ライブラリを固定しない＝
-  `onnx_format.py` と同型に新形式を足す差し替え口として広がる。
-- **主経路を汚さない別バックボーン**：時系列（`forecast.py`）・教師なし（`unsupervised.py`）は sklearn の
-  交差検証経路とは別のレジストリで持つ＝主経路（分類・回帰）を単純に保ったまま領域を広げる。
-- **意図的に持たないもの**：配信・トラフィック分割・再学習の実行体などの重い実行基盤は、serve/ops プロファイルと
-  利用者環境の関心。ds は「モデルを作って選ぶ」までを担い、その先は `docs/serve.md`・`docs/ops.md` へ渡す。

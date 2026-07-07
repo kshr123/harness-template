@@ -11,7 +11,16 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-from harness import conventions, coverage_lint, doc_source_lint, doclint, issues, pm, profiles
+from harness import (
+    code_doc_lint,
+    conventions,
+    coverage_lint,
+    doc_source_lint,
+    doclint,
+    issues,
+    pm,
+    profiles,
+)
 from harness.profiles import PmCheck
 
 # レベル：fast（フック相当）→ standard（pre-commit 相当）→ full（CI・done）。
@@ -27,6 +36,7 @@ PM_CHECKS: list[PmCheck] = [
     doclint.run_checks,
     coverage_lint.run_checks,
     doc_source_lint.run_checks,
+    code_doc_lint.run_checks,
     conventions.run_checks,
 ]
 

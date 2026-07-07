@@ -51,7 +51,9 @@
 | [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と使いどころの地図 |
 | [ds-code.md](ds-code.md) | Explanation | ds のコードの役割・組まれ方・今後の広がり（設計の説明） |
 | [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
+| [agent-code.md](agent-code.md) | Explanation | agent のコードの役割・組まれ方・今後の広がり（設計の説明） |
 | [serve.md](serve.md) | Reference | モデル配信（FastAPI）と予測ログの契約 |
+| [serve-code.md](serve-code.md) | Explanation | serve のコードの役割・組まれ方・今後の広がり（設計の説明） |
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
 | [template-copy.md](template-copy.md) | How-to | この基盤を次の案件へ複製する手順 |
 | [learnings.md](learnings.md) | Explanation | 作業で得た気づきの記録（ルールにルール化する前の材料） |

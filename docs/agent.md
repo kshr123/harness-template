@@ -12,22 +12,8 @@ cassette（実 API 応答を JSON に固定しておき、ネットワークな�
 全機能を確かめる。再現性の軸は effort（推論の深さの指定）を宣言に固定して作る
 （現行モデルは temperature を受け付けないため）。
 
-実装は `src/harness/agent/`。役割ごとに 1 ファイル：
-
-- `spec.py` … 宣言（AgentSpec）の型と読み込み
-- `providers.py` … プロバイダ抽象（dummy・anthropic・cassette）
-- `tools.py` … ツールのレジストリ（TOOLS）
-- `runtime.py` … ツール往復ループ（run_agent）とログ契約（AGENT_LOG_FIELDS）
-- `eval.py` … 採点器（AGENT_METRICS）と合否（passes）
-- `judge.py` … LLM-judge（`RubricJudge`＝rubric 採点のテンプレとパース）
-- `goal.py` … goal-based 停止ゲート（`Goal`/`GoalGate`/`run_agent_to_goal`。宣言の読み込みは
-  `goal_from_mapping`/`load_goal`/`gate_from_goal`）
-- `experiment.py` … 評価の一巡
-- `store.py` … 保存と採用
-- `app.py` … 配信（FastAPI）
-- `monitor.py` … 監視
-- `lint.py` … 宣言の構造 lint
-- `cli.py` … CLI の窓口（コマンド）
+実装は `src/harness/agent/`（役割ごとに 1 ファイル）。どのファイルが何を担い・どう組まれ・今後どう広がるかは
+`docs/agent-code.md`（設計の説明）にまとめる。
 
 ## 使い方（How-to）
 

@@ -6,9 +6,8 @@
 採用（評価の合否判定を通って champion になること）済みの版だけ。
 モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
 
-実装は `src/harness/serve/`：`app.py`（API）・`runtime.py`（champion 解決・予測・ログ）・`cli.py`
-（uvicorn 起動）。予測ログは MLOps の prediction log パターンの翻案。
-作業手順の案内は `.claude/skills/serve/SKILL.md`。
+実装は `src/harness/serve/`（どのファイルが何を担い・どう組まれ・今後どう広がるかは `docs/serve-code.md`）。
+予測ログは MLOps の prediction log パターンの翻案。作業手順の案内は `.claude/skills/serve/SKILL.md`。
 
 ## 使い方（How-to）
 
