@@ -391,7 +391,11 @@ def _agent_monitor(
         f"# {iid} {title}\n\n## 事象\n\n"
         f"non_end_turn_rate={report.non_end_turn_rate:.4f}（帯: {band}）・n_rows={report.n_rows}。\n\n"
         f"## 根拠・影響\n\n`uv run agent monitor` の集計（stop_reason 分布はログ参照）。"
-        f"失敗/打ち切りの増加は品質かコストの異常の代理＝原因（プロンプト変更・ツール障害・上限設定）を確認する。\n"
+        f"失敗/打ち切りの増加は品質かコストの異常の代理＝原因（プロンプト変更・ツール障害・上限設定）を確認する。\n\n"
+        f"## 退場条件（goal）\n\n"
+        f"対処タスク（promoted_to）が done（`uv run verify` 緑・issue check が整合を強制）かつ、次回の"
+        f"`agent monitor --file-issue` で帯が「安定」に戻り再起票されないこと。resolved 後も帯が悪ければ"
+        f"新しい課題が自動で立つ（再起票＝goal 未達の機械判定）。\n"
     )
     path = directory / f"{iid}.md"
     meta = f'id: {iid}\nkind: risk\nstate: open\ncreated: {date.today().isoformat()}\ntitle: "{title}"'

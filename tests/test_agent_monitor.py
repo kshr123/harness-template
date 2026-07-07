@@ -251,6 +251,55 @@ def test_cli_agent_monitor_file_issue_is_idempotent(
 
 
 @pytest.mark.integration
+def test_cli_agent_monitor_file_issue_refiles_after_resolved(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 冪等照合は open / in-progress のみ（_agent_monitor の state is open フィルタ）。resolved に倒した
+    # 同種ドリフト（同タイトル）の再来は新規起票する＝後半円の goal 未達検知（T-0098・test_ds_monitor の
+    # test_resolved_same_drift_refiles と同じ境界をここでも守る）。
+    proj = make_project()
+    _write_runs(proj.root, [json.dumps(row_dict(stop_reason="max_turns"))])
+    monkeypatch.chdir(proj.root)
+
+    first = runner.invoke(agent_app, ["monitor", "--file-issue"])
+    assert first.exit_code == 0, f"1 回目が失敗: exc={first.exception!r} {first.output}"
+    (loaded,) = issues.load_issues(proj.root)
+    assert loaded.issue.state is issues.IssueState.open
+
+    # frontmatter の state を open→resolved に書き換える（人が対処済みにした想定）。
+    path = loaded.path
+    path.write_text(path.read_text(encoding="utf-8").replace("state: open", "state: resolved", 1), encoding="utf-8")
+    (reloaded,) = issues.load_issues(proj.root)
+    assert reloaded.issue.state is issues.IssueState.resolved  # 前提が成立してから再実行する
+
+    again = runner.invoke(agent_app, ["monitor", "--file-issue"])
+    assert again.exit_code == 0, f"2 回目が失敗: exc={again.exception!r} {again.output}"
+    loaded_all = issues.load_issues(proj.root)
+    assert len(loaded_all) == 2  # 同じ指紋でも resolved は照合対象外＝新規に 1 件起票
+    titles = {li.issue.title for li in loaded_all}
+    assert titles == {"[agent-monitor] non_end_turn_rate 大変化"}  # 両方とも同じ決定的タイトル
+
+
+@pytest.mark.integration
+def test_filed_issue_has_exit_condition_section(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 起票 body に退場条件（goal）節が入る（T-0098＝人が triage で読む固定文。機械はこの節を読まない・
+    # 検査は issues.run_checks の resolved⟺done 不変条件と monitor の再起票が担う）。
+    proj = make_project()
+    _write_runs(proj.root, [json.dumps(row_dict(stop_reason="max_turns"))])
+    monkeypatch.chdir(proj.root)
+
+    result = runner.invoke(agent_app, ["monitor", "--file-issue"])
+    assert result.exit_code == 0, f"起票が失敗: exc={result.exception!r} {result.output}"
+
+    (loaded,) = issues.load_issues(proj.root)
+    assert "## 退場条件（goal）" in loaded.body  # 節見出しが入る
+    assert "done" in loaded.body  # 条件 (i)：promoted_to タスクが done
+    assert "再起票" in loaded.body  # 条件 (ii)：次回 monitor で帯が安定＝再起票されない
+
+
+@pytest.mark.integration
 def test_cli_agent_monitor_file_issue_skips_stable_band(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

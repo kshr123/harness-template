@@ -284,6 +284,44 @@ Claude 側で回したいときは `/loop`（間隔指定の繰り返し）や `
 「停止」を含むコメント（README/docs 参照つき）と `README.md` の停止見出しが無ければ error になる
 （停止宣言の欠落は verify で失敗＝レビューを待たずに検知する）。
 
+## proactive 閉ループ（前半円＋後半円・T-0098）
+
+proactive（event/schedule＋goal の合成。写像表は `work/EP-23-loops/item.md`）は 2 つの半円からなる：
+**前半円**（監視→冪等起票）は `agent monitor --file-issue` で実装済み。**後半円**（issue→修正→検証緑で
+close）は新しいコード・新しい CLI を足さずに、既存の関門（`issues.run_checks` の不変条件＋monitor の
+再起票）だけで閉じる。
+
+### フロー（maker≠checker の承認点つき）
+
+1. **front**：`agent monitor --file-issue` が帯（`non_end_turn_rate`）が要注意以上のとき決定的タイトルで
+   冪等に起票する（exit 0 のまま・門番化しない）。
+2. **[承認点 1] 人の triage**：`uv run issue list --open` で open 課題を拾い、対処するか
+   （`promoted_to` にタスク ID を書いて in-progress にする）見送るか（`wontfix`＋「## 理由」）を人が決める。
+3. **maker**：拾った課題を修正するタスクを実装する。
+4. **checker**：review スキル（独立レビュー）＋`uv run verify` 緑。作った本人・同じ文脈のエージェントが
+   自分で合否判定しない（AGENTS 第一原則）。
+5. **[承認点 2] 人が退場を確定**：タスクの `status: done` と課題の `state: resolved` を同一コミットで
+   確定する（`issues.run_checks` が resolved⟺promoted_to done を両向きで強制＝片方だけの更新は error）。
+
+### 退場条件（goal）＝固定 2 条件
+
+課題の起票 body に付く「## 退場条件（goal）」節（固定文・機械はこの節自体を読まない）が明記する条件は
+常にこの 2 つ：
+
+- (i) `promoted_to` タスクが **done**（`issues.run_checks` が resolved⟺done の不変条件を機械強制）。
+- (ii) 次回の `agent monitor --file-issue` で帯が「安定」に戻り**再起票されない**。resolved 後も帯が悪ければ
+  同じ決定的タイトルで新しい課題が立つ＝「再起票＝goal 未達の機械判定」（前半円が後半円の checker を兼ねる）。
+
+停止（いつ routine 自体を止めるか）は上の「停止（stop）」節の規律にそのまま合流する（重複記述しない）。
+
+### やらないこと
+
+- **自律 auto-fix を作らない**：issue を機械が読んで修正を生成・適用・close する経路をハーネスに置かない。
+- **承認無しの自動 merge を作らない**：承認点 1・2 は常に人。
+- **`issue promote`/`issue close` の CLI を作らない**：状態遷移（`promoted_to`・`state`）は frontmatter の
+  手編集＝人の行為が唯一の口。
+- **monitor は exit 0 のまま**（門番化しない＝起票は副作用という既存規律を壊さない）。
+
 ## ガードレール（`agent/guardrails.py`・入出力の入口だけ・委譲点を明示）
 
 入出力を通す前に確かめる薄い層。共通の口は `Guard` Protocol（`check(text) -> GuardResult`＝ok・reason・

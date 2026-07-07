@@ -25,3 +25,5 @@
 
 補足：GitHub は **60 日間 push が無い（=活動が無い）scheduled workflow を自動的に無効化する**
 （意図せず動き続けることは無いが、能動的に止める手段は上の 3 つ）。
+
+起票後の流れ（後半円＝issue→修正→検証緑で close）は `docs/agent.md` の「proactive 閉ループ」小節を参照。
