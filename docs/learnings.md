@@ -89,6 +89,6 @@
 - **運用の注意（N-3）**：dir 走査は追跡外・ステージ外のファイルの鍵形文字列でもコミットを止める（想定外の driver は `.gitleaksignore`＝fingerprint 単位・理由必須で逃がす）。
 - **settings の接頭辞 deny の限界（N-2）**：Claude Code の `Bash(...:*)` は**語境界つき**接頭辞一致なので、`git clean -f:*` は結合形 `clean -fd`/`-df`/`--force` を捕まえない（`-f` 直後が文字＝境界違反）。最頻の破壊形 `clean -fd` を素通しするため結合形も明示列挙した。フラグ後置（`git push origin --force`）は接頭辞一致の外＝hooks/sandbox の領分として T-0101 以降へ回す（settings だけでは覆えない）。
 
-## L-015 依存監査は全部入り（--all-extras）で行う（部分監査は死角）
+## L-016 依存監査は全部入り（--all-extras）で行う（部分監査は死角）
 - **状態**：記録のみ（T-0102 で対処済み）。
 - **要点**：エージェントが自律的に extra を足す運用では、入れている extra だけの監査は「まだ入れていない extra」の脆弱性を見逃す。CI の audit ジョブは `uv sync --all-extras` で同期したロック済み環境そのものを pip-audit で監査する（blocking・免除は `.pip-audit-ignore`＝理由必須。運用ルールの正本は workflow 内コメント）。

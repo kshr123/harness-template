@@ -1,7 +1,7 @@
 ---
 id: EP-20
 kind: epic
-status: todo
+status: done
 title: エージェント運用のガードレール（秘密情報・破壊的操作・依存監査・来歴を機械で守る）
 plan: detailed
 requirements: [REQ-001]
