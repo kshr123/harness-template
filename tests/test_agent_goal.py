@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import inspect
 import json
 import socket
 from pathlib import Path
@@ -19,6 +21,8 @@ from harness.agent.goal import (
     DEFAULT_CONTINUE_PROMPT,
     Goal,
     GoalGate,
+    StopCondition,
+    StopDecision,
     gate_from_goal,
     load_goal,
     run_agent_to_goal,
@@ -27,7 +31,6 @@ from harness.agent.judge import JUDGE_SYSTEM_PROMPT, RubricJudge, judge_user_tex
 from harness.agent.providers import PROVIDERS, build_messages
 from harness.agent.runtime import run_agent
 from harness.agent.spec import AgentSpec
-from harness.loops import StopDecision
 
 _SPEC = AgentSpec(name="goal-smoke", provider="dummy", model="dummy-model", system_prompt="そのまま返す")
 
@@ -276,3 +279,38 @@ def test_gate_from_goal_yaml_with_cassette_judge_no_network(tmp_path: Path, monk
 
     assert decision.stop is True
     assert decision.reason == "goal_met"
+
+
+# --- 旧 `tests/test_loops.py` からの統合（T-0133・DEC-0020：loops 語彙は core から agent へ畳み込み） ---
+# stdlib-only import テスト（軽 import・DEC-0013）は harness.loops モジュールの消滅と共に退場（対象が無い）。
+
+
+@pytest.mark.unit
+def test_stop_condition_signature_stays_agent_shaped_until_dec() -> None:
+    # StopCondition.check は当面 agent 特化の (*, output: str, iteration: int) に固定（DEC-0018）。
+    # ds/ops の 2 個目の消費が実在して初めて広げる＝そのときは DEC-0018 の再判断トリガを満たし
+    # 新 DEC を書いてからこのテストを更新する（DEC-0012：ルール昇格は違反すると失敗する検査を先に）。
+    sig = inspect.signature(StopCondition.check)
+    params = list(sig.parameters.values())
+    # self, output, iteration の 3 つ・output/iteration は keyword-only・output は str アノテーション
+    assert [p.name for p in params] == ["self", "output", "iteration"]
+    assert params[1].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params[2].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params[1].annotation == "str" or params[1].annotation is str
+
+
+@pytest.mark.unit
+def test_goal_gate_check_returns_stop_decision() -> None:
+    # GoalGate（agent プロファイル）が StopCondition を満たすことの実行時側の確認。
+    gate = GoalGate(goal=Goal(expected="正解", thresholds={"exact_match": 1.0}))
+    decision = gate.check(output="正解", iteration=1)
+    assert isinstance(decision, StopDecision)
+    assert decision.stop is True
+    assert decision.reason == "goal_met"
+
+
+@pytest.mark.unit
+def test_harness_loops_module_does_not_exist() -> None:
+    # 墓標テスト（DEC-0020：loops 語彙は agent へ降格・死んだ語彙のゾンビ再導入を止める）。
+    # harness.loops を空 re-export 等で復活させると RED になる。
+    assert importlib.util.find_spec("harness.loops") is None

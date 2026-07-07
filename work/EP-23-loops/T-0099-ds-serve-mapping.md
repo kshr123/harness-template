@@ -6,8 +6,7 @@ title: ds/serve への loops 語彙の写像（sweep の goal 化の判断点・
 created: 2026-07-07
 depends_on: [T-0095]
 verified_by:
-  - tests/test_loops.py::test_stop_condition_signature_stays_agent_shaped_until_dec
-  - tests/test_loops.py::test_loops_module_import_is_stdlib_only
+  - tests/test_agent_goal.py::test_stop_condition_signature_stays_agent_shaped_until_dec
   - tests/test_doclint.py::test_real_repo_docs_have_no_dead_links
 ---
 # T-0099 ds/serve への loops 語彙の写像（done）
@@ -46,9 +45,11 @@ No）。将来の一般化トリガ：(1) sklearn `*SearchCV`／optuna で吸収
 - **`src/harness/**` の実装コードに差分なし**（下の番人テスト以外）。`uv run verify` 全成功。
 
 ## verified_by（代表テスト）
-- `tests/test_loops.py::test_stop_condition_signature_stays_agent_shaped_until_dec`（新規・番人）
-- `tests/test_loops.py::test_loops_module_import_is_stdlib_only`（一般化していない＝軽さ維持）
+- `tests/test_agent_goal.py::test_stop_condition_signature_stays_agent_shaped_until_dec`（新規・番人。
+  T-0133／DEC-0020 で `harness.loops` が `agent/goal.py` へ畳み込まれ、旧 `tests/test_loops.py` から移設）。
 - `tests/test_doclint.py::test_real_repo_docs_have_no_dead_links`（新 DEC・パス参照の整合）
+- （退場）`tests/test_loops_module_import_is_stdlib_only` は `harness.loops` モジュールの消滅（T-0133）に伴い削除。
+  「軽さ維持」の保証はモジュールごと消えた＝現在は対象なし（`agent/goal.py` は元々 agent 内の重さを許容）。
 
 ## 効かせる guard（maker≠checker・このミューテーションで RED）
 1. `loops.StopCondition.check` のシグネチャを広げる（例：`output` の型を外す／引数追加）→

@@ -10,7 +10,9 @@ AGENTS 第一原則「完了＝検証にすべて成功したときだけ・自�
   新しい合否機構を作らない。
 - 「止めさせない」の backstop は `max_cycles`（黙って無限ループしない＝`runtime.run_agent` の `max_turns`
   と同じ規律）。
-- 依存は stdlib＋agent 内＋`harness.loops` のみ（軽 import・DEC-0013）。
+- 依存は stdlib＋agent 内のみ（軽 import・DEC-0013）。`StopDecision`／`StopCondition`（trigger×stop×policy の
+  停止語彙）は元は core `harness.loops` にあったが、実消費が本ファイルの 1 つだけだったため DEC-0020 で
+  ここへ畳み込んだ（core 再昇格は 2 個目の実 import 消費が出たときに DEC-0012 で判断）。
 - goal は**宣言（YAML）が正本**（`goal_from_mapping`/`load_goal`）：自由文の成功基準は `llm_judge`（rubric＝
   `expected`）で採点する（T-0096）。`GoalGate` は metric 名の entry 型（`JudgeEntry` か否か）でしか分岐しない
   ＝exact_match だけの goal は無変更（「ゲートは metric 名しか見ない」の証明）。provider の束ね（judge の
@@ -22,14 +24,41 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from harness import loops
 from harness.agent.eval import AGENT_METRICS, JudgeEntry, passes
 from harness.agent.judge import JUDGE_SYSTEM_PROMPT, RubricJudge, make_rubric_judge
 from harness.agent.providers import PROVIDERS, Provider
 from harness.agent.runtime import AgentRun, run_agent
 from harness.agent.spec import AgentSpec, spec_from_mapping
+
+
+@dataclass(frozen=True, kw_only=True)
+class StopDecision:
+    """停止判定の結果。reason は人が読む文字列（"goal_met" 等）。
+
+    enum にしない：消費は表示と来歴（ログ・CLI 出力）だけで、新しい理由の追加を型変更にしたくない
+    （閉じた集合にすると新しい stop 理由を足すたびに型を直す羽目になる＝YAGNI）。
+
+    元は core `harness.loops` の型（DEC-0017）。実消費が本ファイルの 1 つだけだったため DEC-0020 で
+    agent へ畳み込んだ（trigger×stop×policy の 4 類型の分類そのものは docs/decisions/DEC-0017 の記述が正本）。
+    """
+
+    stop: bool
+    reason: str
+
+
+class StopCondition(Protocol):
+    """停止条件の差し替え口。1 サイクルの出力を見て続けるか止めるかを判定する。
+
+    骨組みでは**テキスト出力への門だけ**（`output: str`）。引数をもっと一般化する（構造化出力・複数指標の
+    生スコアを直接渡す等）のは 2 個目の消費（ds sweep の閾値探索等）が実際に必要になってから
+    DEC-0012 で判断する（早すぎる一般化はしない＝EP-23 item.md）。シグネチャは DEC-0018 で agent 形状に
+    固定済み（`tests/test_agent_goal.py::test_stop_condition_signature_stays_agent_shaped_until_dec` が番人）。
+    """
+
+    def check(self, *, output: str, iteration: int) -> StopDecision: ...
+
 
 # goal-based ループの既定続行文。評価器ゲートが未達と判定したときに次サイクルへ渡す user 発話。
 # 方針（続行のしかた）はゲートでなくループ側の引数＝trigger×stop×policy の分離を写す（item.md）。
@@ -74,13 +103,13 @@ class GoalGate:
             raise ValueError(f"採点器 '{name}' には judge の束ねが要る（goal YAML の judge: 節）")
         return self.judge
 
-    def check(self, *, output: str, iteration: int) -> loops.StopDecision:
+    def check(self, *, output: str, iteration: int) -> StopDecision:
         del iteration  # 骨組みでは未使用（来歴の記録は呼び手＝run_agent_to_goal 側が gate_reasons に残す）
         scores = {name: self._scorer(name)(self.goal.expected, output) for name in self.goal.metrics}
         if passes(scores, dict(self.goal.thresholds)):
-            return loops.StopDecision(stop=True, reason="goal_met")
+            return StopDecision(stop=True, reason="goal_met")
         detail = "  ".join(f"{name}={scores[name]:.3f}" for name in self.goal.metrics)
-        return loops.StopDecision(stop=False, reason=f"goal_not_met: {detail}")
+        return StopDecision(stop=False, reason=f"goal_not_met: {detail}")
 
 
 @dataclass(frozen=True)
@@ -98,7 +127,7 @@ def run_agent_to_goal(
     user_input: str,
     *,
     provider: Provider,
-    gate: loops.StopCondition,
+    gate: StopCondition,
     continue_prompt: str = DEFAULT_CONTINUE_PROMPT,
     seed: int,
     max_cycles: int = 4,

@@ -16,9 +16,10 @@ Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを�
 - **agent プロファイルの決定性は effort 固定＋無ネットワーク検証で作る**（agent プロファイル）。現行モデルは
   temperature/top_p/top_k を受け付けない（送ると 400）。AgentSpec は temperature を持たず、verify は dummy/cassette
   （記録再生）だけで回す（ネットワーク 0）。プロバイダ既定は Anthropic（`docs/decisions/DEC-0015`）。
-- **loops（trigger×stop×policy）は運用モデルの語彙**（`src/harness/loops.py`＝core・stdlib のみ）。
-  **goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）を宣言済みの評価器
-  （`AGENT_METRICS`＋`eval.passes`）が検査し、満たすまで続行させる（`agent/goal.py`。`docs/decisions/DEC-0017`）。
+- **loops（trigger×stop×policy）は運用モデルの語彙**（実消費は `src/harness/agent/goal.py` の 1 か所＝
+  DEC-0020 で core から降格）。**goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）
+  を宣言済みの評価器（`AGENT_METRICS`＋`eval.passes`）が検査し、満たすまで続行させる
+  （`src/harness/agent/goal.py`。`docs/decisions/DEC-0017`）。
 - **部品は入口まで作って完了**。再利用する部品を作ったら、同じタスクでレジストリ登録＋docstring＋スキル/雛形からの導線まで更新する。エージェントが元コードを読まずに使えて初めて done（`docs/decisions/DEC-0009`。検査点：レジストリ項目の説明文必須は pytest が検査。スキルの導線はレビュー観点）。
 - **新しい CLI コマンドはスキル/正本 docs への導線が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（`docs/decisions/DEC-0016`。検査点：coverage_lint が未到達コマンドを verify で失敗にする＝DEC-0009 の第 3 要件の機械化）。
 

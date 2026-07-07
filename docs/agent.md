@@ -27,8 +27,9 @@ uv run agent run --test                # 合成 spec のスモーク（評価＋
 
 Anthropic「Getting started with loops」の分類（**loop＝停止条件が満たされるまで作業サイクルを繰り返す
 エージェント**。trigger（起動）×stop-condition（停止）×policy（方針）で 4 類型）を運用モデルの語彙として
-正本化したもの（正本 DEC は `docs/decisions/DEC-0017-loops-operating-model.md`）。語彙（`Trigger`・
-`StopDecision`・`StopCondition`）は core `src/harness/loops.py`（stdlib のみ・DEC-0013）。
+正本化したもの（正本 DEC は `docs/decisions/DEC-0017-loops-operating-model.md`）。語彙（`StopDecision`・
+`StopCondition`）は元 core `harness.loops` だったが、実消費が `agent/goal.py` の 1 つだけだったため
+`src/harness/agent/goal.py` へ畳み込んだ（DEC-0020。4 類型の分類自体は本節と DEC-0017 の記述が正本）。
 
 | 類型 | trigger | stop | 対応する実装 |
 | --- | --- | --- | --- |
