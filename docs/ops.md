@@ -52,8 +52,13 @@ ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に
 
 ## リリース戦略（Blue-Green・Canary）
 
-（T-0112 で記載：既存の配信テンプレート `templates/serve/` の資産＝image tag 切替・replica 比率での
-実現方法を明文化。コードは増やさない。）
+新しい仕組みは持たない：既存の配信テンプレート `templates/serve/` の資産だけで実現する。
+**Blue-Green**＝deployment の image tag 切替（model-in-image は「イメージ＝配る版」なので、戻すのも
+tag を戻すだけ＝即ロールバック）。**Canary**＝同じ Service selector に載せた新旧 2 つの Deployment の
+replicas 比率で流量を近似的に分ける段階リリース。コピペ手順・ロールバック手順・引用する k8s キーの正は
+`templates/serve/README.md` の「リリース戦略」2 節（Blue-Green・Canary。節構造と引用キーの実在は
+`tests/test_release_docs.py` が verify で検査＝文書の腐りを止める）。実トラフィックの出し分け・
+外部指標収集を伴う A/B テストは配信基盤の関心＝やらない（上の「やらないこと」）。
 
 ## shadow 配信
 

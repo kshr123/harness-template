@@ -1,7 +1,7 @@
 ---
 id: T-0112
 kind: task
-status: todo
+status: done
 title: リリース戦略の文書化＝templates/serve README に Blue-Green・Canary 節（既存資産の使い方の明文化）
 created: 2026-07-07
 depends_on: [T-0111]
