@@ -5,6 +5,9 @@ doclint（参照実在＝dead link）の逆向きを止める：**新しい能�
 作って完了」の第 3 要件（スキル/雛形からの導線）の機械化（DEC-0016）。core の検査（プロファイル非依存）。
 
 方針（doclint と同じテキスト/AST 作法＝プロファイル境界 DEC-0004 を壊さない）:
+- 走査対象は **2 経路**：typer 装飾子（下記 ast 走査）＋ ルート `pyproject.toml` の `[project.scripts]` の
+  キー（plain main。stdlib の tomllib で読む・無ければ読み飛ばす）。到達可能性の判定は両経路とも同一で、
+  同じトークンを両経路が拾っても error は 1 回だけ（ISS-0014＝plain main が検査の死角だった穴を塞ぐ）。
 - `src/harness/**/cli.py` を **ast で解析**する（import しない＝ds/serve/agent の重い依存を引き込まない）。
   各関数の装飾子 `@<app>.command("name")` を全抽出し、app 変数名から `_app` を剥がして接頭辞を導出する
   （`data_app`→`data`・`issue_app`→`issue`・`serve_app`→`serve`）。`_app` で終わらない変数の `.command` は
@@ -22,6 +25,7 @@ doclint（参照実在＝dead link）の逆向きを止める：**新しい能�
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 from harness import pm
@@ -31,6 +35,10 @@ _EXEMPT: dict[str, str] = {
     "data lint": (
         "テーブル定義（スキーマ YAML）の静的検査の内部入口。verify（ds プロファイルの pm_checks）が"
         "毎回自動で呼ぶため、人・エージェントがスキル経由で直接叩く導線を必要としない。"
+    ),
+    "changelog": (
+        "Phase 0 の未実装骨格（cli.py の changelog_main は「未実装」を echo するだけで機能が無い）。"
+        "実装時にスキル/正本 docs へ導線を張り、この免除を外すこと（silent 免除にしない）。"
     ),
 }
 
@@ -80,6 +88,25 @@ def _command_tokens(path: Path) -> list[str]:
     return tokens
 
 
+def _script_tokens(root: Path) -> list[str]:
+    """ルート `pyproject.toml` の `[project.scripts]` のキー（コマンド名）を到達可能性トークンとして返す。
+
+    plain main（typer.run 型・装飾子を持たない）も導線検査に載せる（ISS-0014）。読み取りは stdlib の
+    tomllib だけ（重い依存・ネットワークゼロ）。ファイルが無ければ静かに読み飛ばす（既存作法と同じ）。
+    """
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return []
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return []
+    scripts = project.get("scripts")
+    if not isinstance(scripts, dict):
+        return []
+    return [key for key in scripts if isinstance(key, str)]
+
+
 def _corpus(root: Path) -> str:
     """導線の探索コーパス（スキル＋AGENTS＋README＋docs 直下）を連結して返す。無いファイルは読み飛ばす。"""
     parts: list[str] = []
@@ -98,11 +125,13 @@ def run_checks(root: Path) -> list[pm.Problem]:
     problems: list[pm.Problem] = []
     exempt = _validated_exempt()
     corpus = _corpus(root)
+    reported: set[str] = set()  # 報告済み token（typer 走査と scripts 走査の重複報告を防ぐ）
     for cli in _cli_files(root):
         rel = cli.relative_to(root).as_posix()
         for token in _command_tokens(cli):
             if token in exempt or token in corpus:
                 continue
+            reported.add(token)
             problems.append(
                 pm.Problem(
                     "error",
@@ -111,4 +140,15 @@ def run_checks(root: Path) -> list[pm.Problem]:
                     f"（真に内部専用なら coverage_lint の _EXEMPT に理由つきで。DEC-0009 の第 3 要件）",
                 )
             )
+    for token in _script_tokens(root):
+        if token in exempt or token in corpus or token in reported:
+            continue
+        problems.append(
+            pm.Problem(
+                "error",
+                f"pyproject.toml: [project.scripts] のコマンド '{token}' への導線が無い（.claude/skills/**・"
+                f"AGENTS.md・README.md・docs/*.md のどこにも現れない）。スキルか正本 docs に使い方を 1 行"
+                f"足すこと（真に内部専用なら coverage_lint の _EXEMPT に理由つきで。DEC-0016）",
+            )
+        )
     return problems

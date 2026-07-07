@@ -127,6 +127,72 @@ def test_blank_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         coverage_lint.run_checks(tmp_path)
 
 
+# --- [project.scripts] 走査（ISS-0014）：plain main のコマンドも導線検査の対象になる ---
+
+# tomllib で読む最小の pyproject.toml。`frob` は導線を書かない限り未到達（構成から期待値を導く）。
+PYPROJECT_WITH_FROB = '[project]\nname = "x"\nversion = "0"\n\n[project.scripts]\nfrob = "x:main"\n'
+
+
+@pytest.mark.unit
+def test_orphan_project_script_is_error_until_linked(tmp_path: Path) -> None:
+    _write(tmp_path, "pyproject.toml", PYPROJECT_WITH_FROB)
+    _write(tmp_path, ".claude/skills/foo/SKILL.md", "このスキルは対象コマンドに触れない。\n")
+    # 導線ゼロ → error（メッセージで frob を名指しし、pyproject.toml 由来と分かる）。
+    errors = _errors(tmp_path)
+    assert any("frob" in m and "pyproject.toml" in m for m in errors)
+    # スキルに導線を 1 行足す → error が消える。
+    _write(tmp_path, ".claude/skills/foo/SKILL.md", "検査は `uv run frob` で行う。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_orphan_project_script_reachable_via_agents_md(tmp_path: Path) -> None:
+    _write(tmp_path, "pyproject.toml", PYPROJECT_WITH_FROB)
+    _write(tmp_path, "AGENTS.md", "検査は `uv run frob` で行う。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_exempt_project_script_suppresses_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write(tmp_path, "pyproject.toml", PYPROJECT_WITH_FROB)
+    monkeypatch.setitem(coverage_lint._EXEMPT, "frob", "テスト用の内部コマンド（導線不要の例）。")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_blank_exempt_reason_for_script_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write(tmp_path, "pyproject.toml", PYPROJECT_WITH_FROB)
+    monkeypatch.setitem(coverage_lint._EXEMPT, "frob", "  ")
+    with pytest.raises(ValueError, match="理由が空"):
+        coverage_lint.run_checks(tmp_path)
+
+
+@pytest.mark.unit
+def test_missing_pyproject_is_silently_skipped(tmp_path: Path) -> None:
+    # pyproject.toml が無いプロジェクト（既存テスト群と同じ形）でも scripts 走査は静かに読み飛ばす。
+    _write(tmp_path, "src/harness/x/cli.py", ORPHAN_CLI)
+    _write(tmp_path, ".claude/skills/foo/SKILL.md", "一覧は `uv run data _orphan` を見る。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_same_token_from_typer_and_scripts_is_reported_once(tmp_path: Path) -> None:
+    # typer の `data_app.command("data")`（name == 接頭辞 → 素の "data"）と scripts の `data` が同一トークン。
+    cli = 'import typer\n\ndata_app = typer.Typer()\n\n@data_app.command("data")\ndef _d() -> None:\n    pass\n'
+    _write(tmp_path, "src/harness/x/cli.py", cli)
+    _write(tmp_path, "pyproject.toml", '[project]\nname = "x"\nversion = "0"\n\n[project.scripts]\ndata = "x:main"\n')
+    errors = _errors(tmp_path)
+    assert len(errors) == 1  # 両経路が拾っても同じ token の error は 1 回だけ
+    assert "data" in errors[0]
+
+
+@pytest.mark.unit
+def test_changelog_is_exempt_with_reason() -> None:
+    # changelog は Phase 0 の未実装骨格（cli.py は「未実装」を echo するだけ）。理由つき免除で扱う。
+    reason = coverage_lint._EXEMPT["changelog"]
+    assert "未実装" in reason and "免除を外す" in reason
+
+
 # --- 配線：PM_CHECKS（verify の中核検査列）に載っている（外すと導線忘れが検出されなくなる） ---
 
 
