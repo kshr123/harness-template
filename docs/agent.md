@@ -99,6 +99,8 @@ uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 
 **`--goal` と `--goal-expected` の併用は exit 2**（正本が二重になる二重管理を避ける）。それ以外の exit
 規約（stdout=最終応答・stderr=来歴・goal 未達は exit 1）は `--goal-expected` と同じ。
 
+横展開（ds/serve/ops のどこに適用し・しないか）の正本は DEC-0018。
+
 ## 実プロバイダ（anthropic）と記録再生（cassette）
 
 どちらも `providers.py` の**共有 adapter** `_reply_from_anthropic`（Anthropic Messages API 応答 dict →

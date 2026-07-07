@@ -33,9 +33,9 @@ fail closed）が検査し、未達なら続行を注入する。maker（モデ�
 | goal-based | 呼び出し時に goal を宣言 | **評価器ゲート**（`AGENT_METRICS`＋`eval.passes`）合格 or `max_cycles` backstop | Goal（metrics×thresholds×expected）＋続行文の注入 | 採点＝`AGENT_METRICS`・合否＝`eval.passes`（fail closed）・往復＝`run_agent` を丸ごと再利用 | **唯一の新 primitive**：core `loops.py`（StopCondition 語彙）＋`agent/goal.py`（GoalGate・run_agent_to_goal）＋`run_agent` の続行口 `prior_messages`（T-0095） |
 | time-based | 時間間隔（cron/CI schedule・Claude 側 /loop・/schedule スキル） | cancel・無効化 | runbook（何を見て何をするか） | `agent monitor`・`data monitor`（読む側は完成）・issues backend | 雛形と runbook のみ（実行基盤は利用者環境＝EP-21 の CI テンプレと同じ思想）。outline（T-0097） |
 | proactive | event/schedule＋goal の合成 | 各タスク＝goal 達成で退場・routine＝無効化まで | triage 方針（冪等起票・門番にしない） | `agent monitor --file-issue`（冪等起票＝閉ループの前半円は実装済み） | 後半円（issue→修正→検証緑で close）を loops 語彙で設計。outline（T-0098） |
-| （横展開）ds | 実験の反復 | 閾値達成（`passes`）まで変種探索 | config の変種 | `run_experiment`・`leaderboard`・`promote_model` | 語彙の写像のみ＝StopCondition の 2 個目の消費が出たら一般化（DEC-0012）。outline（T-0099） |
-| （横展開）serve | リクエスト駆動 | —（loop ではない） | — | `/predict`・`/invoke` | **適用しない判断を正本に残す**だけ。outline（T-0099） |
-| （横展開）ops | schedule＋goal の合成（retrain） | 監視帯→再学習→関門合格で昇格 | retrain.yml | EP-21 の CT 雛形（monitor→experiment→promote） | **EP-21 着地後**に loops 語彙へ位置づけ（T-0120・depends_on: EP-21） |
+| （横展開）ds＝loop でない（fan-out＋filter） | 人が config で変種を宣言（experiment スキル） | なし（`run_experiment` は 1 変種 1 回・`passes` は合否ラベル） | config の変種 | `ds/experiment.py::run_experiment`・`ds/eval.py::passes`・`leaderboard`・`promote_model` | なし＝StopCondition 消費なし。再判断トリガは DEC-0018（T-0099 done） |
+| （横展開）serve | リクエスト駆動 | —（適用しない判断が正本＝DEC-0018・docs/serve.md） | — | `/predict`・`/invoke` | なし（T-0099 done） |
+| （横展開）ops | time（cron）＋workflow_dispatch | 1 周＝`promote_model`・ループ停止＝workflow 無効化 | `templates/ci/.github/workflows/retrain.yml`（ci_lint 検査） | EP-21 の CT 雛形（monitor→experiment→promote） | 記述のみ＝実コード消費は T-0120（DEC-0018） |
 
 ## 置き場所の設計判断（core に語彙だけ・実装はプロファイル）
 - **`src/harness/loops.py`（core・新規）に置くのは語彙だけ**：`Trigger`（4 類型の Literal）・`StopDecision`・

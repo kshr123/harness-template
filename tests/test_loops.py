@@ -8,15 +8,29 @@
 
 from __future__ import annotations
 
+import inspect
 import subprocess
 import sys
 
 import pytest
 
 from harness.agent.goal import Goal, GoalGate
-from harness.loops import StopDecision
+from harness.loops import StopCondition, StopDecision
 
 pytestmark = pytest.mark.unit
+
+
+def test_stop_condition_signature_stays_agent_shaped_until_dec() -> None:
+    # loops.StopCondition.check は当面 agent 特化の (*, output: str, iteration: int) に固定（DEC-0018）。
+    # ds/ops の 2 個目の消費が実在して初めて広げる＝そのときは DEC-0018 の再判断トリガを満たし
+    # 新 DEC を書いてからこのテストを更新する（DEC-0012：ルール昇格は違反すると失敗する検査を先に）。
+    sig = inspect.signature(StopCondition.check)
+    params = list(sig.parameters.values())
+    # self, output, iteration の 3 つ・output/iteration は keyword-only・output は str アノテーション
+    assert [p.name for p in params] == ["self", "output", "iteration"]
+    assert params[1].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params[2].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params[1].annotation == "str" or params[1].annotation is str
 
 
 def test_goal_gate_check_returns_stop_decision() -> None:

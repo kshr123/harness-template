@@ -95,6 +95,10 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 Python 版・`--all-extras` を静的検査して腐りを止める（`_WORKFLOWS` の表の `required=False` の 1 行。存在検査
 ＝`required`、内容検査＝`required_runs`／順序＝`ordered`／トリガ＝`required_triggers` を表の列で区別する）。
 
+loops 語彙（`docs/agent.md` の「loops」節・DEC-0017）では time（cron）＋`workflow_dispatch` trigger ×
+`promote_model` 関門（絶対 thresholds＋相対 champion 越え）stop × `retrain.yml` policy、という位置づけになる。
+実コードの停止条件消費は T-0120 で判断＝DEC-0018。
+
 ## 監視→課題起票の閉ループ
 
 `uv run data monitor --baseline <テーブル id> --file-issue` は、psi の band が大変化（`PSI_ALERT`＝0.25 以上）

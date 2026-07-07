@@ -74,6 +74,14 @@ SERVE_SHADOW_NAME=challenger uv run serve --work E-0001 --name baseline
   だけの分布を見るなら `--role shadow`、全行（突き合わせ・件数確認）は `--role all`。`role` キーが無い
   旧ログ行は primary 扱い（後方互換）。
 
+## loops との関係（serve は loop でない・DEC-0018）
+
+serve はリクエスト駆動（`/predict`・`/invoke` とも 1 呼び 1 応答のレイテンシ契約）で、「停止条件が満たされる
+まで作業サイクルを繰り返す」loop（DEC-0017）には該当しない。応答経路に評価器ゲートを挟むのは配信の関心
+（レイテンシ・可用性）と衝突するため、意図的に適用しない（適用しない、という判断自体が正本＝DEC-0018）。
+serve を回す loop は serve の外側にある：予測 JSONL→`data monitor`（→`--file-issue`）→retrain という ops の
+周回（`docs/ops.md`）。
+
 ## コンテナ・K8s で配るとき
 
 `templates/serve/` の雛形（Dockerfile/compose/k8s。T-0086 で追加）をコピーして案件側で調整する。
