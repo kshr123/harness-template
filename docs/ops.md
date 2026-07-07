@@ -95,9 +95,28 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 Python 版・`--all-extras` を静的検査して腐りを止める（`_WORKFLOWS` の表の `required=False` の 1 行。存在検査
 ＝`required`、内容検査＝`required_runs`／順序＝`ordered`／トリガ＝`required_triggers` を表の列で区別する）。
 
-loops 語彙（`docs/agent.md` の「loops」節・DEC-0017）では time（cron）＋`workflow_dispatch` trigger ×
-`promote_model` 関門（絶対 thresholds＋相対 champion 越え）stop × `retrain.yml` policy、という位置づけになる。
-実コードの停止条件消費は T-0120 で判断＝DEC-0018。
+### loops 語彙での位置づけ（time+goal 合成・T-0120）
+
+- **trigger = time**：`schedule.cron`（定期）＋`workflow_dispatch`（手動やり直し）。
+- **stop は 2 層**：(i) 1 周の停止＝`promote_model` 関門（絶対 thresholds＝ds `eval.passes` と同じ合否＋
+  相対＝champion 越え）。合格→champion 更新で退場・不合格→step が落ちて昇格なしで退場、どちらでも 1 周は
+  必ず終わる（monitor は門番にしない＝stop に関与しない、を再掲）。(ii) ループ全体の停止＝workflow 無効化・
+  cron 削除（停止規律の正本は `docs/agent.md` の time-based routine の停止節＝T-0097。重複記述しない）。
+- **policy**：`retrain.yml`（結線の正本・ci_lint が構造検査）×実験フォルダの `config.yaml`（何を再学習
+  するか）×thresholds/primary（合格ライン）。
+- **周回（閉ループ）**：前半円＝`data monitor --file-issue`（ドリフト→冪等起票・exit 0）、後半円＝
+  schedule→train→promote 関門。agent 版 proactive 閉ループ（`docs/agent.md` の proactive 節＝T-0098）と
+  対称（重複記述しない）。
+- **同型性＋実装非共有**：agent の goal ゲート（`GoalGate`＝`AGENT_METRICS`＋agent `eval.passes`）と
+  promote 関門（`promote_model`＝ds `eval.passes`〔絶対〕＋champion 越え〔相対〕）は同じ形＝「宣言済みの
+  成功基準を、作った側とは別の評価器が検査して合格したときだけ先へ進む」（AGENTS 第一原則の機械化）。
+  差分（同型≠同一）：goal ゲートは同一プロセス内で未達なら続行注入して反復・promote 関門はステートレスな
+  1 周で退場（続行は次周の schedule）。実装は共有しない（DEC-0004・`eval.passes` の agent/ds 併存は意図
+  した複製・共有したくなったら DEC-0012＝DEC-0018 の再判断トリガ）。
+- **実コード消費なしの確定**：(a) 実行体は GitHub Actions（利用者環境）＝`check()` を呼ぶ主体がハーネス側
+  に無い。(b) 各 scheduled run はステートレスな 1 周＝プロセス内に反復が実在しない（反復を統べるのは
+  cron）。(c) 停止は `promote_model` が既に完全に持つ＝StopCondition を挟むと判定の正本が二重になる
+  （DEC-0004 違反への入口）。`loops.py` の import は不要（T-0120 で確定・DEC-0018）。
 
 ## 監視→課題起票の閉ループ
 

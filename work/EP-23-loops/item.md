@@ -1,12 +1,13 @@
 ---
 id: EP-23
 kind: epic
-status: todo
+status: done
 title: loops 運用モデル（trigger×stop×policy）と goal-based 停止ゲート（評価器が合格と言うまで止めない）
 plan: detailed
 requirements: [REQ-002]
 depends_on: [EP-22]
 created: 2026-07-07
+closed: 2026-07-07
 ---
 # EP-23 loops 運用モデル（trigger×stop×policy）
 
@@ -35,7 +36,7 @@ fail closed）が検査し、未達なら続行を注入する。maker（モデ�
 | proactive | event/schedule＋goal の合成 | 各タスク＝goal 達成で退場・routine＝無効化まで | triage 方針（冪等起票・門番にしない） | `agent monitor --file-issue`（冪等起票＝閉ループの前半円は実装済み） | 後半円＝既存関門の再利用（`issues.run_checks` の resolved⟺promoted_to done 不変条件＋monitor 再起票の冪等）＋退場条件節の body 雛形＋runbook（T-0098） |
 | （横展開）ds＝loop でない（fan-out＋filter） | 人が config で変種を宣言（experiment スキル） | なし（`run_experiment` は 1 変種 1 回・`passes` は合否ラベル） | config の変種 | `ds/experiment.py::run_experiment`・`ds/eval.py::passes`・`leaderboard`・`promote_model` | なし＝StopCondition 消費なし。再判断トリガは DEC-0018（T-0099 done） |
 | （横展開）serve | リクエスト駆動 | —（適用しない判断が正本＝DEC-0018・docs/serve.md） | — | `/predict`・`/invoke` | なし（T-0099 done） |
-| （横展開）ops | time（cron）＋workflow_dispatch | 1 周＝`promote_model`・ループ停止＝workflow 無効化 | `templates/ci/.github/workflows/retrain.yml`（ci_lint 検査） | EP-21 の CT 雛形（monitor→experiment→promote） | 記述のみ＝実コード消費は T-0120（DEC-0018） |
+| （横展開）ops | time（cron）＋workflow_dispatch | 1 周＝`promote_model`・ループ停止＝workflow 無効化 | `templates/ci/.github/workflows/retrain.yml`（ci_lint 検査） | EP-21 の CT 雛形（monitor→experiment→promote） | 記述のみ＝**実コード消費なし（T-0120 で確定）**・promote 関門は `GoalGate` と同型（実装非共有＝DEC-0004） |
 
 ## 置き場所の設計判断（core に語彙だけ・実装はプロファイル）
 - **`src/harness/loops.py`（core・新規）に置くのは語彙だけ**：`Trigger`（4 類型の Literal）・`StopDecision`・
@@ -59,8 +60,8 @@ fail closed）が検査し、未達なら続行を注入する。maker（モデ�
 - **T-0097 time-based の導線（outline・soon）**：monitor 定期実行の runbook＋schedule 雛形（実行基盤は利用者環境）。
 - **T-0098 proactive triage 閉ループ（outline・later）**：`--file-issue` の後半円（issue→修正→検証緑で close）。
 - **T-0099 ds/serve への語彙の写像（outline・later）**：sweep の goal 化の判断点・serve は loop でない旨の正本化。
-- **T-0120 ops retrain 閉ループ（outline・later・EP-21 着地後）**：CT 雛形を time+goal 合成として位置づけ。
-  **EP-21 が進行中のため `src/harness/ops/**`・`docs/ops.md` には着地まで一切触れない**（depends_on: EP-21）。
+- **T-0120 ops retrain 閉ループ（done）**：EP-21 着地後、CT 雛形を time+goal 合成として `docs/ops.md` の
+  subsection に位置づけ、写像表 ops 行を最終化。実コード消費なし（DEC-0018 の再判断トリガ(2) を No で確定）。
 
 ## やらないこと（過剰設計の釘・順序の理由）
 - **汎用 loop 実行エンジン／常駐デーモン／自前 cron**：実行基盤は利用者環境（cron・CI schedule・Claude 側
