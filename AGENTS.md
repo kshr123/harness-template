@@ -12,22 +12,21 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - **進捗は `uv run status` で自動算出**（`work/` の木をたどる）。`STATUS.md` は生成物（その都度作り直す・手で編集しない・コミットしない）。見たいときに `uv run status` を走らせる。
 - **計画は近い作業だけ先に詳しくする**。着手が近いエピックだけ直前に分解する（`plan: detailed`）。まだ分解していない（`plan: outline`）状態は正常。
 - **着手は全体→詳細**。端まで通る最小の骨組み（入力→処理→出力→検証が一巡する最小の実装。いわゆる walking skeleton）を先に作り、`uv run verify` を全成功に保ったまま各部を本実装で差し替える。差し替えの順番は自由（例外と理由は `docs/method.md`）。
-- **進め方そのものも進化させる**。作業で得た気づきは `docs/learnings.md` に記録し、価値/一般性があると判断したら**即**（回数で待たない・DEC-0012）決定（DEC）を起こして、機械検査・抽象・スキル・規約のどれかに落とし込む（＝再利用できるルールや部品にする）（歯止めは回数でなく一般性の判断。正本とこの流れは `docs/method.md`）。
-- **業界標準のライブラリを再発明しない**（DS プロファイル）。手書きは保守負債・バグの温床（`docs/decisions/DEC-0006`）（レビュー観点）。
+- **進め方そのものも進化させる**。作業で得た気づきは `docs/learnings.md` に記録し、価値/一般性があると判断したら**即**（回数で待たない）、機械検査・抽象・スキル・規約のどれかに落とし込む（＝再利用できるルールや部品にする）（歯止めは回数でなく一般性の判断。流れは `docs/method.md`）。
+- **業界標準のライブラリを再発明しない**（DS プロファイル）。手書きは保守負債・バグの温床（レビュー観点）。
   - メトリクス・交差検証の分割・スケーリング等は scikit-learn を、数値計算は numpy を使う。
   - 差し替えたいのは 2 つだけ：**モデルの具体**（config でモデル種を選ぶ＝`MODELS` レジストリ）と**保存形式**。
   - 保存形式の差し替え口：`ds/models.py` は丸ごと pickle で保存し、manifest の `format` 文字列で load が分岐する。可搬形式が要る時にこの分岐へ枝を足す。核（`ds/models.py`）は形式ライブラリを直接固定しない。
-- **agent プロファイルの決定性は effort 固定＋無ネットワーク検証で作る**（agent プロファイル。`docs/decisions/DEC-0015`）。
+- **agent プロファイルの決定性は effort 固定＋無ネットワーク検証で作る**（agent プロファイル）。
   - 現行モデルは temperature/top_p/top_k を受け付けない（送ると 400）。AgentSpec は temperature を持たない。
   - verify は dummy/cassette（実 API の応答を JSON に記録しておき、ネットワークなしで再生する仕組み）だけで回す（ネットワーク 0）。
   - プロバイダ既定は Anthropic。
-- **loops（trigger×stop×policy）は運用モデルの語彙**（実消費は `src/harness/agent/goal.py` の 1 か所＝
-  DEC-0020 で core から降格）。**goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）
+- **loops（trigger×stop×policy）は運用モデルの語彙**（実消費は `src/harness/agent/goal.py` の 1 か所なので core から降格）。**goal-based の停止は評価器ゲート**：モデルの `end_turn`（「完了した気になった」）
   を宣言済みの評価器（`AGENT_METRICS`＋`eval.passes`）が検査し、満たすまで続行させる
-  （`src/harness/agent/goal.py`。`docs/decisions/DEC-0017`）。
-- **部品は、他の人が元コードを読まずに使える状態にして完了**。再利用する部品を作ったら、同じタスクでレジストリ登録＋docstring＋スキル/雛形からの、使い方にたどり着けるリンクまで更新する。エージェントが元コードを読まずに使えて初めて done（`docs/decisions/DEC-0009`。検査点：レジストリ項目の説明文必須は pytest が検査。スキルからのリンクはレビュー観点）。
-- **新しい CLI コマンドは、スキルか正本 docs から使い方にたどり着けるリンク・記載が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（`docs/decisions/DEC-0016`。検査点：coverage_lint が未到達コマンドを verify で失敗にする＝DEC-0009 の第 3 要件の機械化）。
-- **恒久ドキュメントは一時的な作業単位（`work/…`）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` は複製すると `work/` が消える／置き換わるので、根拠は DEC（決定の記録）か本文の説明に置く（複製手順の説明だけは `docs/template-copy.md` に）。検査点：doc_source_lint が `work/EP-…` 等の参照を verify で失敗にする。
+  （`src/harness/agent/goal.py`）。
+- **部品は、他の人が元コードを読まずに使える状態にして完了**。再利用する部品を作ったら、同じタスクでレジストリ登録＋docstring＋スキル/雛形からの、使い方にたどり着けるリンクまで更新する。エージェントが元コードを読まずに使えて初めて done（検査点：レジストリ項目の説明文必須は pytest が検査。スキルからのリンクはレビュー観点）。
+- **新しい CLI コマンドは、スキルか正本 docs から使い方にたどり着けるリンク・記載が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（検査点：coverage_lint が未到達コマンドを verify で失敗にする）。
+- **恒久ドキュメントは一時的な作業単位（`work/…`）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` は複製すると `work/` が消える／置き換わるので、根拠は本文の説明として書く（複製手順の説明だけは `docs/template-copy.md` に）。検査点：doc_source_lint が `work/EP-…` 等の参照を verify で失敗にする。
 
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。

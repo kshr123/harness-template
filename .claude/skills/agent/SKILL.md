@@ -9,13 +9,13 @@ description: LLM エージェント（AgentSpec）を作る・評価する・採
 宣言 → golden set（期待する出力つきの評価例集）で採点 → 合否 → 保存 → 採用（合否判定を通った版だけ champion）。
 契約と用語の正本は `docs/agent.md`（AgentSpec のキー・ログ契約・評価と合否・各用語の説明を本文で書いている）。
 verify 経路は dummy/cassette（記録再生）のみ＝
-**ネットワーク 0・extra 無しで全機能が検証できる**（DEC-0015）。
+**ネットワーク 0・extra 無しで全機能が検証できる**。
 
 ## 手順
 1. 宣言を書く：AgentSpec の YAML（キーの正本は `src/harness/agent/spec.py`・未知キーは読み込みで失敗）。
    使える語彙は一覧コマンドから選ぶ：`uv run agent providers`（provider に書ける kind）・
    `uv run agent metrics`（thresholds に書ける採点器・向きつき）・`uv run agent tools`（tools に書ける kind）。
-   `temperature` は書けない（現行モデルはパラメータごと廃止＝送ると 400。決定性は effort 固定＋記録再生・DEC-0015）。
+   `temperature` は書けない（現行モデルはパラメータごと廃止＝送ると 400。決定性は effort 固定＋記録再生）。
    実運用は `provider: anthropic`（`uv sync --extra agent`・SDK は遅延 import・effort を送り temperature は送らない）。
    テスト/CI は `cassette`（記録再生・fail closed・無ネットワーク＝SDK 応答形状のガード。詳細は `docs/agent.md`）。
 2. 動かす：`uv run agent run --spec <yaml> --input "<発話>"`（ツール往復ループ 1 実行）。スモークは
@@ -44,7 +44,7 @@ verify 経路は dummy/cassette（記録再生）のみ＝
    `uv run verify` で失敗にする。
 
 ## してはいけないこと
-- verify 経路で実プロバイダ（実 API）を叩かない（dummy/cassette だけ＝無ネットワーク・DEC-0015）。
+- verify 経路で実プロバイダ（実 API）を叩かない（dummy/cassette だけ＝無ネットワーク）。
 - AgentSpec に `temperature` を書かない（存在しないノブ＝宣言が嘘をつく。effort を宣言に固定する）。
 - ネットワーク・ファイル I/O をするツールを TOOLS に登録しない（純粋・決定的な関数だけ）。
 - 評価・合否・採用の合否判定を自作しない（`run_agent_eval`／`promote_agent` が正本。fail closed＝NaN は不合格）。

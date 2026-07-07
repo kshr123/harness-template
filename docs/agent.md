@@ -10,7 +10,7 @@ champion（現在の採用版）に採用して配信・監視する。エージ
 検証（`uv run verify`）はネットワークを使わない：実 API の代わりに dummy（合成応答）と
 cassette（実 API 応答を JSON に固定しておき、ネットワークなしで再生する記録再生の仕組み）だけで
 全機能を確かめる。再現性の軸は effort（推論の深さの指定）を宣言に固定して作る
-（現行モデルは temperature を受け付けないため。DEC-0015）。
+（現行モデルは temperature を受け付けないため）。
 
 実装は `src/harness/agent/`。役割ごとに 1 ファイル：
 
@@ -47,10 +47,9 @@ uv run agent run --test                # 合成 spec のスモーク（評価＋
 
 loops は「**停止条件が満たされるまで作業サイクルを繰り返す**」エージェント運用の語彙
 （Anthropic「Getting started with loops」の分類）。trigger（何が起動するか）× stop（何が止めるか）×
-policy（何を方針に動くか）の組で 4 類型に分ける。正本の決定は
-`docs/decisions/DEC-0017-loops-operating-model.md`。語彙（`StopDecision`・`StopCondition`）は元は core の
+policy（何を方針に動くか）の組で 4 類型に分ける。語彙（`StopDecision`・`StopCondition`）は元は core の
 `harness.loops` にあったが、実際に使うのが `agent/goal.py` の 1 か所だけだったため
-`src/harness/agent/goal.py` へ畳み込んだ（DEC-0020。4 類型の分類自体はこの節と DEC-0017 が正本）。
+`src/harness/agent/goal.py` へ畳み込んだ（4 類型の分類はこの節が正本）。
 
 | 類型 | trigger | stop | 対応する実装 |
 | --- | --- | --- | --- |
@@ -76,7 +75,7 @@ run = run_agent_to_goal(spec, "問い", provider=provider, gate=GoalGate(goal=go
 run.cycles, run.stop_reason, run.gate_reasons  # 各サイクルの判定＝由来
 ```
 
-CLI からは `agent run` の拡張だけで届く（新しいコマンドは足さない・DEC-0016）：
+CLI からは `agent run` の拡張だけで届く（新しいコマンドは足さない）：
 
 ```
 uv run agent run --spec <yaml> --input "<発話>" --goal-expected "<正解>" \
@@ -87,7 +86,7 @@ uv run agent run --spec <yaml> --input "<発話>" --goal-expected "<正解>" \
   （既存 `agent run` と同じ分離）。
 - goal 未達のまま `max_cycles` に達したら **exit 1**。「評価器が合格と言うまで完了にしない」を exit code に
   写す（常に exit 0 の `agent monitor`＝処理を止めない、とは役割が違う）。
-- verify 経路は extra 無し・ネットワーク 0 で全機能を検証できる（dummy/cassette のみ・DEC-0015）。
+- verify 経路は extra 無し・ネットワーク 0 で全機能を検証できる（dummy/cassette のみ）。
 
 ### llm_judge（自由文の成功基準をモデルに採点させる・goal の宣言化）
 
@@ -127,7 +126,7 @@ uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 
 **`--goal` と `--goal-expected` の併用は exit 2**（正本が二重になる二重管理を避ける）。それ以外の exit
 規約（stdout=最終応答・stderr=由来・goal 未達は exit 1）は `--goal-expected` と同じ。
 
-横展開（ds/serve/ops のどこに適用し・しないか）の正本は DEC-0018。
+横展開（ds/serve/ops のどこに適用し・しないか）は本節と各プロファイル docs に書く。
 
 ## 実プロバイダ（anthropic）と記録再生（cassette）
 
@@ -137,9 +136,9 @@ uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 
 
 - **`anthropic`（実 Anthropic 呼び出し・verify 経路外）**：
   - SDK は `reply()` 内で遅延 import＝`import harness.agent` は extra 無しでも軽いまま
-    （DEC-0013・subprocess テストで固定）。
+    （subprocess テストで固定）。
   - API キーは環境変数から SDK が読む（コードでは読まない）。
-  - **temperature は送らない**（現行モデルはパラメータごと廃止＝送ると 400・DEC-0015）。決定性は
+  - **temperature は送らない**（現行モデルはパラメータごと廃止＝送ると 400）。決定性は
     `output_config={"effort": spec.effort}`＝宣言に固定した effort で作る。
 - **`cassette`（記録再生・replay 専用・テスト/CI 用・`agent/cassette.py`）**：
   - cassette＝JSON ファイル `{キー: 応答 dict（model_dump 相当）}`。キーは
@@ -160,21 +159,21 @@ uv run agent run --spec <yaml> --input "<発話>" --goal goal.yaml --max-cycles 
 | --- | --- | --- |
 | `name` | str | エージェント名 |
 | `provider` | str | PROVIDERS の kind（一覧は `uv run agent providers`） |
-| `model` | str | モデル名（既定方針：`claude-opus-4-8`・高頻度は `claude-sonnet-5`＝DEC-0015） |
+| `model` | str | モデル名（既定方針：`claude-opus-4-8`・高頻度は `claude-sonnet-5`） |
 | `system_prompt` | str | システムプロンプト |
 | `tools` | list[str]（省略可・既定 []） | TOOLS の kind（一覧は `uv run agent tools`・lint が実在を検査） |
 | `effort` | low/medium/high/xhigh/max（既定 medium） | 推論の深さ。**宣言に固定**＝再現性の軸 |
 | `max_turns` | int（既定 8） | ツール往復の上限（到達で `stop_reason="max_turns"` に打ち切り） |
 | `output_schema` | mapping（省略可） | 構造化出力の JSON Schema（検証は `agent/guardrails.py` の `validate_output_schema`） |
 
-**`temperature` は書けない**（現行モデルはパラメータごと廃止＝送ると 400・DEC-0015）。書くと専用の
+**`temperature` は書けない**（現行モデルはパラメータごと廃止＝送ると 400）。書くと専用の
 エラーで effort＋cassette への移行を案内する。
 
 ## ツールと往復ループ（TOOLS → run_agent・`agent/{tools,runtime}.py`）
 
 1 ツール＝名前＋`input_schema`（JSON Schema）＋**純粋・決定的な** Python 関数（`fn(**args) -> str`）。
 レジストリは `TOOLS`（骨組みは `calculator` のみ・一覧は `uv run agent tools`）。ネットワーク・ファイル
-I/O をするツールは書かない（verify の無ネットワーク契約＝DEC-0015）。
+I/O をするツールは書かない（verify の無ネットワーク契約）。
 
 - `to_provider_tools(names)`：provider へ渡す tool 宣言（`{"name","description","input_schema"}` の並び）。
 - `run_tool(name, args)`：1 回実行して文字列を返す。未登録名・スキーマ不一致（required 欠け・未宣言キー）は
@@ -209,7 +208,7 @@ I/O をするツールは書かない（verify の無ネットワーク契約＝
 | `usage` | dict（input_tokens・output_tokens＝全ターンの合算） |
 
 `input_fingerprint` は中核 `harness/fingerprint.py` の関数で計算する（serve の予測ログと同じ関数を共有＝
-T-0091 で `serve/runtime.py` から移設・DEC-0009）。agent は serve を import しない（プロファイル境界）。
+T-0091 で `serve/runtime.py` から移設）。agent は serve を import しない（プロファイル境界）。
 
 ## 評価と合否（golden set → passes）
 
@@ -248,7 +247,7 @@ uv run agent experiments --results work/…/results           # 変種比較（m
 ## 配信（`agent serve`・champion を FastAPI で出す・`agent/app.py`）
 
 採用済み champion を FastAPI で配信する（宣言→評価→採用→**配信**→監視のライフサイクルが閉じる）。
-serve プロファイルと同じ作法・別 app（`harness.serve` は import しない＝プロファイル境界・DEC-0004。
+serve プロファイルと同じ作法・別 app（`harness.serve` は import しない＝プロファイル境界。
 fastapi/uvicorn は extra `agent` に含む＝`uv sync --extra agent`）。予測 1 発の serve `/predict` と違い、
 agent は**会話×ツール往復**＝`POST /invoke`（1 発話 → `run_agent` の往復ループ → 最終応答）。
 
@@ -256,7 +255,7 @@ agent は**会話×ツール往復**＝`POST /invoke`（1 発話 → `run_agent`
   起動時に明示エラー（黙って空で立たない）。保存済み宣言（dict）は `spec_from_mapping` で検証つきで
   AgentSpec に復元する（temperature 拒否・未知キー・effort の検証を YAML 読込と共用）。
 - **provider は宣言（spec.provider）に従う**＝override 口は無い（champion の宣言が正本。verify は
-  provider=dummy の champion で無ネットワークのまま回る・DEC-0015）。
+  provider=dummy の champion で無ネットワークのまま回る）。
 - `POST /invoke`：本文 `{"input": "<発話>"}`。空 input は 422。返答は
   `{output, stop_reason, turns, tools_used, usage, request_id, agent:{name,work,version}}`。
 - `GET /health`（生存＋載っている版）・`GET /metadata`（由来＝spec・metrics・prompt_fingerprint・created）。
@@ -281,9 +280,9 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 - **壊れ行・契約違反行は警告して読み飛ばす**（件数は `n_skipped` に出る）。全体が読めなくなるより縮退を選ぶ。
 - **消費するキー（time/stop_reason/usage/turns/tools_used）だけ検証する**。
 - 分位はニアレストランク法（補間しない）。実装は stdlib のみ（numpy/polars/ds 非依存＝core の軽さと
-  DEC-0004 の境界を保つ）。
+  その境界を保つ）。
 - 基準分布との比較（PSI＝Population Stability Index。分布のずれを測る監視指標）はしない：agent のログには基準特徴表が無い。必要が 3 個目に
-  見えたら DEC-0012 の流れで core 採用を検討する。
+  見えたら その流れで core 採用を検討する。
 
 ```
 uv run agent monitor                              # 既定 glob artifacts/agent/runs/**/*.jsonl
@@ -299,7 +298,7 @@ uv run agent monitor --file-issue                 # 帯が要注意以上なら�
 
 `agent monitor` を時間間隔で定期実行するための雛形が `templates/schedule/`（`monitor.yml`＋`README.md`）に
 ある。**実行基盤（GitHub Actions・cron・Claude 側の `/loop`・`/schedule` スキル）は利用者環境が持つ**
-（ハーネスは実行基盤を再発明しない＝DEC-0006/0008）。使い方：
+（ハーネスは実行基盤を再発明しない）。使い方：
 
 1. `templates/schedule/monitor.yml` を案件リポジトリの `.github/workflows/` へコピーする
    （**このリポジトリ自身の `.github/workflows/` には置かない**＝verify は時間起動を含まない、実 schedule
@@ -327,7 +326,7 @@ Claude 側で回したいときは `/loop`（間隔指定の繰り返し）や `
 
 ## proactive 閉ループ（前半円＋後半円）
 
-proactive（event/schedule＋goal の合成。loops 語彙の ds/serve/ops への写像は `docs/decisions/DEC-0018`）は 2 つの半円からなる：
+proactive（event/schedule＋goal の合成）は 2 つの半円からなる：
 **前半円**（監視→冪等起票）は `agent monitor --file-issue` で実装済み。**後半円**（issue→修正→検証緑で
 close）は新しいコード・新しい CLI を足さずに、既存の合否判定（`issues.run_checks` の不変条件＋monitor の
 再起票）だけで閉じる。
@@ -369,7 +368,7 @@ close）は新しいコード・新しい CLI を足さずに、既存の合否�
 matches）。骨組みは 2 つだけ（Registry 化は 2 実装目で＝YAGNI）：
 
 - `PiiRegexGuard`（入力ガードの**正規表現スタブ**）：email・電話番号を検出（見つかれば `ok=False`＋
-  `matches`）。実際の PII 検出は検出モデルへ**委譲**（受け口だけ作って委譲点を明示＝DEC-0009 の作法）。
+  `matches`）。実際の PII 検出は検出モデルへ**委譲**（受け口だけ作って委譲点を明示する作法）。
 - `validate_output_schema(output, schema)`（出力ガード）：出力を JSON として解釈し、JSON Schema の
   **最小部分集合**（トップレベル `type`・`required`・`properties` の型）だけ検証。`AgentSpec.output_schema`
   をそのまま渡せる。完全検証は jsonschema へ**委譲**（base 依存に無い＝必要になったら extra として足す）。

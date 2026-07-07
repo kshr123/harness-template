@@ -4,13 +4,13 @@
 （CT＝Continuous Training。定期的な再学習の自動化）、リリース戦略（Blue-Green・Canary）、
 監視から課題起票までの閉ループ。運用の実行基盤（GitHub Actions・k8s・クラウド）そのものは動かさず、
 利用者がコピーして使うテンプレートと、その腐りを止める静的検査だけを持つ。案件の運用を組む・CI/CT の
-雛形を使うエンジニアが読む Reference（対象範囲の決定は DEC-0014）。
+雛形を使うエンジニアが読む Reference。
 
 実装は `src/harness/ops/`：`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
 **ops は CLI を持たない**＝使い方はこの正本と、`uv run verify` に自動で乗る検査
 （そのプロファイルが公開する検査の集合＝pm_checks）だけ。中核へは `.harness/config.toml` の
 `profiles = [..., "harness.ops"]` 経由で PROFILE（プロファイル＝検査と部品の束）の
-検査だけを見せる（core はプロファイルを import しない境界＝DEC-0004・import を軽く保つ規律＝DEC-0013）。
+検査だけを見せる（core はプロファイルを import しない境界・import を軽く保つ規律）。
 
 ## 思想（実行しない）
 
@@ -30,7 +30,7 @@ ci_lint はネットワーク 0・依存は stdlib＋pyyaml のみ。`templates/
 
 GitHub ランナー・k8s・クラウド基盤の実装／A/B テスト（実トラフィックの出し分け）／streaming（Kafka 等）／
 S3・GCS の実装／retry・timeout・circuit breaker／オンライン特徴量ストア／prediction cache／gRPC。
-いずれも対象範囲（ML ライフサイクル全体・`docs/decisions/DEC-0014`）の内側だが、実行時の重い基盤は
+いずれも対象範囲（ML ライフサイクル全体）の内側だが、実行時の重い基盤は
 利用者環境の関心なので順序で後回しにする（差し替え口だけ用意し、実需要が出るまで作らない）。
 
 ## CI（verify ゲート）テンプレートと ci_lint
@@ -136,12 +136,12 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
   promote 合否判定（`promote_model`＝ds `eval.passes`〔絶対〕＋champion 越え〔相対〕）は同じ形＝「宣言済みの
   成功基準を、作った側とは別の評価器が検査して合格したときだけ先へ進む」（AGENTS 第一原則の機械化）。
   差分（同型≠同一）：goal ゲートは同一プロセス内で未達なら続行注入して反復・promote 合否判定はステートレスな
-  1 周で退場（続行は次周の schedule）。実装は共有しない（DEC-0004・`eval.passes` の agent/ds 併存は意図
-  した複製・共有したくなったら DEC-0012＝DEC-0018 の再判断トリガ）。
+  1 周で退場（続行は次周の schedule）。実装は共有しない（`eval.passes` の agent/ds 併存は意図
+  した複製・共有したくなったら その再判断トリガ）。
 - **実コード消費なしの確定**：(a) 実行体は GitHub Actions（利用者環境）＝`check()` を呼ぶ主体がハーネス側
   に無い。(b) 各 scheduled run はステートレスな 1 周＝プロセス内に反復が実在しない（反復を統べるのは
   cron）。(c) 停止は `promote_model` が既に完全に持つ＝StopCondition を挟むと判定の正本が二重になる
-  （DEC-0004 違反の入り口）。`loops.py` の import は不要（T-0120 で確定・DEC-0018）。
+  （ 違反の入り口）。`loops.py` の import は不要（T-0120 で確定）。
 
 ## 監視→課題起票の閉ループ
 

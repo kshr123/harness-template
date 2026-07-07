@@ -7,7 +7,7 @@
 モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
 
 実装は `src/harness/serve/`：`app.py`（API）・`runtime.py`（champion 解決・予測・ログ）・`cli.py`
-（uvicorn 起動）。予測ログは MLOps の prediction log パターンの翻案（設計の経緯は DEC-0013）。
+（uvicorn 起動）。予測ログは MLOps の prediction log パターンの翻案。
 作業手順の案内は `.claude/skills/serve/SKILL.md`。
 
 ## 使い方（How-to）
@@ -85,9 +85,9 @@ SERVE_SHADOW_NAME=challenger uv run serve --work E-0001 --name baseline
 ## loops との関係（serve は loop でない）
 
 serve はリクエスト駆動（`/predict`・`/invoke` とも 1 呼び 1 応答のレイテンシ契約）で、「停止条件が満たされる
-まで作業サイクルを繰り返す」loops（DEC-0017）には該当しない。応答経路に評価器ゲートを
+まで作業サイクルを繰り返す」loopsには該当しない。応答経路に評価器ゲートを
 挟むのは配信の関心（レイテンシ・可用性）と衝突するため、意図的に適用しない（適用しない、という判断自体が
-正本＝DEC-0018）。serve を回す loop は serve の外側にある：予測 JSONL→`data monitor`（→`--file-issue`）→
+正本）。serve を回す loop は serve の外側にある：予測 JSONL→`data monitor`（→`--file-issue`）→
 retrain という ops の周回（`docs/ops.md`）。
 
 ## コンテナ・K8s で配るとき
