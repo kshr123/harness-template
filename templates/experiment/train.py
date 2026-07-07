@@ -46,10 +46,11 @@ CONFIG = HERE / "config.yaml"
 ROOT_DEFAULT = HERE.parents[1]  # templates/experiment → templates → リポ根
 WORK_ID = "E-0001"
 CODE_REF = "templates/experiment/train.py"
-# WORK_ID=E-0001 のテーブル定義（e0001_*.yaml）は初出の実験フォルダに再現記録として残る（T-0140で
-# train.py 本体だけ templates/experiment/ へ移設・data/ は移動しない＝やらないこと）。--test/--root の
-# 一時 root はこの定義を持たないので、ここから temp root の work/E-0001/data へコピーする（下の prepare_root）。
-_E0001_SCHEMA_DIR = ROOT_DEFAULT / "work" / "EP-06-ds-experiment-loop" / "E-0001-interaction-feature" / "data"
+# WORK_ID=E-0001 のテーブル定義（e0001_*.yaml）は templates/experiment/data/ に雛形と同居する（T-0141＝
+# 後方参照なし。work/EP-06/E-0001/data には再現記録の results/ だけが残り、schema yaml は無い）。
+# --test/--root の一時 root はこの定義を持たないので、ここから temp root の work/E-0001/data へコピーする
+# （下の prepare_root）。full モード（repo 根）は load_schemas が templates/**/data も読むのでコピー不要。
+_E0001_SCHEMA_DIR = HERE / "data"
 
 # conftest.DEFAULT_CONFIG と同文（config.py の既定と同じ形。tests から import しない＝依存を逆流させない）。
 DEFAULT_CONFIG = """\

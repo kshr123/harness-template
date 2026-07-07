@@ -28,6 +28,7 @@ work 木＋pm.lint・goal-gate/judge/exit-1・maker≠checker・fail-closed・�
 - **T-0134**（C-1・骨組み）検査委譲の関門 DEC-0021＋actionlint/check-jsonschema を pre-commit 配線（vacuous pass を実測で潰す）。
 - **T-0135**（C-2・差し替え）自前 lint の汎用層剥離＋「停止」日本語 grep→言語非依存 `# stop:` マーカーへ。
 - **T-0140**（D-1・差し替え）実験正本雛形を `templates/experiment/` へ移設・e2e/スキル追従・template-copy.md を doclint 走査対象へ。
+- **T-0141**（D-1 続・差し替え）実験雛形の完全自己完結：schema を `templates/experiment/data/` へ・`load_schemas` に templates スコープ追加（T-0140 の work/ 後方参照＝残課題を解消）。
 - **T-0137**（D-2・抜本1）templates 資産のオーナー検査ラチェット（資産を足したら検査オーナーも足す＝verify 強制）。**機械検査で実施**（コードの構造不変条件＝機械化の射程内）。
 - **T-0138**（B・改訂）レビューのリスク比例化（diff で full/light 判定）を **review スキル＋DoD に規約として明文化**（新 pm 検査は足さない）。**理由**：EP-24 rollback で「文書構造の機械化（lede 必須等）は撤去・規約へ」と決まった。「レビュー節必須」の pm 検査は同型（文書構造の機械化）＝規約に留める。レビュー深度の判定基準（src/tests/templates に触れる＝full）を skill に書き、独立性は全 tier で不変。
 - **T-0139**（E・改訂）メタの自己整合：正本一元の実施（同趣旨の重複を 1 か所へ）・learnings 棚卸しを **手作業で実施**。**規範文の重複検出器（doc_standards 型）は新設しない**（rollback＝「文書規律は機械検査でなく規約」と整合。doc_standards は撤去済み）。
@@ -45,16 +46,15 @@ work 木＋pm.lint・goal-gate/judge/exit-1・maker≠checker・fail-closed・�
 独立レビュー＝Opus（別モデル・ミューテーションで guard の RED を実測）。done は verified_by に受け入れ基準を確かめる
 テストの場所を明記（空・指す先無しは pm 検査で失敗）。
 
-## 残課題（フォロー・別タスク／ISS 候補）
-- **実験雛形の完全自己完結**（T-0140 由来）：`templates/experiment/train.py` が `--test` の schema 解決で
-  `work/EP-06/E-0001/data`（消す領域）を後方参照する（`load_schemas` が `work/**/data/*.yaml` を glob する設計に起因）。
-  複製先が work/EP-06 を消すと雛形の `--test` が空振りしうる（実運用では自分の WORK_ID・テーブル定義に差し替える前提）。
-  完全自己完結にするには、雛形が要するテーブル定義（schema）だけを templates 側へ持たせる／スモークを完全 synthetic 化する
-  ／`load_schemas` の探索元を見直す、のいずれか。実験機構全体に触れるため EP-25 の範囲外＝別タスクで判断。
+## 残課題 → T-0141 で解決
+- **実験雛形の完全自己完結**（T-0140 由来）：`templates/experiment/train.py` が schema 解決で `work/EP-06/E-0001/data`
+  （消す領域）を後方参照していた。→ **T-0141 で解決**：schema 定義を `templates/experiment/data/` へ移し、`load_schemas` に
+  templates スコープ（`templates/**/data`）を追加＝雛形が自分の schema を持ち歩く（複製先が work/ を消しても壊れない）。
 
 ## 完了（2026-07-07・closed）
-全 7 タスク done：T-0133（loops 正直化）・T-0134（検査委譲の関門 DEC-0021）・T-0135（自前 lint 純化＋CI 配線）・
-T-0140（実験雛形を templates へ）・T-0137（templates オーナー検査ラチェット）・T-0138（レビュー比例化＝規約）・
-T-0139（メタ自己整合＝手作業）。方針転換（EP-24 の docs 機械化 rollback）を受け、T-0138/0139 は機械化を足さず
-「文書/プロセス規律は規約」に整合させた（機械化の射程は構造/コード不変条件だけ）。核（verify-gate・work 木・
-goal-gate・maker≠checker・fail-closed）は不変のまま、殻をより自己整合的に進化させた。
+全 8 タスク done：T-0133（loops 正直化）・T-0134（検査委譲の関門 DEC-0021）・T-0135（自前 lint 純化＋CI 配線）・
+T-0140（実験雛形を templates へ）・T-0141（実験雛形の完全自己完結＝schema を templates へ・T-0140 残課題を解決）・
+T-0137（templates オーナー検査ラチェット）・T-0138（レビュー比例化＝規約）・T-0139（メタ自己整合＝手作業）。
+方針転換（EP-24 の docs 機械化 rollback）を受け、T-0138/0139 は機械化を足さず「文書/プロセス規律は規約」に整合させた
+（機械化の射程は構造/コード不変条件だけ）。核（verify-gate・work 木・goal-gate・maker≠checker・fail-closed）は不変のまま、
+殻をより自己整合的に進化させた。残課題（T-0140 の自己完結の部分達成）も T-0141 で完全解決＝残課題ゼロで epic close。

@@ -1,6 +1,7 @@
 """テーブル定義（メタデータ）の正本 YAML を読み、静的検査と実データ検証を組み立てる。
 
-- 正本は宣言的な YAML。共有は `docs/data/<id>.yaml`、実験スコープは `work/<単位ID>/data/<id>.yaml`。
+- 正本は宣言的な YAML。共有は `docs/data/<id>.yaml`、実験スコープは `work/<単位ID>/data/<id>.yaml`、
+  雛形提供は `templates/<雛形>/data/<id>.yaml`（雛形が持ち歩く schema。T-0141）。
 - 検証の実行器は正本から導出する（列の型・NULL可否・一意・取りうる値・範囲・checks（SQL 式）を polars で確かめる）。
   pandera は検討の上で不採用（DEC-0011）。YAML を正本のまま、checks は polars の sql_expr で
   ネイティブに評価する（新規依存ゼロ）。より本格的な検証が要る案件は差し替え可能（実行器は導出物）。
@@ -92,7 +93,7 @@ def _project_dir(root: Path) -> Path:
 
 
 def load_schemas(root: Path, problems: list[Problem] | None = None) -> list[TableSchema]:
-    """共有（docs/data）と実験スコープ（work/**/data）のテーブル定義をすべて読む。"""
+    """共有（docs/data）・実験スコープ（work/**/data）・雛形提供（templates/**/data）のテーブル定義をすべて読む。"""
     paths: list[Path] = []
     pdir = _project_dir(root)
     if pdir.is_dir():
@@ -100,6 +101,9 @@ def load_schemas(root: Path, problems: list[Problem] | None = None) -> list[Tabl
     work = root / "work"
     if work.is_dir():
         paths.extend(sorted(work.glob("**/data/*.yaml")))
+    templates = root / "templates"
+    if templates.is_dir():
+        paths.extend(sorted(templates.glob("**/data/*.yaml")))
     out: list[TableSchema] = []
     for path in paths:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))

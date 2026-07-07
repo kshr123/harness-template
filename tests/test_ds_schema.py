@@ -31,6 +31,18 @@ def _write(root: Path, name: str, content: str) -> None:
     (d / f"{name}.yaml").write_text(content, encoding="utf-8")
 
 
+def test_load_schemas_reads_template_scope(tmp_path: Path) -> None:
+    """load_schemas は共有（docs/data）・実験（work/**/data）に加え、雛形提供（templates/**/data）も読む（T-0141）。"""
+    d = tmp_path / "templates" / "foo" / "data"
+    d.mkdir(parents=True)
+    (d / "tmpl_x.yaml").write_text(
+        "id: tmpl_x\ndescription: 雛形の schema\nlayer: raw\ncolumns:\n  - {name: a, dtype: Int64}\n",
+        encoding="utf-8",
+    )
+    ids = {s.id for s in schema.load_schemas(tmp_path)}
+    assert "tmpl_x" in ids
+
+
 def test_data_lint_clean(tmp_path: Path) -> None:
     _write(tmp_path, "synthetic", SYNTHETIC)
     assert not [p for p in schema.data_lint(tmp_path) if p.level == "error"]

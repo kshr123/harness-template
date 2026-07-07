@@ -16,8 +16,8 @@
 - `docs/decisions/`（DEC・不変の決定）・`docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）。
 - `.claude/skills/`（スキル）・`AGENTS.md`・`CLAUDE.md`・`pyproject.toml`・`checks.toml`・`.pre-commit-config.yaml`。
 - `docs/data/` のテーブル定義の仕組み（中身は案件のデータに合わせて入れ替える）。
-- `templates/experiment/`（実験正本雛形＝train.py・config*.yaml。T-0140 で work/ から移設。以後の実験はこれを
-  丸ごとコピーする＝experiment スキル参照）。
+- `templates/experiment/`（実験正本雛形＝train.py・config*.yaml・data/*.yaml（テーブル定義。T-0141 で持ち歩く）。
+  T-0140 で work/ から移設。以後の実験はこれを丸ごとコピーする＝experiment スキル参照）。
 
 ## 消す・作り直す（前の案件の中身）
 - `work/` 配下の前案件エピック（`EP-*`・`T-*`・`E-*`）… 前案件の作業単位。**消す**（新案件のエピックを作り直す。
