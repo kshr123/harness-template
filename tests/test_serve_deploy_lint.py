@@ -49,7 +49,7 @@ def test_no_templates_dir_yields_no_problems(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_real_repo_templates_pass_clean() -> None:
-    # 自リポの出荷テンプレートは 0 件で通る＝「生きた fixture」（verify のたびに腐りを検知する回帰の番人）。
+    # 自リポの出荷テンプレートは 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰の番人）。
     assert deploy_lint.run_checks(REPO_ROOT) == []
 
 

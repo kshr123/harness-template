@@ -3,7 +3,7 @@
 - ML の `ds/models.py`（champion/promote_model）と同じ形だが、プロファイル境界を守り
   `harness.ds` を import しない独立モジュール（研究 N-8）。再利用は `harness.storage` の一次部品のみ。
 - **非対称**：agent の実体は宣言 YAML そのもの＝学習済みバイナリが無いので FORMATS（保存形式の
-  差し替え口）は要らない（manifest に spec を config として畳み込むの非対称）。
+  拡張ポイント）は要らない（manifest に spec を config として畳み込むの非対称）。
   よって実体ファイルの atomic_write も無く、manifest（write_manifest＝原子的）だけが保存の全体。
 - 保存は常に許す（評価の記録）。関門は昇格だけ（絶対＝passes・相対＝現 champion に primary で勝つ）。
 - `prompt_fingerprint`（system_prompt の sha256）＝「どのプロンプトで測った metrics か」の印。

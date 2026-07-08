@@ -54,10 +54,12 @@ def test_templates_have_owner_checks() -> None:
         assert reason.strip(), f"_TEMPLATE_OWNERS[{name!r}] の理由が空。オーナーには人が読める理由が必須"
         if ref.startswith("harness."):
             assert importlib.util.find_spec(ref) is not None, (
-                f"_TEMPLATE_OWNERS[{name!r}] のオーナー参照 {ref!r} が import できない（腐り検知）"
+                f"_TEMPLATE_OWNERS[{name!r}] のオーナー参照 {ref!r} が import できない（陳腐化検知）"
             )
         else:
             assert ref.startswith("tests/") and ref.endswith(".py"), (
                 f"_TEMPLATE_OWNERS[{name!r}] のオーナー参照 {ref!r} は harness.* か tests/*.py のどちらでもない"
             )
-            assert (root / ref).is_file(), f"_TEMPLATE_OWNERS[{name!r}] のオーナー参照 {ref!r} が存在しない（腐り検知）"
+            assert (root / ref).is_file(), (
+                f"_TEMPLATE_OWNERS[{name!r}] のオーナー参照 {ref!r} が存在しない（陳腐化検知）"
+            )

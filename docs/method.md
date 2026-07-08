@@ -31,7 +31,7 @@
 | 層 | 何か | どこに住むか | 機械で担保できるか | 例 |
 |---|---|---|---|---|
 | 機械検査 | 違反すると verify が失敗する検査 | `harness/`（pm.lint・spec_lint・checks.toml）＋ pytest/ruff/mypy | **完全** | done↔verified_by の実在検査 |
-| 抽象（差し替え口） | 変わりうる部分を切り離す型・設定 | Protocol 定義・config の backend URI・レジストリ | **ほぼ完全**（mypy が担保） | 保存形式は manifest の `format` 文字列で分岐（核が形式ライブラリを固定しない） |
+| 抽象（拡張ポイント） | 変わりうる部分を切り離す型・設定 | Protocol 定義・config の backend URI・レジストリ | **ほぼ完全**（mypy が担保） | 保存形式は manifest の `format` 文字列で分岐（核が形式ライブラリを固定しない） |
 | 規約 | 人と AI が従う決まりごと | `AGENTS.md`（正本） | **部分的**（各項目が検査点を括弧書き。持てない項目は「レビュー観点」） | 「テストの数値は構成由来」 |
 | スキル | セッション中に実行する手順の手引き | `.claude/skills/*/SKILL.md` | 不可（発火は description の語） | harvest：振り返り→learnings 記録 |
 | 気づき | まだルール化していない観察の材料 | `docs/learnings.md` | 不可（見直しで管理） | L-004 生成物のコミット強制は摩擦 |

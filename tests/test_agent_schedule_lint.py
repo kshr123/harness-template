@@ -54,7 +54,7 @@ def test_no_templates_dir_yields_no_problems(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_real_repo_schedule_template_passes_clean() -> None:
-    # 自リポの出荷雛形は 0 件で通る＝「生きた fixture」（verify のたびに腐りを検知する回帰の番人）。
+    # 自リポの出荷雛形は 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰の番人）。
     assert schedule_lint.run_checks(REPO_ROOT) == []
 
 
@@ -164,7 +164,7 @@ def test_unknown_script_is_error(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_schedule_template_commands_resolve() -> None:
-    # 雛形の `uv run agent <sub>` の <sub>（monitor）が typer app に実在するか＝サブコマンド腐り検知。
+    # 雛形の `uv run agent <sub>` の <sub>（monitor）が typer app に実在するか＝サブコマンド陳腐化検知。
     # lint 本体に typer を持ち込まない分業なので、この確認はテスト側に置く。
     from harness.agent.cli import agent_app
 

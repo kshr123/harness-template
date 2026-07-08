@@ -1,10 +1,10 @@
 """リリース戦略文書（templates/serve/README.md の Blue-Green・Canary 節）の構造検査（T-0112）。
 
-期待値の導き方（金メッキ禁止）：受け入れ基準の構成から導く。
+期待値の導き方（ハードコード期待値禁止）：受け入れ基準の構成から導く。
 - Blue-Green＝「image tag 切替」・Canary＝「replicas 比率」という定義そのものから、各節が引用すべき
   最小の k8s キー（Blue-Green→`image:`・Canary→`replicas:`）が決まる。
 - 節が引用する k8s キー・テンプレート内ファイルは README から抽出し、実在は `templates/serve/` の
-  実体と突き合わせる（deploy_lint の参照整合の思想を文書側にも適用＝文書の腐りを検知）。
+  実体と突き合わせる（deploy_lint の参照整合の思想を文書側にも適用＝文書の陳腐化を検知）。
 実装の出力をコピーした固定値は書かない：README 本文の引用（バッククォート表記）を動的に集めて検査する。
 """
 
@@ -69,7 +69,7 @@ def test_readme_cites_existing_k8s_keys() -> None:
         for key in sorted(keys):
             assert re.search(rf"^\s*{re.escape(key)}", k8s_text, flags=re.MULTILINE), (
                 f"{name} 節が引用するキー `{key}` が templates/serve/k8s/ の deployment.yaml / "
-                f"service.yaml に実在しない（文書の腐り）"
+                f"service.yaml に実在しない（文書の陳腐化）"
             )
         for rel in sorted(set(_K8S_PATH_RE.findall(body))):
             assert (SERVE_DIR / rel).is_file(), f"{name} 節が引用する `{rel}` が templates/serve/ に実在しない"

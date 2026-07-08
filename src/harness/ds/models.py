@@ -4,7 +4,7 @@
 - store.py と同じ4作法（config URI で置き場を解決／一時ファイル→rename／sha256 指紋／manifest.yaml）は
   harness.storage の共通部品で行い、ここは方針（保存は常に許す・関門は昇格だけ・manifest 最後＝完了の印）を持つ。
 - 保存は常に許す（実験の記録）。関門は昇格だけ（負の結果も記録で完了、と両立する）。
-- 形式は FORMATS レジストリが担う（manifest の `format` 文字列で save/load が分岐する差し替え口）。
+- 形式は FORMATS レジストリが担う（manifest の `format` 文字列で save/load が分岐する拡張ポイント）。
   pickle（既定・常に登録）と skops（安全読込・optional extra `skops` で条件登録）。可搬形式（onnx 等）が
   要る時はここに枝を足す。
 - harness/models.py（PM の Item 型）と紛れるので、import は必ず
@@ -36,7 +36,7 @@ VERSION_FORMAT = "%Y%m%dT%H%M%S%fZ"  # 辞書順＝時刻順（最新＝降順1�
 TRACKED_DISTRIBUTIONS = ("scikit-learn", "numpy", "polars", "lightgbm", "statsmodels")
 
 
-# --- 保存形式（FORMATS レジストリ・差し替え口） ---
+# --- 保存形式（FORMATS レジストリ・拡張ポイント） ---
 
 
 @dataclass(frozen=True)

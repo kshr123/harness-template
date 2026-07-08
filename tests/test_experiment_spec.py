@@ -2,7 +2,7 @@
 
 期待値はすべて config の構成から導く：正しい構造（現行 config.yaml 相当）は通り、
 未知キー（typo）・型違い・空の variants/features・範囲外の値は ValidationError になる。
-実値のコピー（金メッキ）は書かない（検証するのは「通る/止まる」の構造だけ）。
+実値のコピー（ハードコード期待値）は書かない（検証するのは「通る/止まる」の構造だけ）。
 """
 
 from __future__ import annotations

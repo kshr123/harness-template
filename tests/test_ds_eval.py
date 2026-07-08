@@ -388,7 +388,7 @@ def test_threshold_table_rows_from_construction() -> None:
 
 def test_threshold_table_matches_definition_oracle_on_random_data() -> None:
     # 定義から独立に数える oracle（pred=(s>=t) の集計と P/R/F1 の定義式）と、全行・全列が一致する性質テスト。
-    # 期待値は実装出力の写経ではなく、混同行列の定義そのものから導く（金メッキ禁止）。
+    # 期待値は実装出力の写経ではなく、混同行列の定義そのものから導く（ハードコード期待値禁止）。
     rng = np.random.default_rng(42)
     y = (rng.random(200) < 0.3).astype("int64")
     s = rng.random(200)

@@ -56,7 +56,7 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 ## shadow 配信（1 プロセス内分岐・env で明示有効化）
 
 shadow deployment（シャドー配信）＝本番のリクエストを新版にも並走させ、
-応答は返さずログだけ残す下見運用。champion（primary）の応答は変えずに、**同じ入力**を shadow 版でも予測して
+応答は返さずログだけ残す運用。champion（primary）の応答は変えずに、**同じ入力**を shadow 版でも予測して
 同じ JSONL に `role: "shadow"` の行を残す。実行時基盤（トラフィック分割・サイドカー）には踏み込まない
 （運用上の位置づけは `docs/ops.md` の shadow 節）。
 

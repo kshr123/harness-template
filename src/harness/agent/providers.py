@@ -1,7 +1,7 @@
 """プロバイダ抽象（Provider Protocol＋PROVIDERS レジストリ）。骨組みでは dummy のみ登録。
 
 - ProviderReply は Anthropic の content block 形（{"type": "text", "text": ...} の並び）に素直：
-  実プロバイダ（T-0092・AnthropicProvider/CassetteProvider）を足しても呼び手が変わらない差し替え口。
+  実プロバイダ（T-0092・AnthropicProvider/CassetteProvider）を足しても呼び手が変わらない拡張ポイント。
 - dummy は**決定的・無ネットワーク・課金ゼロ**：入力メッセージ＋seed の正準 JSON の sha256 から
   テキストを導く（グローバル種は使わない）。replies で「この入力にはこの応答」を仕込める（テスト・スモーク用）。
 - このモジュールは軽い（stdlib＋harness.registry のみ）。anthropic SDK は top では import しない：
@@ -38,7 +38,7 @@ class ProviderReply:
 
 
 class Provider(Protocol):
-    """プロバイダの差し替え口。messages（role/content の並び）と spec を受けて 1 応答を返す。"""
+    """プロバイダの拡張ポイント。messages（role/content の並び）と spec を受けて 1 応答を返す。"""
 
     def reply(
         self,

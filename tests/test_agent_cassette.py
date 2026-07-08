@@ -1,7 +1,7 @@
 """実プロバイダ（AnthropicProvider）と記録再生（CassetteProvider）の検査（T-0092・無ネットワーク）。
 
 - adapter（_reply_from_anthropic）：API 契約から書いた応答 dict（フィクスチャ）が ProviderReply に
-  正しく写る・欠損は ValueError（fail loud）。期待値はすべてフィクスチャの構成から導く（金メッキ禁止）。
+  正しく写る・欠損は ValueError（fail loud）。期待値はすべてフィクスチャの構成から導く（ハードコード期待値禁止）。
 - cassette：replay が adapter と同一の ProviderReply を返す・記録が無ければ fail closed。socket を塞いで
   「無ネットワーク」の担保を本物にする。run_agent に挿しても往復ループが不変であることも固定する。
 - AnthropicProvider：temperature を送らない・effort（output_config）を送る（create を偽物に差し替え＝

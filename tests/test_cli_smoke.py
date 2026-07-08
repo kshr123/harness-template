@@ -5,7 +5,7 @@ test_catalog.py はコマンド関数を直接呼ぶだけで typer の配線（
 未登録コマンドの取りこぼし・Option 解析の破れを止める。重い store 準備が要る predict の正常系は
 test_cli_predict.py に任せ、ここは配線の smoke に絞る。
 
-期待値はレジストリ登録から導く（代表項目＝各レジストリに実在する kind。金メッキ禁止）。
+期待値はレジストリ登録から導く（代表項目＝各レジストリに実在する kind。ハードコード期待値禁止）。
 """
 
 from __future__ import annotations

@@ -286,7 +286,7 @@ class DriftIssueContent:
 def drift_issue_content(
     *, baseline: str, log: str, alerts: Sequence[Mapping[str, Any]], today: date
 ) -> DriftIssueContent:
-    """PSI_ALERT 帯（band=大変化）の psi 行から課題の title/body/指紋を組み立てる（決定的）。
+    """PSI_ALERT 段階（band=大変化）の psi 行から課題の title/body/指紋を組み立てる（決定的）。
 
     指紋は harness.fingerprint.input_fingerprint（正準 JSON の sha256）＝既存部品を再利用（新しい
     仕組みを作らない）。alerts は MonitorReport.psi の行（column/psi/band の dict）のうち alert のもの。

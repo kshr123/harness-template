@@ -61,7 +61,7 @@ def test_parse_judge_score_unparseable_is_nan_fail_closed() -> None:
 @pytest.mark.unit
 def test_judge_user_text_includes_both_rubric_and_candidate() -> None:
     # rubric/candidate を落とすと judge が盲目採点になる＝テンプレの意味的契約を直接固定する
-    # （期待値は入力の構成から導出＝センチネルの出現。金メッキではない）。
+    # （期待値は入力の構成から導出＝センチネルの出現。ハードコード期待値ではない）。
     text = judge_user_text("__RUBRIC_SENTINEL__", "__CANDIDATE_SENTINEL__")
     assert "__RUBRIC_SENTINEL__" in text
     assert "__CANDIDATE_SENTINEL__" in text

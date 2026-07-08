@@ -289,7 +289,7 @@ def test_tfidf_output_reaching_model_stays_sparse() -> None:
     assert est.predict_proba(df).shape == (100, 2)
 
 
-# --- 確率較正（T-0060：calibrate を model に被せる継ぎ目・tune と同じ流儀）。 ---
+# --- 確率較正（T-0060：calibrate を model に被せる拡張ポイント・tune と同じ流儀）。 ---
 
 
 @pytest.mark.unit

@@ -336,14 +336,14 @@ def _agent_monitor(
         str | None, typer.Option("--since", help="この日付（YYYY-MM-DD・境界日を含む）以降の行だけ")
     ] = None,
     file_issue: Annotated[
-        bool, typer.Option("--file-issue", help="non_end_turn_rate の帯が要注意以上なら課題を冪等起票")
+        bool, typer.Option("--file-issue", help="non_end_turn_rate の段階が要注意以上なら課題を冪等起票")
     ] = False,
 ) -> None:
     """エージェント実行ログ（AGENT_LOG_FIELDS）の監視表を YAML で出す（拒否/打ち切り率・コスト分位・ツール頻度）。
 
     門番にしない（率は exit code に載せず band で人が読む・**常に exit 0**）。壊れ行は警告して読み飛ばす
-    （n_skipped に出る）。--file-issue は帯が要注意/大変化のとき課題を 1 件だけ起票する（決定的タイトル
-    `[agent-monitor] non_end_turn_rate <帯>` の open が既に在れば再起票しない＝冪等）。
+    （n_skipped に出る）。--file-issue は段階が要注意/大変化のとき課題を 1 件だけ起票する（決定的タイトル
+    `[agent-monitor] non_end_turn_rate <段階>` の open が既に在れば再起票しない＝冪等）。
     """
     from datetime import date
 
@@ -389,12 +389,12 @@ def _agent_monitor(
     # issue new（harness/cli.py）と同じファイル作法。title は '[' 始まりなので YAML として引用符で守る。
     body = (
         f"# {iid} {title}\n\n## 事象\n\n"
-        f"non_end_turn_rate={report.non_end_turn_rate:.4f}（帯: {band}）・n_rows={report.n_rows}。\n\n"
+        f"non_end_turn_rate={report.non_end_turn_rate:.4f}（段階: {band}）・n_rows={report.n_rows}。\n\n"
         f"## 根拠・影響\n\n`uv run agent monitor` の集計（stop_reason 分布はログ参照）。"
         f"失敗/打ち切りの増加は品質かコストの異常の代理＝原因（プロンプト変更・ツール障害・上限設定）を確認する。\n\n"
         f"## 退場条件（goal）\n\n"
         f"対処タスク（promoted_to）が done（`uv run verify` 緑・issue check が整合を強制）かつ、次回の"
-        f"`agent monitor --file-issue` で帯が「安定」に戻り再起票されないこと。resolved 後も帯が悪ければ"
+        f"`agent monitor --file-issue` で段階が「安定」に戻り再起票されないこと。resolved 後も段階が悪ければ"
         f"新しい課題が自動で立つ（再起票＝goal 未達の機械判定）。\n"
     )
     path = directory / f"{iid}.md"

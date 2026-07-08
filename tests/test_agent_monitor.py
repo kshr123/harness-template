@@ -232,7 +232,7 @@ def test_cli_agent_monitor_yaml_via_default_glob(
 def test_cli_agent_monitor_file_issue_is_idempotent(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 全行 max_turns → 帯は大変化 → 起票。二度叩いても open 課題は 1 件（決定的タイトルの再起票をしない）。
+    # 全行 max_turns → 段階は大変化 → 起票。二度叩いても open 課題は 1 件（決定的タイトルの再起票をしない）。
     proj = make_project()
     _write_runs(proj.root, [json.dumps(row_dict(stop_reason="max_turns"))])
     monkeypatch.chdir(proj.root)
@@ -255,7 +255,7 @@ def test_cli_agent_monitor_file_issue_refiles_after_resolved(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 冪等照合は open / in-progress のみ（_agent_monitor の state is open フィルタ）。resolved に倒した
-    # 同種ドリフト（同タイトル）の再来は新規起票する＝後半円の goal 未達検知（T-0098・test_ds_monitor の
+    # 同種ドリフト（同タイトル）の再来は新規起票する＝後半の goal 未達検知（T-0098・test_ds_monitor の
     # test_resolved_same_drift_refiles と同じ境界をここでも守る）。
     proj = make_project()
     _write_runs(proj.root, [json.dumps(row_dict(stop_reason="max_turns"))])
@@ -296,7 +296,7 @@ def test_filed_issue_has_exit_condition_section(
     (loaded,) = issues.load_issues(proj.root)
     assert "## 退場条件（goal）" in loaded.body  # 節見出しが入る
     assert "done" in loaded.body  # 条件 (i)：promoted_to タスクが done
-    assert "再起票" in loaded.body  # 条件 (ii)：次回 monitor で帯が安定＝再起票されない
+    assert "再起票" in loaded.body  # 条件 (ii)：次回 monitor で段階が安定＝再起票されない
 
 
 @pytest.mark.integration
@@ -309,7 +309,7 @@ def test_cli_agent_monitor_file_issue_skips_stable_band(
     monkeypatch.chdir(proj.root)
     result = runner.invoke(agent_app, ["monitor", "--file-issue"])
     assert result.exit_code == 0
-    assert issues.load_issues(proj.root) == []  # 安定の帯では起票しない
+    assert issues.load_issues(proj.root) == []  # 安定の段階では起票しない
 
     empty = make_project()
     monkeypatch.chdir(empty.root)

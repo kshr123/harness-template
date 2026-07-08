@@ -42,7 +42,7 @@ policy（何を方針に動くか）の組で 4 類型に分ける。語彙（`S
 | turn-based | 発話・`agent run` | provider の `end_turn`＋`max_turns` backstop | `runtime.run_agent`（既存の再解釈のみ） |
 | goal-based | 呼び出し時に Goal を宣言 | 評価器ゲート（`AGENT_METRICS`＋`eval.passes`）合格 or `max_cycles` backstop | `agent/goal.py`（`Goal`/`GoalGate`/`run_agent_to_goal`＝**唯一の新規部品**） |
 | time-based | 時間間隔（cron/CI schedule・Claude 側 /loop・/schedule スキル） | cancel・無効化 | `templates/schedule/`＋schedule_lint |
-| proactive | event/schedule＋goal の合成 | タスク＝goal 達成で退場・routine＝無効化まで | `agent monitor --file-issue`（前半円のみ実装済み。T-0098・outline） |
+| proactive | event/schedule＋goal の合成 | タスク＝goal 達成で退場・routine＝無効化まで | `agent monitor --file-issue`（前半のみ実装済み。T-0098・outline） |
 
 **goal-based の停止は評価器ゲート（goal-based gate＝評価器が合格と言うまで続行させる停止判定）**：
 
@@ -261,7 +261,7 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 実行ログ（上の AGENT_LOG_FIELDS の JSONL）だけを読み、**品質の代理（拒否/打ち切り率）・コスト
 （トークン/ターンの分位）・ツール使用頻度**を YAML で出す。`ds/monitor`（`data monitor`）と同じ規律で作る：
 
-- **処理を止めない**：率は band（安定/要注意/大変化の 3 段の重大度の帯。0.05/0.2 の目安）で
+- **処理を止めない**：率は band（安定/要注意/大変化 の 3 段階の重大度。0.05/0.2 の目安）で
   人が読む。exit code は常に 0（自動停止しない）。
 - **壊れ行・契約違反行は警告して読み飛ばす**（件数は `n_skipped` に出る）。全体が読めなくなるより縮退を選ぶ。
 - **消費するキー（time/stop_reason/usage/turns/tools_used）だけ検証する**。
@@ -273,10 +273,10 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 ```
 uv run agent monitor                              # 既定 glob artifacts/agent/runs/**/*.jsonl
 uv run agent monitor --since 2026-07-01           # 境界日を含む・YYYY-MM-DD
-uv run agent monitor --file-issue                 # 帯が要注意以上なら課題を冪等起票
+uv run agent monitor --file-issue                 # 段階が要注意以上なら課題を冪等起票
 ```
 
-`--file-issue` は決定的タイトル `[agent-monitor] non_end_turn_rate <帯>` で起票し、同タイトルの open 課題が
+`--file-issue` は決定的タイトル `[agent-monitor] non_end_turn_rate <段階>` で起票し、同タイトルの open 課題が
 既に在れば再起票しない（**冪等**＝二度叩いても 1 件。github: backend では起票せず
 案内だけ・exit 0 のまま）。
 
@@ -310,16 +310,16 @@ Claude 側で回したいときは `/loop`（間隔指定の繰り返し）や `
 「停止」を含むコメント（README/docs 参照つき）と `README.md` の停止見出しが無ければ error になる
 （停止宣言の欠落は verify で失敗＝レビューを待たずに検知する）。
 
-## proactive 閉ループ（前半円＋後半円）
+## proactive 閉ループ（前半＝検知→起票／後半＝修正→検証）
 
-proactive（event/schedule＋goal の合成）は 2 つの半円からなる：
-**前半円**（監視→冪等起票）は `agent monitor --file-issue` で実装済み。**後半円**（issue→修正→検証緑で
+proactive（event/schedule＋goal の合成）は 2 つの半分からなる：
+**前半**（監視→冪等起票）は `agent monitor --file-issue` で実装済み。**後半**（issue→修正→検証緑で
 close）は新しいコード・新しい CLI を足さずに、既存の合否判定（`issues.run_checks` の不変条件＋monitor の
 再起票）だけで閉じる。
 
 ### フロー（maker-checker＝作る側と確かめる側を分ける原則、の承認点つき）
 
-1. **front**：`agent monitor --file-issue` が帯（`non_end_turn_rate`）が要注意以上のとき決定的タイトルで
+1. **front**：`agent monitor --file-issue` が段階（`non_end_turn_rate`）が要注意以上のとき決定的タイトルで
    冪等に起票する（exit 0 のまま・処理を止めない）。
 2. **[承認点 1] 人の triage**：`uv run issue list --open` で open 課題を拾い、対処するか
    （`promoted_to` にタスク ID を書いて in-progress にする）見送るか（`wontfix`＋「## 理由」）を人が決める。
@@ -335,8 +335,8 @@ close）は新しいコード・新しい CLI を足さずに、既存の合否�
 常にこの 2 つ：
 
 - (i) `promoted_to` タスクが **done**（`issues.run_checks` が resolved⟺done の不変条件を機械強制）。
-- (ii) 次回の `agent monitor --file-issue` で帯が「安定」に戻り**再起票されない**。resolved 後も帯が悪ければ
-  同じ決定的タイトルで新しい課題が立つ＝「再起票＝goal 未達の機械判定」（前半円が後半円の checker を兼ねる）。
+- (ii) 次回の `agent monitor --file-issue` で段階が「安定」に戻り**再起票されない**。resolved 後も段階が悪ければ
+  同じ決定的タイトルで新しい課題が立つ＝「再起票＝goal 未達の機械判定」（前半が後半の checker を兼ねる）。
 
 停止（いつ routine 自体を止めるか）は上の「停止（stop）」節の規律にそのまま合流する（重複記述しない）。
 

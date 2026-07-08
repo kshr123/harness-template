@@ -3,7 +3,7 @@
 期待値の導き方：自リポの実テンプレート（templates/ci/）を「生きた fixture」として tmp_path にコピーし、
 既知の 1 箇所（verify step・python-version・--all-extras）を意図的に壊す→壊した箇所が名指しで error に
 なることを確かめる（変異ガード。deploy_lint のテストと同型）。error の件数・文言は「何を壊したか」の
-構成から導く（実装の出力をコピーした固定値ではない＝金メッキ禁止）。
+構成から導く（実装の出力をコピーした固定値ではない＝ハードコード期待値禁止）。
 GitHub Actions もネットワークも使わない（実行しない・構造検査のみ）。
 """
 
@@ -56,7 +56,7 @@ def test_no_templates_ci_no_problems(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_repo_template_passes() -> None:
-    # 自リポの出荷テンプレートは 0 件で通る＝「生きた fixture」（verify のたびに腐りを検知する回帰の番人）。
+    # 自リポの出荷テンプレートは 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰の番人）。
     assert ci_lint.run_checks(REPO_ROOT) == []
 
 
@@ -178,7 +178,7 @@ def test_retrain_template_out_of_order_steps_flagged(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_repo_retrain_template_passes() -> None:
-    # 自リポ同梱の retrain.yml が表（_WORKFLOWS）に載っていて（検査対象で空振りでない）、0 件で通る（腐り番人）。
+    # 自リポ同梱の retrain.yml が表（_WORKFLOWS）に載っていて（検査対象で空振りでない）、0 件で通る（陳腐化番人）。
     assert RETRAIN in {spec.rel for spec in ci_lint._WORKFLOWS}
     assert (TEMPLATES / RETRAIN).is_file()
     assert ci_lint.run_checks(REPO_ROOT) == []

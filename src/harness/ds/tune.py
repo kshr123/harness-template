@@ -1,4 +1,4 @@
-"""ハイパラ探索の継ぎ目（*SearchCV でモデルを包む＝sklearn 素通し）。
+"""ハイパラ探索の拡張ポイント（*SearchCV でモデルを包む＝sklearn 素通し）。
 
 - SearchCV を **model 段**に被せるだけ：`cv.run_cv` が fold ごとに clone→fit する既存構造がそのまま
   **nested CV**（外側=run_cv の fold・内側=SearchCV の cv）になり、リークなしのチューニングが追加コード無しで手に入る。

@@ -3,7 +3,7 @@
 モデル配信の「その後」＝運用を扱うプロファイル。中身は 4 つ：CI の verify ゲート、継続学習
 （CT＝Continuous Training。定期的な再学習の自動化）、リリース戦略（Blue-Green・Canary）、
 監視から課題起票までの閉ループ。運用の実行基盤（GitHub Actions・k8s・クラウド）そのものは動かさず、
-利用者がコピーして使うテンプレートと、その腐りを止める静的検査だけを持つ。案件の運用を組む・CI/CT の
+利用者がコピーして使うテンプレートと、その陳腐化を止める静的検査だけを持つ。案件の運用を組む・CI/CT の
 雛形を使うエンジニアが読む Reference。
 
 実装は `src/harness/ops/`：`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
@@ -31,7 +31,7 @@ ci_lint はネットワーク 0・依存は stdlib＋pyyaml のみ。`templates/
 GitHub ランナー・k8s・クラウド基盤の実装／A/B テスト（実トラフィックの出し分け）／streaming（Kafka 等）／
 S3・GCS の実装／retry・timeout・circuit breaker／オンライン特徴量ストア／prediction cache／gRPC。
 いずれも対象範囲（ML ライフサイクル全体）の内側だが、実行時の重い基盤は
-利用者環境の関心なので順序で後回しにする（差し替え口だけ用意し、実需要が出るまで作らない）。
+利用者環境の関心なので順序で後回しにする（拡張ポイントだけ用意し、実需要が出るまで作らない）。
 
 ## CI（verify ゲート）テンプレートと ci_lint
 
@@ -46,7 +46,7 @@ S3・GCS の実装／retry・timeout・circuit breaker／オンライン特徴�
   `uv sync --all-extras` → `uv run verify`。完了の定義を CI とローカルで一致させる。
 
 ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に自動で乗る・CLI は持たない）は、
-この雛形を**実行せずに**構造検査して腐りを止める。error になるのは：
+この雛形を**実行せずに**構造検査して陳腐化を止める。error になるのは：
 
 - 必須ファイル（`.github/workflows/verify.yml`）の欠落＝複製先がゲート無しで始まってしまう。
 - `uv run verify` を実行する step が無い＝ゲートの本体が抜けた雛形。
@@ -70,16 +70,16 @@ ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に
 
 コピペ手順・ロールバック手順・引用する k8s キーの正は `templates/serve/README.md` の「リリース戦略」2 節
 （Blue-Green・Canary）。節構造と引用キーの実在は `tests/test_release_docs.py` が verify で検査する
-（文書の腐りを止める）。実トラフィックの出し分け・外部指標収集を伴う A/B テストは配信基盤の関心＝やらない
+（文書の陳腐化を止める）。実トラフィックの出し分け・外部指標収集を伴う A/B テストは配信基盤の関心＝やらない
 （上の「やらないこと」）。
 
 ## shadow 配信
 
 `/predict` の **1 プロセス内分岐**で champion（primary）と
-shadow deployment（新版の並走・応答は返さずログだけ残す下見運用）を回す：
+shadow deployment（新版を並走させ、応答は返さずログだけ残す運用）を回す：
 
 - 応答は常に primary のみ。同じ入力の予測を `role: primary|shadow` の 2 行として同じ予測 JSONL に残す
-  （同じ `request_id`・`input_fingerprint` で突き合わせられる＝新版の本番下見）。
+  （同じ `request_id`・`input_fingerprint` で突き合わせられる＝新版を本番トラフィックで評価できる）。
 - 有効化は env（`SERVE_SHADOW_NAME` ほか）だけ。未設定なら従来どおり。
 - shadow の失敗は primary に波及させない（ベストエフォート）。
 - 契約（env・JSONL の `role`・失敗時の方針）の正本は `docs/serve.md` の「shadow 配信」節と契約表。
@@ -101,7 +101,7 @@ shadow deployment（新版の並走・応答は返さずログだけ残す下見
 - **再学習**＝実験雛形の `code/train.py`（config→学習→評価→保存→results/ を一気通貫。作り方は
   experiment スキル。学習コードをワークフローに書かない＝config.yaml が変種・モデル・データの正本）。
 - **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**処理を止めない**：分布ずれは
-  band（安定/要注意/大変化の 3 段の帯）で人が読み、exit 0（基準テーブルが
+  band（安定/要注意/大変化 の 3 段階）で人が読み、exit 0（基準テーブルが
   読めないときだけ非 0）。ドリフトの解釈は文脈依存で、誤検知の自動停止は再学習ループ全体を止めてしまう
   ため。閉ループ（大変化での課題起票）は `--file-issue` を付けて接続する（下の「監視→課題起票の閉ループ」節）。
 - **採用**＝`harness.ds.models.promote_model` が唯一の合否判定：絶対
@@ -111,7 +111,7 @@ shadow deployment（新版の並走・応答は返さずログだけ残す下見
   step が落ちる＝採用なし（意図した停止）。
 
 verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を error にしない**（CT を回さない複製先を
-誤検知しない）。在るときだけ次を静的検査して腐りを止める（`_WORKFLOWS` の表の `required=False` の 1 行。
+誤検知しない）。在るときだけ次を静的検査して陳腐化を止める（`_WORKFLOWS` の表の `required=False` の 1 行。
 存在検査＝`required`、内容検査＝`required_runs`、順序＝`ordered`、トリガ＝`required_triggers` を表の列で
 区別する）：
 
@@ -129,7 +129,7 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
   cron 削除（停止規律の正本は `docs/agent.md` の time-based routine の停止節＝T-0097。重複記述しない）。
 - **policy**：`retrain.yml`（結線の正本・ci_lint が構造検査）×実験フォルダの `config.yaml`（何を再学習
   するか）×thresholds/primary（合格ライン）。
-- **周回（閉ループ）**：前半円＝`data monitor --file-issue`（ドリフト→冪等起票・exit 0）、後半円＝
+- **周回（閉ループ）**：前半＝`data monitor --file-issue`（ドリフト→冪等起票・exit 0）、後半＝
   schedule→train→promote 合否判定。agent 版 proactive 閉ループ（`docs/agent.md` の proactive 節＝T-0098）と
   対称（重複記述しない）。
 - **同型性＋実装非共有**：agent の goal ゲート（`GoalGate`＝`AGENT_METRICS`＋agent `eval.passes`）と
@@ -159,9 +159,9 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 
 詳細：
 
-- **冪等**：課題本文の「監視指紋」（基準テーブル id×大変化の列集合の正準 JSON の sha256＝
+- **冪等**：課題本文の監視 fingerprint（内容ハッシュ。基準テーブル id×大変化の列集合の正準 JSON の sha256＝
   `harness.fingerprint.input_fingerprint`）を open / in-progress の課題と照合し、既にあれば起票しない
-  （`起票済み: ISS-xxxx` と 1 行出すだけ）。psi 値・日付は指紋に**含めない**＝同じドリフト事象の再実行・
+  （`起票済み: ISS-xxxx` と 1 行出すだけ）。psi 値・日付は fingerprint に**含めない**＝同じドリフト事象の再実行・
   翌日の再実行で重複起票しない。列集合が変われば別事象として新規に起票される。
 - **起票の中身**：タイトル・本文は決定的（対象列・psi 値・基準/ログの指定・日付）。対応すると決めたら
   `promoted_to` で作業単位（再学習・特徴の見直し）に結びつける（課題の生涯・検査は `uv run issue check`）。
