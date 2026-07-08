@@ -75,7 +75,7 @@ ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に
 
 ## shadow 配信
 
-`/predict` の **1 プロセス内分岐**で champion（primary）と
+`/predict` の **1 プロセス内分岐**で champion〔評価に合格して現在採用中の版〕（primary）と
 shadow deployment（新版を並走させ、応答は返さずログだけ残す運用）を回す：
 
 - 応答は常に primary のみ。同じ入力の予測を `role: primary|shadow` の 2 行として同じ予測 JSONL に残す
@@ -100,7 +100,7 @@ shadow deployment（新版を並走させ、応答は返さずログだけ残す
 
 - **再学習**＝実験雛形の `code/train.py`（config→学習→評価→保存→results/ を一気通貫。作り方は
   experiment スキル。学習コードをワークフローに書かない＝config.yaml が変種・モデル・データの正本）。
-- **ドリフト確認**＝`uv run data monitor --baseline <テーブル id>`。**処理を止めない**：分布ずれは
+- **ドリフト確認**（ドリフト＝配信後に入力データの分布が学習時からずれること）＝`uv run data monitor --baseline <テーブル id>`。**処理を止めない**：分布ずれは
   band（安定/要注意/大変化 の 3 段階）で人が読み、exit 0（基準テーブルが
   読めないときだけ非 0）。ドリフトの解釈は文脈依存で、誤検知の自動停止は再学習ループ全体を止めてしまう
   ため。閉ループ（大変化での課題起票）は `--file-issue` を付けて接続する（下の「監視→課題起票の閉ループ」節）。
@@ -159,7 +159,7 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 
 詳細：
 
-- **冪等**：課題本文の監視 fingerprint（内容ハッシュ。基準テーブル id×大変化の列集合の正準 JSON の sha256＝
+- **冪等**：課題本文の監視 fingerprint（同じドリフト事象を一意に表す短い識別子。基準テーブル id×大変化の列集合の正準 JSON〔キー順・区切りを固定した JSON〕の sha256＝
   `harness.fingerprint.input_fingerprint`）を open / in-progress の課題と照合し、既にあれば起票しない
   （`起票済み: ISS-xxxx` と 1 行出すだけ）。psi 値・日付は fingerprint に**含めない**＝同じドリフト事象の再実行・
   翌日の再実行で重複起票しない。列集合が変われば別事象として新規に起票される。

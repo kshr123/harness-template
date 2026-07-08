@@ -15,7 +15,7 @@ ds プロファイルを**理解したい・拡張したいエンジニア**（�
    保存形式…）はレジストリに登録し、config は名前で選ぶだけ。一覧コマンドはレジストリから機械生成なので、
    実装と常に一致する。新しい部品は 1 行の登録で、一覧・config・実験のすべてに載る。
 3. **やることは「宣言」で決める**。何を学習するかは config（YAML）、テーブルの形は `docs/data/` の YAML、
-   モデルの由来（provenance＝どの版・何から作ったか）は保存時の manifest。コードは「読むだけ」で、案件ごとに変えるのは宣言のほう。
+   モデルの由来（provenance＝どの版・何から作ったか）は保存時の manifest（保存物に付く由来書き＝版・作成元データ・形式などのメタデータ 1 枚）。コードは「読むだけ」で、案件ごとに変えるのは宣言のほう。
 4. **業界標準を再発明しない**。指標・データ分割・前処理は scikit-learn、数値計算は numpy。自作するのは
    sklearn に無い隙間だけ（`features.py`）。判断軸は「sklearn が十分うまくやっているか」＝OneHot や PCA など
    sklearn が良くやるものは作らず直接使い、list 列の multi-hot・多キー結合などの隙間だけ作る。
@@ -85,7 +85,7 @@ ds プロファイルを**理解したい・拡張したいエンジニア**（�
 | テーブルの形（列・型・キー） | `docs/data/*.yaml` | `schema.py`（検査） |
 | 何を学習するか（データ・特徴・モデル・閾値） | 実験フォルダの `config.yaml` | `templates/experiment/train.py`（雛形・触らない） |
 | 使える部品の在庫 | —（機械生成） | 各ファイルのレジストリ → `uv run data <一覧>` |
-| モデルの由来（provenance＝版・fingerprint・指標・依存・保存形式） | —（保存時に自動） | `models.py` の manifest（`format` で load 分岐） |
+| モデルの由来（provenance＝版・fingerprint〔中身から計算した識別子〕・指標・依存・保存形式） | —（保存時に自動） | `models.py` の manifest（`format` で load 分岐） |
 | 採用の合否ライン | `config.yaml` の `thresholds` | `eval.py` の `passes`（champion 昇格の絶対条件） |
 
 ## 拡張ポイント（新しい部品はレジストリに 1 行）

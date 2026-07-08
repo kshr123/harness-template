@@ -85,7 +85,7 @@ goal は**宣言（YAML）が正本**（読み込みは `agent/goal.py` の `goa
 `expected`・`metrics`（既定 `["exact_match"]`）・`thresholds`・`judge`（judge 系 metric を使うときだけ）：
 
 ```yaml
-expected: "手順が番号付きで3段になっていること"   # rubric（llm_judge の y_true 経路）
+expected: "手順が番号付きで3段になっていること"   # rubric＝合否を測る採点基準の文章（llm_judge の y_true 経路）
 metrics: [llm_judge]
 thresholds:
   llm_judge: 0.7

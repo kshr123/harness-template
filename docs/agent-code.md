@@ -15,7 +15,7 @@
 3. **決定性は effort 固定＋無ネットワークで作る**。現行モデルは temperature を受け付けないため、`AgentSpec` は
    temperature を持たず、再現性の軸は effort（推論の深さ）を宣言に固定して作る。検証（verify）は実 API を使わず
    dummy（合成応答）と cassette（記録再生）だけで全機能を回す（ネットワーク 0）。
-4. **ライフサイクルは ML と同型**：**宣言 → golden set で採点 → 合否 → 保存 → 採用（champion） → 配信 → 監視**。
+4. **ライフサイクルは ML と同型**：**宣言 → golden set（期待する出力を添えた評価例の集合）で採点 → 合否 → 保存 → 採用（champion＝現在の採用版） → 配信 → 監視**。
    ds の「モデルを作って選ぶ」と同じ形を、モデルの代わりに宣言で回す。
 5. **中核とプロファイルの境界**。中核（`src/harness/`）は agent を知らない。agent は config
    （`profiles=[..., "harness.agent"]`）経由でだけ現れる。anthropic/fastapi はプロファイル経路の外では import

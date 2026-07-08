@@ -7,9 +7,9 @@
 
 ## 設計の芯
 
-1. **配信は「読むだけ」**。registry（保存済みの版の登録簿）から現 champion を解決して FastAPI で出す。学習も
+1. **配信は「読むだけ」**。registry（保存済みの版の登録簿）から現 champion（評価に合格して現在採用中の版）を解決して FastAPI で出す。学習も
    保存もしない＝ds が作ったものを配るだけ（起動時に champion を読み込み、無ければ明示エラーで止まる）。
-2. **予測は由来つき JSONL に記録する**。1 予測行の形（`PREDICTION_LOG_FIELDS`）が唯一の契約で、後段の監視
+2. **予測は由来つき（その予測がどの版のモデル・どの入力から出たかを後から辿れる情報つき）JSONL に記録する**。1 予測行の形（`PREDICTION_LOG_FIELDS`）が唯一の契約で、後段の監視
    （`data monitor`）はこれだけに依存する。キーの増減＝契約変更＝この定数・docs/serve.md の表・消費側を同時に直す。
 3. **応答スキーマは不変**。新版の shadow 配信は env で有効化し、応答は常に primary のみ・shadow は
    JSONL に `role: "shadow"` 行を足すだけ（後方互換のキー追加）。
@@ -56,6 +56,6 @@
 serve は ds のような「部品レジストリ」を持たない（固定の FastAPI サーバ）。広げるときの拡張ポイントは次のとおり：
 
 - **予測ログにキーを足す** … `PREDICTION_LOG_FIELDS`（`runtime.py`）・docs/serve.md の表・監視の消費側を**同時に**直す。
-- **新版の shadow / canary** … env（`SERVE_SHADOW_*`）で分岐（新 CLI は足さない）。応答スキーマは変えない。
+- **新版の shadow / canary**（shadow＝新版を並走させ応答は返さずログだけ残す／canary＝新版に少量の本番流量だけ流して様子を見る）… env（`SERVE_SHADOW_*`）で分岐（新 CLI は足さない）。応答スキーマは変えない。
 - **可搬な保存形式** … serve は ds の保存形式（`FORMATS`）をそのまま読む＝形式追加は ds 側（`docs/ds-code.md`）。
 - **配布のテンプレート** … `templates/serve/` に足し、`deploy_lint` の構造検査に載せる。

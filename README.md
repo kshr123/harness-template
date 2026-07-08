@@ -28,8 +28,8 @@ uv run issue list       # 課題の一覧（issue check：作業単位との紐�
 uv run data list        # テーブル定義の一覧（data lint：定義の静的検査）
 uv run verify           # 完了判定（作業単位＋課題＋テーブル定義の検査＋ruff＋mypy＋pytest）
 uv run data --help      # DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。正本は docs/ds.md）
-uv run serve --help     # 配信プロファイルを使い始めるコマンド（champion の FastAPI 配信。正本は docs/serve.md）
-uv run agent --help     # LLMOps プロファイルを使い始めるコマンド（AgentSpec の評価・カタログ。正本は docs/agent.md）
+uv run serve --help     # 配信プロファイル。champion（評価に合格して現在採用中のモデルの版）を Web API で配信（正本は docs/serve.md）
+uv run agent --help     # LLM エージェントの開発・運用プロファイル。AgentSpec（エージェントを宣言する YAML）を評価（正本は docs/agent.md）
 uvx pre-commit run --all-files   # コミット直前の検査
 ```
 
@@ -42,7 +42,7 @@ uvx pre-commit run --all-files   # コミット直前の検査
   - `work/<エピック>/<実験>/` … 実験は自分のフォルダに仮説・設定・結果を同居（`E-…`）
 - `src/<pkg>/` … 再利用する共有コード（データ分割・評価・特徴量・テーブル定義など）／`tests/` … その単体テスト
 - `.harness/config.toml` … 置き場の切り替え（データ・課題・メタデータの各URI）／`.harness/templates/` … 文書の型
-- `data/` … データ実体（正本は config の保存先URI・不変・内容ハッシュ（fingerprint）で同一性を管理・コミットしない）
+- `data/` … データ実体（正本は config の保存先URI。中身は変えず、fingerprint（中身から計算する短い識別子。中身が 1 か所でも変われば必ず変わるので、同じデータか・すり替わっていないかを照合できる）で同一性を管理する。コミットしない）
 - `STATUS.md` … 全単位の進捗＋人の判断待ち（自動生成・コミットしない）
 
 計画は近い作業だけ先に詳しくする：着手が近いエピックだけ直前に分解する。まだ分解していない状態は正常。

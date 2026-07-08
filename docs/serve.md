@@ -1,7 +1,8 @@
 # serve — 学習済みモデルの配信（FastAPI）と予測ログの契約
 
 学習済みモデルの現在の採用版（champion）を FastAPI の予測 API として配信し、
-すべての予測を由来つきの JSONL（prediction log＝予測ログ）へ記録する
+すべての予測を由来つき（その予測がどの版のモデル・どの入力から出たかを後から辿れる情報つき）の
+JSONL（1 行に 1 件の JSON を並べたテキスト形式。prediction log＝予測ログ）へ記録する
 プロファイル。配れるのは registry（保存済みの版の登録簿）で
 採用（評価の合否判定を通って champion になること）済みの版だけ。
 モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
@@ -23,7 +24,7 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 ## エンドポイント（契約）
 
 - `GET /health` … `{"status": "ok", "model": {"work", "name", "version"}}`（何が載っているかまで返す）。
-- `GET /metadata` … モデル manifest の構造化（work/name/version/format/fingerprint/data_fingerprint/
+- `GET /metadata` … モデル manifest（保存物に付く由来書き＝版・作成元データ・形式などのメタデータ 1 枚）の構造化（work/name/version/format/fingerprint/data_fingerprint/
   feature_names/metrics/python/dependencies/created）＋ `prediction_kind`。
 - `POST /predict` … 本文 `{"records": [{列名: 値}, ...]}`（全行同じ列）。応答は
   `{"predictions", "prediction_kind", "model", "request_id", "n"}`。predictions の形は prediction_kind に応じる：
@@ -43,7 +44,7 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 | `time` | str | ISO 8601・UTC。同じリクエストの行は同じ値 |
 | `request_id` | str | uuid4 hex。同じリクエストの行は同じ値 |
 | `row` | int | リクエスト内の行番号（0 始まり） |
-| `model` | dict | `work`・`name`・`version`・`fingerprint`（str。モデル manifest と同じ由来） |
+| `model` | dict | `work`・`name`・`version`・`fingerprint`（str。中身から計算した短い識別子で、どのモデル実体かを一意に示す。manifest と同じ値） |
 | `prediction_kind` | str | `proba` \| `multiclass_proba` \| `value` |
 | `input_fingerprint` | str | features の正準 JSON（キー昇順・区切り最小）の sha256。`runtime.input_fingerprint(features)` で再計算できる |
 | `features` | dict | 列名→入力値（受信した record そのまま） |
