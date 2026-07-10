@@ -1,4 +1,4 @@
-"""テスト規約の機械検査（conventions lint・ISS-0002）。
+"""テスト規約の機械検査（conventions lint）。
 
 AGENTS のテスト規約のうち「レビュー観点」止まりだった規約を静的検査に昇格する（core・stdlib の ast のみ）。
 

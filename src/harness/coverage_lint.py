@@ -7,7 +7,8 @@ doclint（参照実在＝dead link）の逆向きを止める：**新しい能�
 方針（doclint と同じテキスト/AST 作法＝プロファイル境界を壊さない）:
 - 走査対象は **2 経路**：typer 装飾子（下記 ast 走査）＋ ルート `pyproject.toml` の `[project.scripts]` の
   キー（plain main。stdlib の tomllib で読む・無ければ読み飛ばす）。到達可能性の判定は両経路とも同一で、
-  同じトークンを両経路が拾っても error は 1 回だけ（ISS-0014＝plain main が検査の死角だった穴を塞ぐ）。
+  同じトークンを両経路が拾っても error は 1 回だけ（typer 装飾子を持たない plain main〔typer.run を呼ぶ
+  関数〕が導線検査の死角だった穴を、この 2 経路目で塞ぐ）。
 - `src/harness/**/cli.py` を **ast で解析**する（import しない＝ds/serve/agent の重い依存を引き込まない）。
   各関数の装飾子 `@<app>.command("name")` を全抽出し、app 変数名から `_app` を剥がして接頭辞を導出する
   （`data_app`→`data`・`issue_app`→`issue`・`serve_app`→`serve`）。`_app` で終わらない変数の `.command` は
@@ -91,7 +92,7 @@ def _command_tokens(path: Path) -> list[str]:
 def _script_tokens(root: Path) -> list[str]:
     """ルート `pyproject.toml` の `[project.scripts]` のキー（コマンド名）を到達可能性トークンとして返す。
 
-    plain main（typer.run 型・装飾子を持たない）も導線検査に載せる（ISS-0014）。読み取りは stdlib の
+    plain main（typer.run 型・装飾子を持たない）も導線検査に載せる（この経路が無いと死角になる）。読み取りは stdlib の
     tomllib だけ（重い依存・ネットワークゼロ）。ファイルが無ければ静かに読み飛ばす（既存作法と同じ）。
     """
     pyproject = root / "pyproject.toml"

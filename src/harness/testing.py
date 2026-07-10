@@ -16,7 +16,7 @@ PYRAMID = ("unit", "integration", "e2e")
 # マーカー式（-m の値）で名前でない語＝論理演算子。名前の抽出時に除く。
 _MARKER_EXPR_KEYWORDS = frozenset({"and", "or", "not"})
 
-# 止めているテストの目印。付けるときは reason に課題参照（ISS-<番号>）が必須（AGENTS・ISS-0002）。
+# 止めているテストの目印。付けるときは reason に課題参照（`ISS-<番号>`）が必須（AGENTS）。
 SKIP_MARKERS = frozenset({"skip", "skipif", "xfail"})
 
 _ISS_REF_RE = re.compile(r"\bISS-\d+\b")

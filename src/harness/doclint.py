@@ -2,7 +2,8 @@
 
 AGENTS.md・CLAUDE.md・docs/core.md・docs/method.md・docs/learnings.md・docs/template-copy.md・
 .claude/skills/**/*.md が持つ参照（ID 参照・相対パス・`uv run <サブコマンド>`）の実在を検査する。
-対象が消える／改名されると黙って死にリンクになる問題（ISS-0003）を機械で止める。core の検査（プロファイル非依存）。
+対象が消える／改名されると、正本ドキュメントの参照が黙って死にリンクになる。それを機械で止める。
+core の検査（プロファイル非依存）。
 stdlib のみに依存。
 
 方針（保守的抽出＝過検出より取りこぼしを許容）:
@@ -25,7 +26,7 @@ stdlib のみに依存。
   （例が古びて死にリンクになるのも正本ドリフト）。例示にダミーパスを使いたいときはプレースホルダ表記
   （XXXX・xxxx・0000 や `<...>`・`…`）にすること。
 
-ID 参照の実在検査（ISS-0001 等）:
+ID 参照の実在検査（`ISS-<番号>` 等）:
 - 接頭辞ごとに置き場ディレクトリを持つ（`_ID_HOMES`。ISS だけは `.harness/config.toml` の
   `issues.backend` で決まるので実行時に解決する＝github: backend なら検査しない）。
 - 置き場ディレクトリ自体が存在しない接頭辞への参照は、実体の有無に関わらずすべて error にする
@@ -134,7 +135,7 @@ def _id_homes(root: Path) -> dict[str, Path | None]:
 
 
 def _ref_file_exists(directory: Path, ref: str) -> bool:
-    """ID 参照（ISS-0001 等）の実体＝その番号で始まる .md がその置き場に在るか。"""
+    """ID 参照（`ISS-<番号>` 等）の実体＝その番号で始まる .md がその置き場に在るか。"""
     if not directory.is_dir():
         return False
     return any(p.name == f"{ref}.md" or p.name.startswith(f"{ref}-") for p in directory.glob(f"{ref}*.md"))
@@ -177,7 +178,7 @@ def _bare_path_refs(text: str) -> set[str]:
 
 
 def _id_ref_problems(rel: str, text: str, homes: dict[str, Path | None], root: Path) -> list[pm.Problem]:
-    """ID 参照（ISS-0001 等）の実在を、接頭辞ごとの置き場（homes）で検査する。
+    """ID 参照（`ISS-<番号>` 等）の実在を、接頭辞ごとの置き場（homes）で検査する。
 
     置き場が None（ISS の github backend）は検査しない。置き場ディレクトリ自体が無ければ、
     その接頭辞への参照はすべて error（仕組みを撤去したのに参照が残っている状態を検出する）。

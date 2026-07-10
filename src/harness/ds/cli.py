@@ -440,7 +440,7 @@ def _data_predict(
         if proba.ndim == 1:  # 二値＝陽性（ラベル 1）確率の 1 列
             pred_cols = {"prediction": proba}
             prediction_kind = "proba"
-        else:  # 多クラス＝クラス数ぶんの確率列（陽性 1 列に潰すと黙って誤る＝ISS-0009 の教訓）
+        else:  # 多クラス＝クラス数ぶんの確率列（陽性 1 列に潰すと黙って誤るので全列を出す）
             pred_cols = {f"proba_{i}": proba[:, i] for i in range(proba.shape[1])}
             prediction_kind = "multiclass_proba"
     else:  # 回帰＝predict の値
