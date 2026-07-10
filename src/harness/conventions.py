@@ -150,7 +150,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
             problems.append(
                 pm.Problem(
                     "error",
-                    f"{rel}:{lineno}: pytest.skip/xfail は理由に ISS 参照（ISS-1234）が必須（なぜ止め いつ戻すか）",
+                    f"{rel}:{lineno}: pytest.skip/xfail は理由に ISS 参照（ISS-xxxx）が必須（なぜ止め いつ戻すか）",
                 )
             )
         if is_work_code and _uses_argparse(tree) and not _has_test_flag(tree):

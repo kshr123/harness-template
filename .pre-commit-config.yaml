@@ -34,7 +34,7 @@ repos:
         # 偽陽性の免除は `.gitleaksignore`（fingerprint 単位・理由コメント必須＝test_guardrails が検査）。
         entry: gitleaks dir --redact --no-banner --verbose .
         pass_filenames: false
-  # 検査委譲の関門（DEC-0021）：GitHub Actions workflow の汎用形式（構文・式・cron・schema 準拠）は
+  # 検査委譲の関門：GitHub Actions workflow の汎用形式（構文・式・cron・schema 準拠）は
   # 既製バリデータへ委譲し、自前 lint（schedule_lint/ci_lint）はプロジェクト固有意味論だけに残す。
   # 対象は当リポの workflow 雛形（templates/ci/.github/workflows/*.yml・templates/schedule/monitor.yml）。
   # 公式既定の `files: ^\.github/workflows/` のままだと当リポには実workflow が無く vacuous pass（何も

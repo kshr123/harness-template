@@ -40,7 +40,7 @@ onnx = ["skl2onnx>=1.20", "onnxruntime>=1.27", "onnx>=1.22"]
 # 配信イメージを可搬にするなら onnx も: uv sync --extra ds --extra serve --extra onnx
 serve = ["fastapi>=0.139", "uvicorn>=0.50"]
 # LLMOps プロファイル（harness.agent）。実プロバイダ（Anthropic SDK）＋配信（fastapi/uvicorn＝agent serve）。
-# verify 経路は dummy/cassette で無ネットワークのまま（DEC-0015）。導入例: uv sync --extra agent
+# verify 経路は dummy/cassette で無ネットワークのまま。導入例: uv sync --extra agent
 agent = ["anthropic>=0.40", "fastapi>=0.139", "uvicorn>=0.50"]
 
 [project.scripts]
@@ -50,7 +50,7 @@ check = "harness.cli:check_main"
 status = "harness.cli:status_main"
 task-lint = "harness.cli:task_lint_main"
 issue = "harness.cli:issue_main"
-# data は DS プロファイルの CLI（プロファイル境界・DEC-0004。中核 CLI とはモジュールを分ける）。
+# data は DS プロファイルの CLI（プロファイル境界。中核 CLI とはモジュールを分ける）。
 data = "harness.ds.cli:data_main"
 changelog = "harness.cli:changelog_main"
 # commit-msg フックの実体（引数＝git が渡すメッセージファイルのパス。有効化は AGENTS.md コマンド節参照）。

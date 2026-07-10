@@ -32,14 +32,30 @@ def _infos(root: Path) -> list[str]:
     return [p.message for p in doclint.run_checks(root) if p.level == "info"]
 
 
-# --- DEC は検査対象でない（EP-26 で決定記録を廃止＝現在のルールに畳んだ） ---
+# --- ID 参照の実在検査（接頭辞ごとの置き場登録簿。T-0165） ---
 
 
-def test_dec_like_string_is_not_checked_and_decisions_dir_absent_is_ok(tmp_path: Path) -> None:
-    # docs/decisions/ を持たないプロジェクトで、DEC- 風の文字列があっても doclint は何も指摘しない
-    # （DEC 参照の実在検査は撤去済み）。ISS・パス・コマンドの検査は従来どおり働く。
-    _doc(tmp_path, "AGENTS.md", "旧様式の ような語があっても検査しない。")
-    assert doclint.run_checks(tmp_path) == []
+def test_req_reference_with_existing_home_and_missing_file_is_error(tmp_path: Path) -> None:
+    # docs/requirements/ は在るが REQ-9999 の実体が無い＝error。
+    (tmp_path / "docs" / "requirements").mkdir(parents=True)
+    _doc(tmp_path, "AGENTS.md", "要件 REQ-9999 を満たす。")
+    assert any("REQ-9999" in m for m in _errors(tmp_path))
+
+
+def test_req_reference_with_existing_file_is_ok(tmp_path: Path) -> None:
+    _doc(tmp_path, "docs/requirements/REQ-001.md", "要件の本文。")
+    _doc(tmp_path, "AGENTS.md", "要件 REQ-001 を満たす。")
+    assert _errors(tmp_path) == []
+
+
+def test_reference_to_prefix_whose_home_dir_is_absent_is_error(tmp_path: Path) -> None:
+    # docs/decisions/ を撤去済みのプロジェクトで DEC-0001 を参照＝置き場自体が無いのですべて error
+    # （T-0165：仕組みを撤去したのに参照が残っている状態を検出する。docs/decisions/ を持たないのは
+    # このハーネス自体の現状＝EP-26 で廃止済み）。
+    assert not (tmp_path / "docs" / "decisions").exists()
+    _doc(tmp_path, "AGENTS.md", "設計判断は DEC-0001 を参照。")
+    errors = _errors(tmp_path)
+    assert any("DEC-0001" in m and "docs/decisions" in m for m in errors)
 
 
 # --- ISS 参照 ---
@@ -95,6 +111,29 @@ def test_trailing_punctuation_is_stripped(tmp_path: Path) -> None:
     assert _errors(tmp_path) == []
 
 
+# --- 拡張子もスラッシュ終端も無いパス（T-0165：先頭 2 セグメントの実在で判定） ---
+
+
+def test_bare_path_with_missing_home_dir_is_error(tmp_path: Path) -> None:
+    # 拡張子なし・スラッシュ終端なしの参照は、これまで「判定に迷う」として素通りしていた
+    # （docs/decisions/DEC-0006 のような、仕組みを撤去した後の参照を見逃す穴）。
+    _doc(tmp_path, "AGENTS.md", "詳細は `templates/removed-experiment-kind` を見る。")
+    assert any("templates/removed-experiment-kind" in m for m in _errors(tmp_path))
+
+
+def test_bare_path_with_existing_home_dir_is_ok(tmp_path: Path) -> None:
+    (tmp_path / "templates" / "existing-kind").mkdir(parents=True)
+    _doc(tmp_path, "AGENTS.md", "詳細は `templates/existing-kind` を見る。")
+    assert _errors(tmp_path) == []
+
+
+def test_bare_path_candidate_with_non_ascii_segment_is_prose_not_flagged(tmp_path: Path) -> None:
+    # `docs/日本語の語` のような日本語の散文は _PATH_RE の \w（Unicode）に拾われるが、拡張子・末尾スラッシュを
+    # 持たない候補は全 ASCII のときだけ検査するので、パスでなく散文として扱われ error を出さない。
+    _doc(tmp_path, "AGENTS.md", "詳細は docs/日本語の語 を参照。")
+    assert _errors(tmp_path) == []
+
+
 # --- コマンド参照 ---
 
 
@@ -111,6 +150,51 @@ def test_known_commands_derived_from_pyproject_scripts(tmp_path: Path) -> None:
     _doc(tmp_path, "pyproject.toml", '[project]\nname = "x"\nversion = "0"\n[project.scripts]\nfoo = "x:main"\n')
     _doc(tmp_path, "AGENTS.md", "`uv run foo` と `uv run verify` を使う。")
     assert doclint.run_checks(tmp_path) == []
+
+
+def test_known_commands_derived_from_venv_scripts_on_windows(tmp_path: Path) -> None:
+    # Windows の venv は .venv/bin でなく .venv/Scripts（実行ファイルは拡張子付き＝pytest.exe 等）。
+    # p.stem（拡張子を除いた名前）で登録することを固定する（このバグで `uv run marimo` 等が
+    # 常に「既知のコマンドに無い」と info 報告されていた）。
+    scripts = tmp_path / ".venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "marimo.exe").write_text("", encoding="utf-8")
+    _doc(tmp_path, "AGENTS.md", "`uv run marimo` でノートブックを開く。")
+    assert doclint.run_checks(tmp_path) == []
+
+
+def test_known_commands_still_derived_from_venv_bin_on_posix(tmp_path: Path) -> None:
+    # posix の venv は .venv/bin（拡張子なし）。既存の経路を壊さないことも合わせて固定する。
+    bin_dir = tmp_path / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "marimo").write_text("", encoding="utf-8")
+    _doc(tmp_path, "AGENTS.md", "`uv run marimo` でノートブックを開く。")
+    assert doclint.run_checks(tmp_path) == []
+
+
+# --- src/**/*.py の文字列リテラル（T-0165：ID 参照だけを見る。コメントは対象外） ---
+
+
+def test_python_string_literal_with_dead_id_reference_is_error(tmp_path: Path) -> None:
+    _doc(
+        tmp_path,
+        "src/harness/example.py",
+        'def f() -> str:\n    return "設計の根拠は REQ-9999 を見る"\n',
+    )
+    errors = _errors(tmp_path)
+    assert any("src/harness/example.py" in m and "REQ-9999" in m for m in errors)
+
+
+def test_python_comment_with_dead_id_reference_is_not_checked(tmp_path: Path) -> None:
+    # コメントは ast に現れないので対象外（コメントには大量の暫定引用が残っており過検出の的になるため）。
+    _doc(tmp_path, "src/harness/example.py", "# 設計の根拠は REQ-9999 を見る\nx = 1\n")
+    assert _errors(tmp_path) == []
+
+
+def test_python_string_literal_with_existing_id_reference_is_ok(tmp_path: Path) -> None:
+    _doc(tmp_path, "docs/requirements/REQ-001.md", "要件の本文。")
+    _doc(tmp_path, "src/harness/example.py", 'x = "要件 REQ-001 に対応"\n')
+    assert _errors(tmp_path) == []
 
 
 # --- 対象ファイルの範囲 ---
