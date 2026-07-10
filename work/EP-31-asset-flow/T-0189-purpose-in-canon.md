@@ -11,7 +11,7 @@ verified_by:
   - tests/test_purpose.py::test_readme_states_the_purpose
   - tests/test_purpose.py::test_agents_names_the_three_levels_of_guarantee
   - tests/test_purpose.py::test_agents_says_repo_checks_do_not_prevent_tampering
-  - tests/test_doc_source_lint.py::test_real_repo_durable_docs_have_no_work_refs
+  - tests/test_doc_source_lint.py::test_real_repo_durable_assets_have_no_mutable_refs
 ---
 # T-0189 目的を正本に書く
 
