@@ -173,6 +173,38 @@ def test_promotion_relative_reject(make_project: Callable[..., Any], monkeypatch
         )
 
 
+def test_promotion_rejects_when_champion_lacks_the_primary_metric(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 過去の昇格と違う primary で昇格しようとすると、現 champion 側にその指標が無い。比較できない＝昇格しない
+    # （passes の「測っていない＝満たしたと見なさない」と同じ規約。KeyError で落ちてはいけない）。
+    _clock(monkeypatch, [_T1, _T2])
+    proj = make_project()
+    model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.85})
+    model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"log_loss": 0.40})
+    model_store.promote_model(
+        proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.80}, primary="roc_auc"
+    )
+    with pytest.raises(ValueError, match="log_loss"):
+        model_store.promote_model(
+            proj.root, work="E-0001", name="m", version=_V2, thresholds={"log_loss": 0.70}, primary="log_loss"
+        )
+    champ = model_store.champion(proj.root, work="E-0001", name="m")
+    assert champ is not None and champ.version == _V1  # champion は動いていない
+
+
+def test_promotion_rejects_when_candidate_lacks_the_primary_metric(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 候補側に primary が無いときの分岐（これまでテストが無かった）。champion 不在でも昇格しない。
+    _clock(monkeypatch, [_T1])
+    proj = make_project()
+    model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.90})
+    with pytest.raises(ValueError, match="log_loss"):
+        model_store.promote_model(proj.root, work="E-0001", name="m", version=_V1, thresholds={}, primary="log_loss")
+    assert model_store.champion(proj.root, work="E-0001", name="m") is None
+
+
 def test_promotion_direction_resolved_from_registry(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

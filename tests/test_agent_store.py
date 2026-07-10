@@ -122,6 +122,40 @@ def test_same_version_is_rejected(make_project: Callable[..., Any], monkeypatch:
         store.save_agent(proj.root, _spec(), work="E-9003", name="helper", metrics={})
 
 
+@pytest.mark.integration
+def test_promote_rejects_when_champion_lacks_the_primary_metric(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 過去の昇格と違う primary（llm_judge）に切り替えると、現 champion 側にその指標が無い。
+    # 比較できない＝昇格しない（KeyError で落ちてはいけない）。
+    _clock(monkeypatch, [_T1, _T2])
+    proj = make_project()
+    store.save_agent(proj.root, _spec(), work="E-9005", name="helper", metrics={"exact_match": 0.8})
+    store.save_agent(proj.root, _spec(), work="E-9005", name="helper", metrics={"llm_judge": 0.9})
+    store.promote_agent(
+        proj.root, work="E-9005", name="helper", version=_V1, thresholds={"exact_match": 0.5}, primary="exact_match"
+    )
+    with pytest.raises(ValueError, match="llm_judge"):
+        store.promote_agent(
+            proj.root, work="E-9005", name="helper", version=_V2, thresholds={"llm_judge": 0.5}, primary="llm_judge"
+        )
+    champ = store.champion(proj.root, work="E-9005", name="helper")
+    assert champ is not None and champ.version == _V1  # champion は動いていない
+
+
+@pytest.mark.unit
+def test_promote_rejects_when_candidate_lacks_the_primary_metric(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 候補側に primary が無いときの分岐（これまでテストが無かった）。champion 不在でも昇格しない。
+    _clock(monkeypatch, [_T1])
+    proj = make_project()
+    store.save_agent(proj.root, _spec(), work="E-9006", name="helper", metrics={"exact_match": 0.9})
+    with pytest.raises(ValueError, match="llm_judge"):
+        store.promote_agent(proj.root, work="E-9006", name="helper", version=_V1, thresholds={}, primary="llm_judge")
+    assert store.champion(proj.root, work="E-9006", name="helper") is None
+
+
 @pytest.mark.unit
 def test_promote_rejects_unknown_primary(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
     _clock(monkeypatch, [_T1])

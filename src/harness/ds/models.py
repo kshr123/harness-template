@@ -486,6 +486,10 @@ def promote_model(
     previous = None
     if champ is not None:
         previous = champ.version
+        if primary not in champ.metrics:
+            # 過去の昇格と違う primary に切り替えた場合。測っていない指標では比較できない＝昇格しない
+            # （passes の「測っていない＝満たしたと見なさない」と同じ規約。KeyError で落ちない）。
+            raise ValueError(f"primary 指標 '{primary}' が現 champion（{champ.version}）の metrics に無い")
         if direction:
             better = record.metrics[primary] > champ.metrics[primary]
         else:
