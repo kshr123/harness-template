@@ -228,14 +228,16 @@ def _script_refs(run: str) -> list[str]:
 
 
 def _check_script_refs(problems: list[pm.Problem], root: Path, base: Path) -> None:
-    """templates/ci/**/*.yml（_WORKFLOWS 表の対象外も含む全ファイル）の run が参照する .py の実在を検査する。
+    """templates/ci 配下の workflow（_WORKFLOWS 表の対象外も含む）の run が参照する .py の実在を検査する。
 
     複製時に消えるフォルダ（例 work/…）を指したまま・移設先がずれたままの雛形は、実行して初めて
     FileNotFoundError で気づくことが多い。ci_lint は実行しないので、参照の実在だけを静的に確かめる。
+    GitHub Actions は .yml と .yaml の両方を workflow として読むため、両方を走査する。
     """
     import yaml
 
-    for path in sorted(base.rglob("*.yml")):
+    workflows = sorted(p for p in base.rglob("*") if p.suffix in (".yml", ".yaml"))
+    for path in workflows:
         try:
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
         except yaml.YAMLError:

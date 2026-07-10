@@ -35,3 +35,6 @@ data/cache/
 data/**/models/
 mlruns/
 mlflow.db
+
+# エージェントの作業用 worktree（一時的。リポジトリに含めない）
+.claude/worktrees/

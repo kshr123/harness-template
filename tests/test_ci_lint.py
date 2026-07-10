@@ -204,6 +204,20 @@ def test_missing_script_reference_flagged(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_yaml_extension_workflow_is_scanned(tmp_path: Path) -> None:
+    # GitHub Actions は .yml と .yaml の両方を読む。.yaml の雛形も同じ検査を受ける（拡張子で抜けない）。
+    root = _copy_templates(tmp_path)
+    workflows = root / "templates" / "ci" / ".github" / "workflows"
+    (workflows / "extra.yaml").write_text(
+        "on: {push: {}}\njobs:\n  j:\n    steps:\n      - run: uv run python scripts/absent.py\n",
+        encoding="utf-8",
+    )
+    errors = _errors(root)
+    assert len(errors) == 1
+    assert "scripts/absent.py" in errors[0] and "extra.yaml" in errors[0]
+
+
+@pytest.mark.unit
 def test_existing_script_reference_not_flagged(tmp_path: Path) -> None:
     # 実在するスクリプトへの参照は指摘しない（誤検知しない）。templates/experiment/train.py は fixture が置く。
     root = _copy_templates(tmp_path)
