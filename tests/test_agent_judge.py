@@ -160,6 +160,28 @@ def test_goal_from_mapping_unknown_key_raises() -> None:
 
 
 @pytest.mark.unit
+def test_goal_from_mapping_empty_thresholds_raises() -> None:
+    # thresholds: {} を明示しても書き忘れと同じ扱い（空は無意味＝停止のゲートが無い）。
+    with pytest.raises(ValueError, match="thresholds"):
+        goal_from_mapping({"expected": "正解", "thresholds": {}})
+
+
+@pytest.mark.unit
+def test_goal_from_mapping_missing_thresholds_key_raises() -> None:
+    # thresholds キーそのものが無い（書き忘れ）も同じ ValueError（黙って {} に倒れない）。
+    with pytest.raises(ValueError, match="thresholds"):
+        goal_from_mapping({"expected": "正解"})
+
+
+@pytest.mark.unit
+def test_goal_from_mapping_nonempty_thresholds_still_passes_through() -> None:
+    # 非空の thresholds は従来どおり通る（既存の goal.yaml の雛形・テストを壊さない）。
+    goal, judge_decl = goal_from_mapping({"expected": "正解", "thresholds": {"exact_match": 1.0}})
+    assert goal.thresholds == {"exact_match": 1.0}
+    assert judge_decl is None
+
+
+@pytest.mark.unit
 def test_goal_from_mapping_judge_metric_requires_judge_section() -> None:
     # judge 系 metric なのに judge: 節が無い → ValueError
     with pytest.raises(ValueError, match="judge"):
