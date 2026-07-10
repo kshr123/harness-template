@@ -526,7 +526,9 @@ def _data_promote(
     work: Annotated[str, typer.Option(help="作業単位ID（保存先 work/<work>/models/…）")],
     name: Annotated[str, typer.Option(help="モデル名")],
     version: Annotated[str, typer.Option(help="昇格候補の版（UTC タイムスタンプ）")],
-    primary: Annotated[str, typer.Option(help="change_threshold で比べる指標（METRICS の kind・向きはレジストリが正本）")],
+    primary: Annotated[
+        str, typer.Option(help="change_threshold で比べる指標（METRICS の kind・向きはレジストリが正本）")
+    ],
     threshold: Annotated[
         list[str], typer.Option("--threshold", help="value_threshold の閾値 名=値（繰り返し可。例: roc_auc=0.8）")
     ],

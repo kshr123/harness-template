@@ -225,8 +225,13 @@ T-0091 で `serve/runtime.py` から移設）。agent は serve を import し�
 uv run agent promote --work E-0101 --name helper --version 20260706T090000000000Z \
     --primary exact_match --threshold exact_match=0.8      # 合否判定で落ちたら非ゼロ終了（メッセージに理由）
 uv run agent champion --work E-0101 --name helper           # 現 champion（版＋metrics＋prompt_fingerprint）
+uv run agent rollback --work E-0101 --name helper --reason "本番で劣化"  # 前の champion へ戻す（判定は通さない）
+uv run agent promotions --work E-0101 --name helper         # 昇格・却下・切り戻しの記録を古い順に一覧（監査）
 uv run agent experiments --results work/…/results           # 変種比較（metrics_*.yaml の leaderboard）
 ```
+
+`rollback` は昇格ではないので判定（change_threshold）を通さない（劣る旧良版へ戻せることは機能であって
+欠陥ではない）。戻り先が無い（初回昇格の champion）・戻り先の版の実体が無いときは非ゼロ終了。`reason` は必須。
 
 `agent experiments` は `ds.experiment.leaderboard`（polars＋yaml の純関数）を CLI 内で遅延 import して
 再利用する（結果記録の形式 `metrics_<variant>.yaml` は ML の実験と共通＝比較の作法を二重化しない）。

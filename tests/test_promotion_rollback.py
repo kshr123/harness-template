@@ -64,7 +64,9 @@ def _save_ds(proj: Any, **metrics: float) -> str:
 
 
 def _promote_ds(proj: Any, version: str) -> Any:
-    return model_store.promote_model(proj.root, work="E-0001", name="m", version=version, thresholds={}, primary="roc_auc")
+    return model_store.promote_model(
+        proj.root, work="E-0001", name="m", version=version, thresholds={}, primary="roc_auc"
+    )
 
 
 def _champion_ds(proj: Any) -> Any:
@@ -218,9 +220,7 @@ def test_agent_rollback_restores_worse_previous_champion_without_a_gate(
     assert champ is not None and champ.version == v1 and champ.metrics == {"exact_match": 0.60}
 
 
-def test_agent_second_rollback_has_no_target(
-    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_agent_second_rollback_has_no_target(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
     _increasing(monkeypatch, agent_store)
     proj = make_project()
     v1 = _save_agent(proj, exact_match=0.60)
