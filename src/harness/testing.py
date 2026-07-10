@@ -17,9 +17,9 @@ PYRAMID = ("unit", "integration", "e2e")
 _MARKER_EXPR_KEYWORDS = frozenset({"and", "or", "not"})
 
 # 検証のゲート（fast/standard/full）に永久に載らなくなる目印。skip/skipif/xfail はテストを動かさず、
-# slow は checks.toml の全段階が `not slow` で除外する＝回す段階が無い（T-0202）。理由不要だと
-# 「ISS 必須の skip/xfail」を迂回する抜け道になるため、slow も同格に reason への課題参照（ISS-<番号>）を
-# 必須にする（AGENTS・ISS-0002）。
+# slow は checks.toml の全段階が `not slow` で除外する＝回す段階が無い。理由不要だと
+# 「課題参照が必須の skip/xfail」を迂回する抜け道になるため、slow も同格に reason への
+# 課題参照（`ISS-<番号>`）を必須にする（AGENTS のテストの決まりごと）。
 SKIP_MARKERS = frozenset({"skip", "skipif", "xfail", "slow"})
 
 _ISS_REF_RE = re.compile(r"\bISS-\d+\b")

@@ -69,7 +69,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   知らず、次の新語を必ず見逃す）ので、**レビューが「この差分で新しく現れた名前と、その出典」を確かめる**
   （review スキル）。
 - **新しい CLI コマンドは、スキルか正本 docs から使い方にたどり着けるリンク・記載が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（検査点：coverage_lint が未到達コマンドを verify で失敗にする）。
-- **恒久ドキュメントは一時的な作業単位（`work/…`）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` は複製すると `work/` が消える／置き換わるので、根拠は本文の説明として書く（複製手順の説明だけは `docs/template-copy.md` に）。検査点：doc_source_lint が `work/EP-…` 等の参照を verify で失敗にする。
+- **複製後も残る資産は一時的な単位（`work/…` の作業単位・`issues/…` の課題）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` だけでなく `src/harness/**`・`tests/**`・`templates/**`・`.claude/skills/**` も複製後に残るのに対し、`work/` と `issues/` は複製すると消える／置き換わる。根拠は本文の説明として書く（「`ISS-…` の対処」でなく、その課題が何だったかを 1 文で書く）。複製手順の説明だけは `docs/template-copy.md` に。検査点：doc_source_lint が `work/EP-…`・`ISS-…` の参照を verify で失敗にする（`.py` はコメント／docstring だけを見る＝テストの合成データ文字列は対象外）。
 
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。

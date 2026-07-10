@@ -47,9 +47,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """ピラミッドの目印（unit/integration/e2e）が無いテストは collect でエラーにする（迷子テストを塞ぐ）。
 
     -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れを止める。
-    あわせて skip/skipif/xfail/slow の reason に課題参照（ISS-<番号>）が無いテストも collect でエラーにする
-    （理由の無い skip 禁止＝AGENTS・ISS-0002。slow は checks.toml の全段階が `not slow` で除外し続ける＝
-    ISS 無しだと「テストを永久に回さない」抜け道になるため skip/xfail と同格にする＝T-0202。
+    あわせて skip/skipif/xfail/slow の reason に課題参照（`ISS-<番号>`）が無いテストも collect でエラーにする
+    （理由の無い skip 禁止＝AGENTS。slow は checks.toml の全段階が `not slow` で除外し続ける＝
+    課題参照が無いと「テストを永久に回さない」抜け道になるため skip/xfail と同格にする。
     判定は harness.testing.skips_without_iss。マーカーが関数装飾か `pytestmark = pytest.mark.slow`
     （モジュール全体）かは iter_markers() が同じ形で渡すので区別しない）。
     """

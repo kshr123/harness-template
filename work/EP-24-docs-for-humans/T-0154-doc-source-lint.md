@@ -5,7 +5,7 @@ status: done
 title: doc_source_lint＝恒久ドキュメントの work/ 参照を verify で止める（複製時の壊れを機械で防ぐ）
 created: 2026-07-07
 depends_on: [T-0153]
-verified_by: [tests/test_doc_source_lint.py::test_durable_doc_referencing_work_item_is_error, tests/test_doc_source_lint.py::test_real_repo_durable_docs_have_no_work_refs]
+verified_by: [tests/test_doc_source_lint.py::test_durable_doc_referencing_work_item_is_error, tests/test_doc_source_lint.py::test_real_repo_durable_assets_have_no_mutable_refs]
 ---
 # T-0154 恒久ドキュメントの work/ 参照を機械で止める
 

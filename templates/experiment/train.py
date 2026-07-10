@@ -3,9 +3,9 @@
 
 **この `templates/experiment/` が以後の実験のコピー元（雛形）**。新しい実験は experiment スキルの手順どおり、
 これを丸ごとコピーして config.yaml だけ書き換える（train.py は触らない）。特徴量・エンコーダの kind は
-`uv run data blocks` / `uv run data encoders` の一覧から選ぶ。雛形の初出は E-0001（交互作用特徴量の実験。
-再現記録は `work/EP-06-ds-experiment-loop/E-0001-interaction-feature/` に残る）で、その後の実験もこの
-train.py を使い回す。WORK_ID・テーブル定義（e0001_*）は初出の E-0001 のものを引き続き使う（雛形自体の
+`uv run data blocks` / `uv run data encoders` の一覧から選ぶ。雛形の初出は交互作用特徴量の実験で、
+その WORK_ID（E-0001）とテーブル定義（e0001_*）を雛形の既定として引き続き使い、その後の実験もこの
+train.py を使い回す（雛形自体の
 スモークはこの WORK_ID で行う。2 つ目の実験を作るときは各自の WORK_ID・テーブル定義に差し替える）。
 
 使い方：`python train.py [--config <yaml>] --variant <config の variants キー> [--test] [--root <dir>] [--out <dir>]`
@@ -46,9 +46,9 @@ CONFIG = HERE / "config.yaml"
 ROOT_DEFAULT = HERE.parents[1]  # templates/experiment → templates → リポ根
 WORK_ID = "E-0001"
 CODE_REF = "templates/experiment/train.py"
-# WORK_ID=E-0001 のテーブル定義（e0001_*.yaml）は templates/experiment/data/ に雛形と同居する（T-0141＝
-# 後方参照なし。work/EP-06/E-0001/data には再現記録の results/ だけが残り、schema yaml は無い）。
-# --test/--root の一時 root はこの定義を持たないので、ここから temp root の work/E-0001/data へコピーする
+# WORK_ID=E-0001 のテーブル定義（e0001_*.yaml）は templates/experiment/data/ に雛形と同居する
+# （雛形が自己完結する＝実験の再現記録フォルダには results/ だけを残し、schema yaml はここに持つ）。
+# --test/--root の一時 root はこの定義を持たないので、ここから temp root の `work/<WORK_ID>/data` へコピーする
 # （下の prepare_root）。full モード（repo 根）は load_schemas が templates/**/data も読むのでコピー不要。
 _E0001_SCHEMA_DIR = HERE / "data"
 

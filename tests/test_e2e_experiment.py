@@ -18,7 +18,7 @@ import yaml
 pytestmark = pytest.mark.e2e
 
 _ROOT = Path(__file__).resolve().parents[1]  # harness-template リポの根
-_EXPERIMENT = _ROOT / "templates" / "experiment"  # 実験雛形の正本（T-0140 で work/E-0001 から移設）
+_EXPERIMENT = _ROOT / "templates" / "experiment"  # 実験雛形の正本
 _TRAIN = _EXPERIMENT / "train.py"
 
 

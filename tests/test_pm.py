@@ -25,7 +25,7 @@ def _write(path: Path, meta: dict[str, object], body: str = "") -> None:
 
 
 def _scaffold(root: Path) -> None:
-    """work/EP-01（詳しく分解済み・子タスク2件）と EP-02（未分解）を作る。"""
+    """EP-01（詳しく分解済み・子タスク2件）と EP-02（未分解）を作る。"""
     # done タスクが指す先＝実在するテスト（完了↔検証の結びつけ）。
     (root / "tests").mkdir(parents=True, exist_ok=True)
     (root / "tests" / "test_a.py").write_text("def test_a():\n    assert True\n", encoding="utf-8")

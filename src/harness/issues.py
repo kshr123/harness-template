@@ -46,7 +46,7 @@ class Issue(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str  # ISS-0001。一意・再利用しない。
+    id: str  # 例：`ISS-<番号>`。一意・再利用しない。
     kind: IssueKind
     state: IssueState
     title: str | None = None
