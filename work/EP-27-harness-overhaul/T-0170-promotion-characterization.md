@@ -11,13 +11,13 @@ verified_by:
   - tests/test_promotion_characterization.py::test_ds_first_promotion_is_decided_by_thresholds_alone
   - tests/test_promotion_characterization.py::test_ds_direction_comes_from_the_metric_registry
   - tests/test_promotion_characterization.py::test_ds_nan_candidate_fails_both_the_threshold_and_the_comparison
-  - tests/test_promotion_characterization.py::test_ds_nan_champion_blocks_every_promotion
+  - tests/test_promotion_characterization.py::test_ds_a_non_finite_metric_never_becomes_champion
   - tests/test_promotion_characterization.py::test_ds_unknown_primary_is_rejected
   - tests/test_promotion_characterization.py::test_ds_contradicting_direction_argument_is_rejected
   - tests/test_promotion_characterization.py::test_ds_promotion_record_has_the_expected_fields
   - tests/test_promotion_characterization.py::test_agent_only_a_strict_improvement_promotes
   - tests/test_promotion_characterization.py::test_agent_threshold_failure_does_not_move_the_champion
-  - tests/test_promotion_characterization.py::test_agent_nan_candidate_and_nan_champion_are_fail_closed
+  - tests/test_promotion_characterization.py::test_agent_a_non_finite_metric_never_becomes_champion
   - tests/test_promotion_characterization.py::test_agent_unknown_primary_is_rejected
   - tests/test_promotion_characterization.py::test_agent_promotion_record_has_the_expected_fields
 ---

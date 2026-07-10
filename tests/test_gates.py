@@ -33,7 +33,8 @@ def _ctx(candidate: dict[str, float], baseline: dict[str, float] | None = None, 
 def test_value_threshold_uses_a_lower_bound_when_higher_is_better(observed: float, limit: float, passed: bool) -> None:
     result = gates.value_threshold(_ctx({"score": observed}), metric="score", limit=limit)
     assert result.passed is passed
-    assert result.reason == ("ok" if passed else "below_limit")
+    # reason は向きに依らない（小さいほど良い指標が上限を超えて落ちても同じ名で記録される）。
+    assert result.reason == ("ok" if passed else "threshold_not_met")
 
 
 @pytest.mark.parametrize(
@@ -49,6 +50,14 @@ def test_value_threshold_is_fail_closed_for_nan() -> None:
     # NaN >= x も NaN <= x も False（合格条件を正の形で問うため）。向きに依らず不合格。
     assert gates.value_threshold(_ctx({"score": math.nan}), metric="score", limit=0.0).passed is False
     assert gates.value_threshold(_ctx({"loss": math.nan}), metric="loss", limit=1.0).passed is False
+
+
+def test_value_threshold_rejects_a_non_finite_value() -> None:
+    # 発散は NaN だけで起きるのではない。inf >= 0.8 も -inf <= 0.5 も True なので、比較だけでは通ってしまう。
+    # 「有限である」を合格条件に含めて初めて、発散した版が閾値を通り抜けない。
+    assert gates.value_threshold(_ctx({"score": math.inf}), metric="score", limit=0.8).passed is False
+    assert gates.value_threshold(_ctx({"loss": -math.inf}), metric="loss", limit=0.5).passed is False
+    assert gates.value_threshold(_ctx({"score": math.nan}), metric="score", limit=0.0).reason == "not_finite"
 
 
 def test_value_threshold_treats_an_unmeasured_metric_as_a_failure() -> None:
@@ -108,6 +117,22 @@ def test_change_threshold_passes_when_there_is_no_baseline() -> None:
     assert result.passed is True and result.reason == "no_baseline"
 
 
+def test_change_threshold_rejects_a_non_finite_candidate_even_without_a_baseline() -> None:
+    # 初回昇格は比較対象が無いので改善量を問えないが、それは「何でも通す」ことではない。
+    # 閾値を 1 つも宣言していない場合、ここが発散した版を止める最後の場所になる。
+    for observed in (math.nan, math.inf, -math.inf):
+        result = gates.change_threshold(_ctx({"score": observed}, None), metric="score", baseline="champion")
+        assert result.passed is False, observed
+        assert result.reason == "not_finite", observed
+
+
+def test_change_threshold_names_a_non_finite_baseline_distinctly() -> None:
+    # champion 側が壊れている（過去に混入した）状態。候補は悪くないので、reason で区別できないと
+    # 「候補が悪い」と読み違える。切り戻しが要る状態であることを記録に残す。
+    result = gates.change_threshold(_ctx({"score": 0.9}, {"score": math.nan}), metric="score", baseline="champion")
+    assert result.passed is False and result.reason == "baseline_not_finite"
+
+
 def test_change_threshold_fails_when_the_candidate_lacks_the_metric_even_without_a_baseline() -> None:
     # 候補が測っていない指標では、比較対象の有無に関わらず昇格を認めない（baseline 不在より先に見る）。
     result = gates.change_threshold(_ctx({"loss": 0.1}, None), metric="score", baseline="champion")
@@ -164,6 +189,29 @@ def test_evaluate_is_approved_only_when_every_gate_passes() -> None:
 def test_evaluate_rejects_an_unknown_gate_kind() -> None:
     with pytest.raises(ValueError, match="gates"):  # 未知 kind のエラーは Registry.resolve が出す（候補＋カタログ案内）
         gates.evaluate(_ctx({"score": 0.9}), [{"kind": "nope", "metric": "score", "limit": 0.1}])
+
+
+def test_evaluate_rejects_a_spec_without_a_kind() -> None:
+    with pytest.raises(ValueError, match="kind"):
+        gates.evaluate(_ctx({"score": 0.9}), [{"metric": "score", "limit": 0.1}])
+
+
+def test_evaluate_rejects_an_unknown_gate_parameter_as_a_value_error() -> None:
+    # 呼び手（CLI・config）は ValueError だけを捕まえる契約。引数の typo が TypeError で貫通すると
+    # 非ゼロ終了でなくトレースバックになる。
+    with pytest.raises(ValueError, match="bogus"):
+        gates.evaluate(_ctx({"score": 0.9}), [{"kind": "value_threshold", "metric": "score", "limit": 0.1, "bogus": 1}])
+
+
+def test_gate_results_record_the_parameters_they_were_given() -> None:
+    # 判定ごとに引数が違う（value_threshold は limit・change_threshold は baseline と min_change）。
+    # 昇格記録へそのまま書けるよう、単一の `limit` 欄でなく渡された引数を保持する。
+    value = gates.value_threshold(_ctx({"score": 0.9}), metric="score", limit=0.8)
+    assert value.params == {"limit": 0.8}
+    change = gates.change_threshold(
+        _ctx({"score": 0.9}, {"score": 0.8}), metric="score", baseline="champion", min_change=0.01
+    )
+    assert change.params == {"baseline": "champion", "min_change": 0.01}
 
 
 def test_value_threshold_specs_expands_a_threshold_mapping() -> None:

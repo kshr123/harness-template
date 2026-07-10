@@ -16,9 +16,11 @@
 - `approved` / `rejected` … Amazon SageMaker Model Registry の `ModelApprovalStatus`。
 - `champion` … MLflow Model Registry の alias（2.9 で Model Stages を非推奨にした後の推奨）。
 
-判定はすべて **fail closed**。「合格条件が成り立つか」を正の形で問うので、NaN はどの比較も False になり
-必ず不合格になる（発散したモデルが champion に上がらない）。測っていない指標も不合格（`passes` の
-「測っていない＝満たしたと見なさない」と同じ規約）。
+判定はすべて **fail closed**。合格条件を正の形で問い、そこに「観測値が有限である」（`math.isfinite`）を
+含める。比較だけでは足りない：`NaN >= 0.8` は False で止まるが `inf >= 0.8` は True で通り、
+比較対象の無い初回昇格では比較そのものが行われない。有限性を条件に入れて初めて、発散した版が
+champion に上がらないと言える。測っていない指標も不合格（`passes` の「測っていない＝満たしたと
+見なさない」と同じ規約）。
 
 判定は**全件集めてから**合否を出す（`checks.PM_CHECKS` と同じ方式）。最初の 1 件で止めると、直した次の
 実行でまた別の条件に落ちる往復が起きる。core の部品（プロファイル非依存）。stdlib と `harness.registry`
@@ -27,8 +29,10 @@
 
 from __future__ import annotations
 
+import inspect
+import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from harness.registry import Entry, Registry
@@ -60,11 +64,15 @@ class GateResult:
     kind: str
     metric: str
     passed: bool
-    reason: str  # ok | below_limit | not_measured | baseline_not_measured | no_baseline | no_improvement
+    # ok | not_measured | not_finite | threshold_not_met | no_baseline
+    # | baseline_not_measured | baseline_not_finite | no_improvement
+    # 向きに依らない名にする（小さいほど良い指標が上限を超えて落ちても threshold_not_met）。
+    reason: str
     observed: float | None
     baseline: float | None
-    limit: float
     detail: str  # 人が読む 1 行（実測値入り）
+    # その判定に渡した引数（`kind` を除いた spec そのもの）。判定ごとに引数が違うので単一の欄で兼ねない。
+    params: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -97,16 +105,19 @@ def value_threshold(ctx: GateContext, *, metric: str, limit: float) -> GateResul
     """指標そのものが閾値を満たすか（向きが大きいほど良いなら下限、そうでなければ上限）。"""
     direction = ctx.direction(metric)
     comparison = ">=" if direction else "<="
+    params = {"limit": limit}
     if metric not in ctx.candidate:
         detail = f"value_threshold: {metric} を測っていない（{comparison} {limit} を確かめられない）"
-        return GateResult("value_threshold", metric, False, "not_measured", None, None, limit, detail)
+        return GateResult("value_threshold", metric, False, "not_measured", None, None, detail, params)
     observed = ctx.candidate[metric]
-    # 合格条件を正の形で問う＝NaN はどの比較も False になり必ず不合格（fail closed）。
+    if not math.isfinite(observed):  # NaN も ±inf も発散。inf >= limit は True なので比較では止まらない。
+        detail = f"value_threshold: {metric}={observed} が有限でない（発散した版は昇格させない）"
+        return GateResult("value_threshold", metric, False, "not_finite", observed, None, detail, params)
     passed = observed >= limit if direction else observed <= limit
     verdict = "を満たす" if passed else "を満たさない"
     detail = f"value_threshold: {metric}={observed} は {comparison} {limit} {verdict}"
-    reason = "ok" if passed else "below_limit"
-    return GateResult("value_threshold", metric, passed, reason, observed, None, limit, detail)
+    reason = "ok" if passed else "threshold_not_met"
+    return GateResult("value_threshold", metric, passed, reason, observed, None, detail, params)
 
 
 def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change: float = 0.0) -> GateResult:
@@ -114,29 +125,36 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
 
     改善量は向きで正規化する（大きいほど良いなら候補−baseline、そうでなければ baseline−候補）。だから
     min_change の符号は指標の向きに依存しない：`log_loss` でも `min_change=0.01` は「0.01 以上下がること」。
+
+    比較対象が無い初回昇格ではこの判定を課さないが、それは「何でも通す」ことではない。閾値が 1 つも
+    宣言されていない設定では、ここが発散した版を止める最後の場所になる（有限性だけは初回でも問う）。
     """
     if baseline != "champion":
         raise ValueError(f"change_threshold の baseline は 'champion' だけ（'{baseline}' は未対応）")
     direction = ctx.direction(metric)
     label = f"champion({ctx.baseline_label})" if ctx.baseline_label else "champion"
+    params = {"baseline": baseline, "min_change": min_change}
     # 候補の未測定は baseline の有無より先に見る（初回昇格でも、測っていない指標では昇格を認めない）。
     if metric not in ctx.candidate:
         detail = f"change_threshold: 候補が {metric} を測っていないので比較できない"
-        return GateResult("change_threshold", metric, False, "not_measured", None, None, min_change, detail)
-    if ctx.baseline is None:  # 初回昇格＝比較対象が無いので、この判定は課さない
+        return GateResult("change_threshold", metric, False, "not_measured", None, None, detail, params)
+    observed = ctx.candidate[metric]
+    if not math.isfinite(observed):
+        detail = f"change_threshold: 候補の {metric}={observed} が有限でない（発散した版は昇格させない）"
+        return GateResult("change_threshold", metric, False, "not_finite", observed, None, detail, params)
+    if ctx.baseline is None:  # 初回昇格＝比較対象が無いので、改善量は問えない（有限性は上で確かめた）
         detail = "change_threshold: baseline が無い（初回昇格なので比較しない）"
-        observed_only = ctx.candidate[metric]
-        return GateResult("change_threshold", metric, True, "no_baseline", observed_only, None, min_change, detail)
+        return GateResult("change_threshold", metric, True, "no_baseline", observed, None, detail, params)
     if metric not in ctx.baseline:
         detail = f"change_threshold: {label} が {metric} を測っていないので比較できない"
-        observed_only = ctx.candidate[metric]
-        return GateResult(
-            "change_threshold", metric, False, "baseline_not_measured", observed_only, None, min_change, detail
-        )
-    observed = ctx.candidate[metric]
+        return GateResult("change_threshold", metric, False, "baseline_not_measured", observed, None, detail, params)
     before = ctx.baseline[metric]
+    if not math.isfinite(before):
+        # champion 側が壊れている。候補は悪くないので reason で区別する（切り戻しが要る状態）。
+        detail = f"change_threshold: {label} の {metric}={before} が有限でない（champion の切り戻しが要る）"
+        return GateResult("change_threshold", metric, False, "baseline_not_finite", observed, before, detail, params)
     improvement = observed - before if direction else before - observed
-    passed = improvement > min_change  # NaN はどちらの比較も False＝fail closed。同点（0.0）も不合格。
+    passed = improvement > min_change  # 同点（改善量 0.0）は不合格＝厳密な改善だけを認める。
     verdict = "を満たす" if passed else "を満たさない"
     # 改善量は引き算の結果なので浮動小数点の桁が出る（0.6-0.9=-0.30000000000000004）。読む人には無意味なので丸める。
     detail = (
@@ -144,7 +162,7 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
         f"改善量={improvement:+.6g} は > {min_change} {verdict}"
     )
     reason = "ok" if passed else "no_improvement"
-    return GateResult("change_threshold", metric, passed, reason, observed, before, min_change, detail)
+    return GateResult("change_threshold", metric, passed, reason, observed, before, detail, params)
 
 
 GATES: Registry[Entry] = Registry("昇格の判定", catalog="gates")
@@ -152,14 +170,32 @@ GATES.register("value_threshold", value_threshold)
 GATES.register("change_threshold", change_threshold)
 
 
+def _run(ctx: GateContext, spec: GateSpec) -> GateResult:
+    """spec 1 件を判定に渡す。設定の書き間違いはすべて ValueError にする（呼び手の契約）。
+
+    `factory(ctx, **params)` を直に呼ぶと、引数の typo は TypeError になって `except ValueError` を
+    素通りする。判定を config に書けるようにする以上、typo は「設定の誤り」であって「内部の型の誤り」
+    ではない。呼ぶ前に署名へ束ねて確かめる。
+    """
+    if "kind" not in spec:
+        raise ValueError(f"判定の spec に 'kind' が無い（{sorted(spec)} だけが書かれている）")
+    kind = spec["kind"]
+    factory = GATES.resolve(kind).factory
+    params = {k: v for k, v in spec.items() if k != "kind"}
+    try:
+        inspect.signature(factory).bind(ctx, **params)
+    except TypeError as exc:  # 未知の引数・必須引数の欠落
+        raise ValueError(f"判定 '{kind}' の引数が誤り: {exc}") from exc
+    result: GateResult = factory(ctx, **params)
+    return result
+
+
 def evaluate(ctx: GateContext, specs: Sequence[GateSpec]) -> PromotionDecision:
     """判定の並びをすべて評価し、1 つでも落ちたら rejected（全件の結果を返す）。
 
     `kind` で `GATES` を引き、残りのキーを判定の引数として渡す（未知 kind・未知の引数は ValueError）。
     """
-    results = tuple(
-        GATES.resolve(spec.get("kind")).factory(ctx, **{k: v for k, v in spec.items() if k != "kind"}) for spec in specs
-    )
+    results = tuple(_run(ctx, spec) for spec in specs)
     return PromotionDecision(approved=all(r.passed for r in results), results=results)
 
 

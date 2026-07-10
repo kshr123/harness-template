@@ -41,7 +41,10 @@ verified_by:
 ## あわせて直したもの
 - **`change_threshold` の判定順の欠陥**：baseline 不在（初回昇格）を先に見ていたので、候補が primary 指標を
   測っていないときに素通りしていた。候補の未測定を先に見るよう直した（テスト先行）。
-  抽出前は `promote_*` 側の `if primary not in record.metrics` が担っていた検査で、抽出時に落としていた。
+  〔2026-07-10 訂正〕当初この節に「抽出時に検査を落としていた」と書いたが、事実誤認だった。
+  `git show f7656f1` の時点で `promote_*` 側の `if primary not in record.metrics` は**残っている**。
+  素通りしていたのは `gates.change_threshold` を直接呼ぶ経路だけで、`main` の昇格経路は壊れていない。
+  実際より深刻に書いた（独立レビュー 2026-07-10 の指摘）。
 - **例外に構造を持たせた**：`gates.PromotionError`（`ValueError` の下位型なので CLI の `except ValueError` は
   そのまま効く）が `decision` を持つ。呼び手はメッセージを解析しなくてよい。
 - **落ちた判定を全件出す**。以前は最初の 1 件で止めていたので、閾値を直して再実行すると今度は比較で落ちる、

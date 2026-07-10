@@ -49,10 +49,11 @@
 - **設計への反映**：不要（実装の作法）。自分たちで使って試す中で見つかった＝仕組みが働いている例。
 
 ## L-009 合否の判定を `<`/`>` の対で書くと NaN が両方 False で通過する（fail-open）
-- **状態**：記録のみ（今回 `eval.passes` を修正。spec_lint／レビュー観点へのルール化候補）。
-- **要点**：`if value < limit: return False` / `elif value > limit: return False` の形は、`value` が NaN のとき両方の比較が False になり、合格側へ**開いて**通ってしまう。発散モデルの `log_loss=nan`/`rmse=nan` が絶対条件を通り champion への採用まで届きうる（ds レビュー 2026-07-05）。
+- **状態**：ルール化済み（`harness.gates` が判定の唯一の実体。`value_threshold` / `change_threshold` の両方で有限性を合格条件に含める）。
+- **要点**：`if value < limit: return False` / `elif value > limit: return False` の形は、`value` が NaN のとき両方の比較が False になり、合格側へ**開いて**通ってしまう。発散モデルの `log_loss=nan`/`rmse=nan` が `value_threshold` を通り champion への採用まで届きうる（ds レビュー 2026-07-05）。
 - **対応**：**合格条件を正の形で 1 度だけ書き、満たさなければ落とす**：`ok = value >= limit if higher_is_better else value <= limit; if not ok: return False`。NaN は「満たさない」に倒れて閉じる。
-- **判断**：止める検査・合否・フィルタは既定を「不合格側」に置く（fail-closed）。同じ形の比較を他所（`store`/`schema`/`analysis`）で書くときも同様。2 回目が出たら機械検査へ。
+- **続き（T-0176）**：正の形だけでは足りない。**比較が行われない経路と、比較を満たしてしまう発散値**が残る。(a) `inf >= limit` は True なので上限・下限の比較では止まらない。(b) 比較対象の無い初回昇格では比較そのものが実行されず、閾値が 1 つも宣言されていなければ判定が 1 件も課されない。実際 NaN の版が champion になり、以後どの候補も改善量が NaN で永久に昇格できない状態を作れた。合格条件に `math.isfinite(value)` を含めて初めて「発散した版は昇格しない」と言える。
+- **判断**：止める検査・合否・フィルタは既定を「不合格側」に置く（fail-closed）。**「NaN でない」ではなく「有限である」を条件に書く**（発散は NaN だけで起きない）。そして「この経路では判定が 1 件も走らない」場合を数える（0 件の判定は常に合格する）。
 
 ## L-010 手書きのデータ検証は、ライブラリが吸収するエッジケースを落とす
 - **状態**：記録のみ（「標準を再発明しない」の 2 回目の実例。pandera 導出の判断＝ISS-0010）。

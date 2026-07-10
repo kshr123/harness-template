@@ -10,6 +10,10 @@
 
 期待値はすべて、仕込んだ metrics と閾値の大小から導ける。実装の出力は写経しない。
 ds と agent は独立した実装なので、同じ性質を両方について書く（片方だけ直る退行を捕まえる）。
+
+characterization テストは**現状を写す**ものなので、写した先が欠陥だったときは写経も欠陥になる。
+実際 T-0176 で「閾値なしなら NaN でも初回昇格できる」を写していたことが分かり、挙動を直した。
+この種の書き換えは、欠陥を明示した作業単位を伴うときだけ行う（テストを緩めて緑にすることと区別する）。
 """
 
 from __future__ import annotations
@@ -168,17 +172,20 @@ def test_ds_nan_candidate_fails_both_the_threshold_and_the_comparison(
     assert champ is not None and champ.version == _V1
 
 
-def test_ds_nan_champion_blocks_every_promotion(
+def test_ds_a_non_finite_metric_never_becomes_champion(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # champion 側が NaN だと、どんな候補も「勝った」と言えない（0.90 > NaN は False）＝fail closed。
+    # 閾値を 1 つも宣言しない設定でも、発散した版（NaN・inf）は昇格しない。
+    # champion 不在＝比較対象が無いので、ここを通すと壊れた champion が生まれ、以後どの候補も
+    # 改善量が NaN になって永久に昇格できなくなる（T-0176 で塞いだ）。
     _clock(monkeypatch, model_store, [_T1, _T2])
     proj = make_project()
     _save_ds(proj, roc_auc=math.nan)
-    _save_ds(proj, roc_auc=0.90)
-    _promote_ds(proj, _V1, primary="roc_auc")  # 閾値なしなので NaN でも初回昇格できる
-    with pytest.raises(ValueError):
-        _promote_ds(proj, _V2, primary="roc_auc")
+    _save_ds(proj, roc_auc=math.inf)
+    for version in (_V1, _V2):
+        with pytest.raises(ValueError):
+            _promote_ds(proj, version, primary="roc_auc")
+    assert _champion_ds(proj) is None  # 壊れた champion が生まれない＝後続の昇格も塞がれない
 
 
 def test_ds_unknown_primary_is_rejected(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -271,18 +278,20 @@ def test_agent_only_a_strict_improvement_promotes(
     assert promo2.previous_version == _V1
 
 
-def test_agent_nan_candidate_and_nan_champion_are_fail_closed(
+def test_agent_a_non_finite_metric_never_becomes_champion(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # ds と同じ性質を独立に固定する（片方だけ直る退行を捕まえる）。
     _clock(monkeypatch, agent_store, [_T1, _T2])
     proj = make_project()
     _save_agent(proj, exact_match=math.nan)
-    _save_agent(proj, exact_match=0.90)
-    with pytest.raises(ValueError):  # 候補 NaN は閾値で落ちる
+    _save_agent(proj, exact_match=math.inf)
+    with pytest.raises(ValueError):  # 候補 NaN は閾値でも落ちる
         _promote_agent(proj, _V1, primary="exact_match", exact_match=0.50)
-    _promote_agent(proj, _V1, primary="exact_match")  # 閾値なしなら NaN でも初回昇格
-    with pytest.raises(ValueError):  # champion が NaN だと 0.90 > NaN は False
-        _promote_agent(proj, _V2, primary="exact_match")
+    for version in (_V1, _V2):  # 閾値を課さなくても、発散した版は初回昇格できない
+        with pytest.raises(ValueError):
+            _promote_agent(proj, version, primary="exact_match")
+    assert _champion_agent(proj) is None
 
 
 def test_agent_unknown_primary_is_rejected(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
