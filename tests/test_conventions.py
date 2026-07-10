@@ -2,7 +2,8 @@
 
 期待値はすべて一時ディレクトリに置くファイルの構成（どんなコードを書いたか）から導く。
 skip/xfail/slow の ISS 参照はヘルパ（testing.skips_without_iss）の単体テストで確かめる＝実テストに実 skip を足さない。
-slow のモジュール直書き（`pytestmark = pytest.mark.slow`）が同じ抽出で拾えることは pytester（T-0202）で確かめる。
+収集フック本体は、本物の tests/conftest.py を pytester に持ち込んだ end-to-end テストで確かめる（T-0210。
+テスト側に抽出ロジックを複製しない＝本体が退化してもテストが複製を守って緑になるのを防ぐ）。
 最後の 1 本は現リポに対する回帰テスト（グローバル種なし・work の code に --test あり）。乱数は使わない。
 """
 
@@ -13,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from harness import conventions
-from harness.testing import SKIP_MARKERS, skips_without_iss
+from harness.testing import SKIP_MARKERS, check_collected_items, skips_without_iss
 
 pytestmark = pytest.mark.unit
 
@@ -151,42 +152,72 @@ def test_skip_markers_include_slow() -> None:
     assert "slow" in SKIP_MARKERS
 
 
-# --- slow のモジュール直書き（pytestmark = pytest.mark.slow）も対象になるか（T-0202・決めた点） ---
+# --- 収集フックの正本（harness.testing.check_collected_items）を、本物の pytest.Item で直接確かめる（T-0210） ---
 #
-# 決定：対象にする。pytest の Item.iter_markers() は関数装飾のマーカーとモジュール直書きの pytestmark を
-# 区別せず同じ形（pytest.Mark）で返す（pytest 自身の仕様）ため、conftest の収集フックの抽出コード
-# （`[(m.name, _marker_reason(m)) for m in item.iter_markers() if m.name in SKIP_MARKERS]`）は書き換え不要で
-# 両方を拾う。ここでは pytester（pytest 標準の自己テスト用フィクスチャ・tests/conftest.py で opt-in 済み）で
-# 実際にモジュールを収集し、iter_markers() が pytestmark 由来の slow を関数装飾と同じ形で返すことを確かめる
-# （書いたコードでなく pytest 本体の挙動の確認＝前提が崩れたら教えてくれる回帰）。
+# pytest の Item.iter_markers() は関数装飾のマーカーとモジュール直書きの pytestmark を区別せず同じ形
+# （pytest.Mark）で返す（pytest 自身の仕様）。pytester.getitems で実物の Item を作り、抽出の複製を挟まず
+# 正本の関数に直接渡す（テスト側に抽出ロジックを 2 つ目の正本として複製しない）。
 
 
-def _extract_skip_markers(items: list[pytest.Item]) -> list[tuple[str, list[tuple[str, str]]]]:
-    """conftest の収集フックと同じ抽出（マーカー名, 理由）。テスト用に独立させた同じ書式（複製ではなく検証専用）。"""
-    out: list[tuple[str, list[tuple[str, str]]]] = []
-    for item in items:
-        reasons: list[tuple[str, str]] = []
-        for mark in item.iter_markers():
-            if mark.name not in SKIP_MARKERS:
-                continue
-            parts = [a for a in mark.args if isinstance(a, str)]
-            reason = mark.kwargs.get("reason")
-            if isinstance(reason, str):
-                parts.append(reason)
-            reasons.append((mark.name, " ".join(parts)))
-        out.append((item.nodeid, reasons))
-    return out
+def test_check_collected_items_flags_slow_without_iss(pytester: pytest.Pytester) -> None:
+    # モジュール直書きの slow（ISS 参照なし）＋層 unit。層はあるので迷子判定は通り、slow の ISS 参照無しで落ちる。
+    items = pytester.getitems(
+        "import pytest\npytestmark = [pytest.mark.unit, pytest.mark.slow]\ndef test_a():\n    pass\n"
+    )
+    with pytest.raises(pytest.UsageError, match="ISS"):
+        check_collected_items(items)
 
 
-def test_module_level_pytestmark_slow_without_iss_is_detected(pytester: pytest.Pytester) -> None:
-    items = pytester.getitems("import pytest\npytestmark = pytest.mark.slow\ndef test_a():\n    pass\n")
-    assert skips_without_iss(_extract_skip_markers(items)) == [items[0].nodeid]
+def test_check_collected_items_accepts_slow_with_iss(pytester: pytest.Pytester) -> None:
+    items = pytester.getitems(
+        "import pytest\n"
+        "pytestmark = [pytest.mark.unit, pytest.mark.slow(reason='ISS-4242 重い')]\n"
+        "def test_b():\n    pass\n"
+    )
+    check_collected_items(items)  # 例外を投げなければ合格（ISS 参照があるので通る）
 
 
-def test_module_level_pytestmark_slow_with_iss_is_ok(pytester: pytest.Pytester) -> None:
-    source = "import pytest\npytestmark = pytest.mark.slow(reason='ISS-4242 重い')\ndef test_b():\n    pass\n"
-    items = pytester.getitems(source)
-    assert skips_without_iss(_extract_skip_markers(items)) == []
+def test_check_collected_items_flags_unmarked(pytester: pytest.Pytester) -> None:
+    # ピラミッドの目印が 1 つも無い迷子テストは UsageError。
+    items = pytester.getitems("def test_c():\n    pass\n")
+    with pytest.raises(pytest.UsageError, match="unit/integration/e2e"):
+        check_collected_items(items)
+
+
+# --- 本物の tests/conftest.py を持ち込んだ end-to-end テスト（収集フックの実経路を確かめる・T-0210） ---
+#
+# makeconftest で本物の conftest を丸ごとコピーし、runpytest の collect が ERROR になることを終了コードで見る。
+# 経路は 本物の conftest → 本物の harness.testing.check_collected_items なので、**どちらを壊しても RED** に
+# なる（M6 で緑だった箇所）。runpytest はサブプロセスで完全隔離する（親セッションの設定・プラグインを混ぜない）。
+
+_REAL_CONFTEST = (REPO_ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
+
+
+def test_real_conftest_errors_on_slow_without_iss(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(_REAL_CONFTEST)
+    pytester.makepyfile("import pytest\npytestmark = [pytest.mark.unit, pytest.mark.slow]\ndef test_x():\n    pass\n")
+    result = pytester.runpytest_subprocess()
+    assert result.ret != 0  # 収集フックが UsageError＝非 0 終了（緑にならない）
+    result.stderr.fnmatch_lines(["*ISS*"])
+
+
+def test_real_conftest_accepts_slow_with_iss(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(_REAL_CONFTEST)
+    pytester.makepyfile(
+        "import pytest\n"
+        "pytestmark = [pytest.mark.unit, pytest.mark.slow(reason='ISS-4242 重い')]\n"
+        "def test_x():\n    pass\n"
+    )
+    result = pytester.runpytest_subprocess()
+    result.assert_outcomes(passed=1)  # ISS 参照があるので収集を通り、テストが走る
+
+
+def test_real_conftest_errors_on_unmarked(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(_REAL_CONFTEST)
+    pytester.makepyfile("def test_x():\n    pass\n")
+    result = pytester.runpytest_subprocess()
+    assert result.ret != 0  # ピラミッドの目印が無い迷子テストで収集フックが落ちる
+    result.stderr.fnmatch_lines(["*unit/integration/e2e*"])
 
 
 # --- 現リポの回帰テスト ---

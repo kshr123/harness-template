@@ -8,9 +8,11 @@
 
 from __future__ import annotations
 
+import itertools
 import shlex
 import subprocess
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 from harness import (
@@ -98,14 +100,100 @@ def _registered_markers(root: Path) -> set[str]:
     return {str(m).split(":")[0].strip() for m in markers}
 
 
-def _verify_checks_config(root: Path) -> None:
-    """checks.toml の不変条件を検査し、満たさなければ ValueError で起動を拒否する（fail-open を塞ぐ）。
+# 走らせてよいコマンドの allowlist（argv 単位）。**何を走らせてよいか**だけを固定し、段階への割り当て・順序は
+# checks.toml が自由に決める。未知の argv は起動を拒否（fail closed）＝「まだ列挙していない次のフラグ」も
+# 既定で止まる（denylist のように 1 つずつ潰さない＝docs/learnings.md L-017）。
+_ALLOWED_RUFF_ARGV: frozenset[tuple[str, ...]] = frozenset({("ruff", "format", "--check", "."), ("ruff", "check", ".")})
+_ALLOWED_MYPY_ARGV: frozenset[tuple[str, ...]] = frozenset({("mypy",)})
+# pytest コマンドで許すフラグ（引数を取らないもの）。-m は式トークンを 1 つ取るので別扱い。
+# 必要になったフラグ（例 -p no:cacheprovider）は、実際に使うものだけを理由つきでここに足す。
+_ALLOWED_PYTEST_FLAGS: frozenset[str] = frozenset({"-q"})
 
-    pytest は「選んだ目印に該当するテストが 0 件」を終了コード 5 で表し、run_check はこれを合格として扱う
-    （複製先が層を正当に空にできるようにする意図した寛容さ）。だがマーカーを綴り違え（unit→unitt）ると
-    全 deselect で 0 件になり、exit 5 経由で「テストが 1 件も無いのに緑」になる。pytest 行を丸ごと消す・
-    ruff/mypy を消す改変も同じく素通りする。これらを、走らせる前の不変条件で閉じる。対象集合はツール自身の
-    定数（LEVELS・testing.PYRAMID）と pyproject の登録から機械的に導ける（自己申告の台帳ではない）。
+
+def _marker_matcher(present: frozenset[str]) -> Callable[..., bool]:
+    """`-m` 式の評価器（`_pytest.mark.expression.Expression`）に渡す照合関数を作る。
+
+    指定したマーカー集合に名前があるかを返す。`foo(bar=1)` のような kwargs 形は使わない（無視する）。
+    """
+
+    def matcher(name: str, /, **kwargs: object) -> bool:
+        return name in present
+
+    return matcher
+
+
+def _require_satisfiable_marker_expr(expr: str, cmd: list[str]) -> None:
+    """`-m` 式が、PYRAMID の層をちょうど 1 つ持つテストで充足可能かを機械的に確かめる（不能なら ValueError）。
+
+    異なる層（unit/integration/e2e）を and で結ぶ（例 `unit and integration`）と、どのテストも満たせず全
+    deselect→exit 5→偽の合格になる。対象の世界は PYRAMID 定数から機械的に列挙する（層 1 つ × その他の
+    マーカー〔slow 等〕の真偽の全組み合わせ）＝書く人の申告に依存しない（保証の (b)）。式の意味は pytest 自身の
+    評価器（`-m` と同じ）を使う＝手書きの評価器を再発明しない。
+    """
+    from _pytest.mark.expression import Expression
+
+    try:
+        compiled = Expression.compile(expr)
+    except Exception as exc:  # 構文エラー等はそのまま起動拒否に倒す（fail closed）
+        raise ValueError(f"checks.toml の pytest -m 式が壊れている: {expr!r}（{exc}）: {cmd}") from exc
+    free = sorted(markers_in_expr(expr) - set(testing.PYRAMID))  # 層以外の自由なマーカー（slow 等）
+    for layer in testing.PYRAMID:
+        for bits in itertools.product((False, True), repeat=len(free)):
+            present = frozenset({layer, *(name for name, on in zip(free, bits, strict=True) if on)})
+            if compiled.evaluate(_marker_matcher(present)):
+                return  # 1 つでも選べる世界があれば充足可能
+    raise ValueError(
+        f"checks.toml の pytest -m 式 {expr!r} は充足不能: PYRAMID の層を 1 つだけ持つどのテストも選べない"
+        f"（異なる層 {list(testing.PYRAMID)} を and で結んでいないか）: {cmd}"
+    )
+
+
+def _pytest_markers(cmd: list[str]) -> set[str]:
+    """pytest コマンドの引数を allowlist で検査し、-m 式が参照するマーカー集合を返す（未知引数は ValueError）。
+
+    許すのは `-q` と `-m <式>` だけ。未知の引数（-k・--collect-only・--ignore=… 等）は fail closed で拒否する。
+    -m が末尾で式が無いときは素の IndexError でなく ValueError にする。式は `_require_satisfiable_marker_expr`
+    で充足可能性まで見る。
+    """
+    markers: set[str] = set()
+    args = cmd[1:]
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in _ALLOWED_PYTEST_FLAGS:
+            i += 1
+        elif tok == "-m":
+            if i + 1 >= len(args):
+                raise ValueError(f"checks.toml の pytest コマンドの -m に式が無い: {cmd}")
+            expr = args[i + 1]
+            _require_satisfiable_marker_expr(expr, cmd)
+            markers |= markers_in_expr(expr)
+            i += 2
+        else:
+            raise ValueError(
+                f"checks.toml の pytest コマンドに許可外の引数 {tok!r}: {cmd}"
+                f"（許すのは {sorted(_ALLOWED_PYTEST_FLAGS)} と -m <式> だけ＝未知の引数は fail closed で拒否）"
+            )
+    return markers
+
+
+def _verify_checks_config(root: Path) -> None:
+    """checks.toml の走らせてよいコマンドを argv allowlist で検査し、外れれば ValueError で起動を拒否する。
+
+    保証すること（allowlist＝fail closed）：走らせてよいのは ruff/mypy の決まった argv と、pytest の
+    `-q`・`-m <式>` だけ。未知の引数・未知のコマンド・充足不能な `-m` 式（異なる層の and 等）はすべて
+    起動前に ValueError で止まる。「まだ列挙していない次のフラグ」も既定で拒否される（denylist のように
+    1 つずつ潰さない＝L-017）。対象集合はツール自身の定数（LEVELS・testing.PYRAMID・許可 argv 定数）と
+    pyproject の登録から機械的に導ける（自己申告の台帳ではない＝保証の (b)）。
+
+    検査対象は checks.toml の**生の argv**（`_load_commands` が読んだもの）だけ。harness 自身が実行時に足す
+    引数（`run_check` が mypy に付ける `--exclude …`＝T-0192）は検査しない。ここで実行時の追加分まで禁じると、
+    非 DS 案件（profiles=[]）で mypy の除外が付けられず verify が起動しなくなる（allowlist は「人が書いた argv」
+    にだけ効く）。
+
+    保証しないこと：これは「事故防止」であって「改竄防止」ではない。この関数を書き換える手は checks.toml を
+    書き換える手と同じで、リポ内に不動点は無い（AGENTS「保証の 3 段階」）。後退を止めるのは差分の独立
+    レビューと作業ツリー外の required checks。
 
     番人を pytest の中に置かない：この関数は run_check の冒頭で無条件に呼ぶ。全 pytest テストが deselect
     されても検査は効く（門番が門の内側に住まない）。
@@ -116,19 +204,34 @@ def _verify_checks_config(root: Path) -> None:
         return  # 複製直後などファイルが無いときは _load_commands と同じく寛容（走らせるものが無いだけ）。
     commands = _load_commands(root, LEVELS[-1])  # full まで＝全レベルのコマンドを累積。
 
+    # 各コマンドを argv allowlist に照合し、外れたら起動を拒否する。pytest の -m 式が参照するマーカーも集める。
+    used: set[str] = set()
+    for cmd in commands:
+        if not cmd:
+            raise ValueError("checks.toml に空のコマンドがある（走らせる argv が無い）")
+        head = cmd[0]
+        if head == "pytest":
+            used |= _pytest_markers(cmd)
+        elif head == "ruff":
+            if tuple(cmd) not in _ALLOWED_RUFF_ARGV:
+                allowed = sorted(list(argv) for argv in _ALLOWED_RUFF_ARGV)
+                raise ValueError(f"checks.toml が許可外の ruff コマンド: {cmd}（走らせてよいのは {allowed} だけ）")
+        elif head == "mypy":
+            if tuple(cmd) not in _ALLOWED_MYPY_ARGV:
+                raise ValueError(f"checks.toml が許可外の mypy コマンド: {cmd}（走らせてよいのは ['mypy'] だけ）")
+        else:
+            raise ValueError(
+                f"checks.toml が許可外のコマンド: {cmd}"
+                "（走らせてよいのは ruff/mypy/pytest の決まった argv だけ＝未知のコマンドは fail closed で拒否）"
+            )
+
     # (1) full までに ruff と mypy が各 1 回以上現れる（言語検査がまるごと抜ける改変を拒否）。
-    first_tokens = {cmd[0] for cmd in commands if cmd}
-    missing_tools = [tool for tool in ("ruff", "mypy") if tool not in first_tokens]
+    heads = {cmd[0] for cmd in commands if cmd}
+    missing_tools = [tool for tool in ("ruff", "mypy") if tool not in heads]
     if missing_tools:
         raise ValueError(
             f"checks.toml が必須の言語検査を欠く: {missing_tools}（full までに ruff と mypy が各 1 回以上必要）"
         )
-
-    # pytest -m 式が参照するマーカー名の和集合を集める。
-    used: set[str] = set()
-    for cmd in commands:
-        if cmd[:1] == ["pytest"] and "-m" in cmd:
-            used |= markers_in_expr(cmd[cmd.index("-m") + 1])
 
     # (2) すべてのマーカーが pyproject に登録済み（綴り違い・改名の typo を拒否＝全 deselect の経路を閉じる）。
     unregistered = sorted(used - _registered_markers(root))

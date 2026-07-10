@@ -77,6 +77,13 @@ class Goal:
     metrics: tuple[str, ...] = ("exact_match",)
     thresholds: Mapping[str, float]
 
+    def __post_init__(self) -> None:
+        # 空 thresholds を型のレベルで封鎖する（保証の (a)）。goal の存在意義は停止のゲートで、空だと
+        # eval.passes(scores, {}) が判定 0 件で True を返し、でたらめな出力でも goal_met になる（fail open）。
+        # goal_from_mapping は親切なメッセージで先に弾くが、Python から直接 Goal(...) を組む経路も塞ぐ。
+        if not self.thresholds:
+            raise ValueError("Goal.thresholds は空にできない（停止判定の根拠になる閾値を 1 つ以上要する）")
+
 
 @dataclass(frozen=True)
 class GoalGate:

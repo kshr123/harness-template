@@ -166,6 +166,99 @@ def test_run_check_rejects_broken_config_before_pytest(tmp_path: Path) -> None:
         checks.run_check(root, "full")
 
 
+# ---- argv allowlist（T-0209 / EP-32）：名前の存在でなく「走らせてよい argv」を固定し、未知は fail closed ----
+#
+# 独立レビューが実測した「テスト 0 件のまま緑」経路を、tmp_path 上の checks.toml で 1 つずつ拒否されることを
+# 確かめる。期待値（拒否）は入力の構成から導ける（allowlist の外＝拒否）。denylist で個別に潰したのではなく、
+# 許した argv 以外を止めているので「次のフラグ」も同じ理由で止まる。
+
+
+def test_checks_config_rejects_collapsed_layers(tmp_path: Path) -> None:
+    # 3 層を 1 つの -m に and で集約＝積は空集合（どのテストも選べない）→ 充足不能で拒否（exit 5 の偽合格を断つ）。
+    fast = _GOOD_FAST.replace("unit and not slow", "unit and integration and e2e")
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="充足不能"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_extra_k_arg(tmp_path: Path) -> None:
+    # 正しい -m に -k zzz_never_match を追加＝全 deselect→exit 5→偽の合格の経路。-k は許可外の引数で拒否。
+    fast = _GOOD_FAST.replace(
+        "'pytest','-q','-m','unit and not slow'",
+        "'pytest','-q','-m','unit and not slow','-k','zzz_never_match'",
+    )
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="許可外の引数"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_collect_only(tmp_path: Path) -> None:
+    # --collect-only を追加＝1 件も実行せず exit 0。許可外の引数で拒否。
+    fast = _GOOD_FAST.replace(
+        "'pytest','-q','-m','unit and not slow'",
+        "'pytest','-q','-m','unit and not slow','--collect-only'",
+    )
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="許可外の引数"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_ignore_arg(tmp_path: Path) -> None:
+    # --ignore=tests を追加＝収集対象を消して exit 0。許可外の引数で拒否。
+    fast = _GOOD_FAST.replace(
+        "'pytest','-q','-m','unit and not slow'",
+        "'pytest','-q','-m','unit and not slow','--ignore=tests'",
+    )
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="許可外の引数"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_hollow_ruff_version(tmp_path: Path) -> None:
+    # ruff を --version に骨抜き＝先頭トークンだけ見るなら通っていた。argv allowlist の外なので拒否。
+    fast = _GOOD_FAST.replace("'ruff','check','.'", "'ruff','--version'")
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="許可外の ruff"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_hollow_mypy_version(tmp_path: Path) -> None:
+    # mypy を --version に骨抜き。argv allowlist の外なので拒否。
+    standard = _GOOD_STANDARD.replace("'mypy'", "'mypy','--version'")
+    root = _write_repo(tmp_path, fast=_GOOD_FAST, standard=standard, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="許可外の mypy"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_unknown_top_command(tmp_path: Path) -> None:
+    # ruff/mypy/pytest 以外の未知コマンドは fail closed で拒否（allowlist の外）。
+    fast = _GOOD_FAST + ",['echo','hi']"
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="許可外のコマンド"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_dangling_m(tmp_path: Path) -> None:
+    # -m が末尾で式が無い＝素の IndexError でなく ValueError で拒否する。
+    fast = _GOOD_FAST.replace("'pytest','-q','-m','unit and not slow'", "'pytest','-q','-m'")
+    root = _write_repo(tmp_path, fast=fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="-m に式が無い"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_accepts_stage_reassignment(tmp_path: Path) -> None:
+    # 複製先が段階への割り当てを変える自由：3 層すべてを full に寄せても、argv が allowlist 内なら通る
+    # （固定するのは「何を走らせてよいか」だけ・段階の割り当てではない）。`層 and not slow` は正当。
+    root = _write_repo(
+        tmp_path,
+        fast="['ruff','format','--check','.'],['ruff','check','.']",
+        standard="['mypy']",
+        full="['pytest','-q','-m','unit and not slow'],['pytest','-q','-m','integration and not slow'],"
+        "['pytest','-q','-m','e2e and not slow']",
+    )
+    checks._verify_checks_config(root)  # 例外を投げなければ合格（正当な使い方を壊さない）
+
+
 # ---- mypy の対象をプロファイルに連動させる（非 DS 案件で profile ソース・テストを型検査から外す＝T-0192） ----
 #
 # 期待値は Profile.test_globs（プロファイルの持ち物の宣言）と無効集合から導出する（実 config を仮定しない）。

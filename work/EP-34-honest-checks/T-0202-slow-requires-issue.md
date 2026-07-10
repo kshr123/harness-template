@@ -9,8 +9,8 @@ verified_by:
   - tests/test_conventions.py::test_slow_without_iss_reference_is_detected
   - tests/test_conventions.py::test_slow_with_iss_reference_is_ok
   - tests/test_conventions.py::test_skip_markers_include_slow
-  - tests/test_conventions.py::test_module_level_pytestmark_slow_without_iss_is_detected
-  - tests/test_conventions.py::test_module_level_pytestmark_slow_with_iss_is_ok
+  - tests/test_conventions.py::test_check_collected_items_flags_slow_without_iss
+  - tests/test_conventions.py::test_check_collected_items_accepts_slow_with_iss
   - tests/test_conventions.py::test_skipif_is_covered_and_pyramid_markers_are_ignored
 ---
 # T-0202 slow マーカーに ISS 参照を必須化
@@ -49,8 +49,9 @@ pytest 自身の仕様として `Item.iter_markers()` は関数装飾のマー�
 区別せず同じ `pytest.Mark` の形で返す。つまり実装コードは何も変えなくても両方に効く。この前提（pytest
 本体の挙動）が今後変わっても検知できるよう、`tests/test_conventions.py` に pytester（pytest 標準の
 自己テスト用フィクスチャ。`tests/conftest.py` に `pytest_plugins = ["pytester"]` で opt-in した）を使った
-実データの回帰テストを足した：
-`test_module_level_pytestmark_slow_without_iss_is_detected` / `test_module_level_pytestmark_slow_with_iss_is_ok`。
+実データの回帰テストを足した（T-0210 で収集フックの正本を `harness.testing.check_collected_items` に
+集約した際、これらは正本の関数を直接呼ぶ形へ置き換えた）：
+`test_check_collected_items_flags_slow_without_iss` / `test_check_collected_items_accepts_slow_with_iss`。
 
 ## なぜ `slow` を回す CI job を足さないか（やらないことの理由）
 独立レビューで確定した制約。実測で `slow` マーカー付きのテストは現在 0 件。0 件の集合に対して

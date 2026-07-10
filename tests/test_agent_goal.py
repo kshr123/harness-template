@@ -145,6 +145,14 @@ def test_goal_gate_unknown_threshold_name_raises_fail_closed() -> None:
 
 
 @pytest.mark.unit
+def test_goal_rejects_empty_thresholds_at_construction() -> None:
+    # 空 thresholds は型のレベルで封鎖する（保証の (a)・T-0209）。Python から直接 Goal を組んでも、
+    # passes(scores, {}) が判定 0 件で True を返す fail open を起こせない。期待は入力（空 dict）から導ける。
+    with pytest.raises(ValueError, match="thresholds"):
+        Goal(expected="正解", thresholds={})
+
+
+@pytest.mark.unit
 def test_prior_messages_continue_conversation_no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     _cut_network(monkeypatch)
     provider = PROVIDERS.resolve("dummy").factory(0, replies={"続き": "了解"})
