@@ -103,9 +103,7 @@ def _registered_markers(root: Path) -> set[str]:
 # 走らせてよいコマンドの allowlist（argv 単位）。**何を走らせてよいか**だけを固定し、段階への割り当て・順序は
 # checks.toml が自由に決める。未知の argv は起動を拒否（fail closed）＝「まだ列挙していない次のフラグ」も
 # 既定で止まる（denylist のように 1 つずつ潰さない＝docs/learnings.md L-017）。
-_ALLOWED_RUFF_ARGV: frozenset[tuple[str, ...]] = frozenset(
-    {("ruff", "format", "--check", "."), ("ruff", "check", ".")}
-)
+_ALLOWED_RUFF_ARGV: frozenset[tuple[str, ...]] = frozenset({("ruff", "format", "--check", "."), ("ruff", "check", ".")})
 _ALLOWED_MYPY_ARGV: frozenset[tuple[str, ...]] = frozenset({("mypy",)})
 # pytest コマンドで許すフラグ（引数を取らないもの）。-m は式トークンを 1 つ取るので別扱い。
 # 必要になったフラグ（例 -p no:cacheprovider）は、実際に使うものだけを理由つきでここに足す。
