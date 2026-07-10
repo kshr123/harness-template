@@ -54,6 +54,62 @@ def test_mention_in_skill_makes_command_reachable(tmp_path: Path) -> None:
     assert _errors(tmp_path) == []
 
 
+# --- 語境界：1 語コマンドの単なる出現・部分文字列は到達とみなさない（T-0201） ---
+
+
+# `serve_app.command("serve")` → 素の "serve" トークン（1 語コマンドの代表例）。
+BARE_SERVE_CLI = (
+    'import typer\n\nserve_app = typer.Typer()\n\n@serve_app.command("serve")\ndef _s() -> None:\n    pass\n'
+)
+
+
+@pytest.mark.unit
+def test_bare_mention_without_uv_run_is_not_reachable(tmp_path: Path) -> None:
+    # "serve" という語が本文にただ出現するだけ（`uv run` の後ろではない）→ 導線としては数えない。
+    _write(tmp_path, "src/harness/x/cli.py", BARE_SERVE_CLI)
+    _write(tmp_path, "docs/top.md", "モデルを配信（serve）する仕組みについて説明する。\n")
+    assert any("'serve'" in m for m in _errors(tmp_path))
+
+
+@pytest.mark.unit
+def test_negated_sentence_mention_is_not_reachable(tmp_path: Path) -> None:
+    # 否定文中の出現（「触れない」）も、`uv run` の後ろに置かれていなければ導線として数えない。
+    _write(tmp_path, "src/harness/x/cli.py", ORPHAN_CLI)
+    _write(tmp_path, "docs/top.md", "data _orphan を直接叩かない。\n")
+    assert any("data _orphan" in m for m in _errors(tmp_path))
+
+
+@pytest.mark.unit
+def test_substring_of_longer_word_does_not_falsely_match(tmp_path: Path) -> None:
+    # "deserve" や "servex" のように "serve" を部分文字列として含む語には誤ってヒットしない。
+    _write(tmp_path, "src/harness/x/cli.py", BARE_SERVE_CLI)
+    _write(tmp_path, "docs/top.md", "この設計は `uv run servex` という架空のコマンドと deserve という英単語を含む。\n")
+    assert any("'serve'" in m for m in _errors(tmp_path))
+    # 本物の `uv run serve` が現れれば到達する（境界チェックが厳しすぎて正しい案内まで弾かないことの確認）。
+    _write(tmp_path, "docs/bottom.md", "配信は `uv run serve --help` から始める。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_uv_run_prefixed_bare_token_is_reachable(tmp_path: Path) -> None:
+    _write(tmp_path, "src/harness/x/cli.py", BARE_SERVE_CLI)
+    _write(tmp_path, "docs/top.md", "配信は `uv run serve --help` を見る。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_hyphenated_command_word_boundary(tmp_path: Path) -> None:
+    # ハイフンを含むコマンド名（[project.scripts] の task-lint 相当）でも語境界が正しく効くこと。
+    pyproject_with_foo_lint = '[project]\nname = "x"\nversion = "0"\n\n[project.scripts]\nfoo-lint = "x:main"\n'
+    _write(tmp_path, "pyproject.toml", pyproject_with_foo_lint)
+    # 別語の一部（foo-linter）に誤ってヒットしない。
+    _write(tmp_path, "docs/top.md", "`uv run foo-linter` という別コマンドの説明。\n")
+    assert any("foo-lint" in m for m in _errors(tmp_path))
+    # 本物の `uv run foo-lint` は到達する。
+    _write(tmp_path, "docs/bottom.md", "検査は `uv run foo-lint` で行う。\n")
+    assert _errors(tmp_path) == []
+
+
 @pytest.mark.unit
 def test_exempt_token_suppresses_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write(tmp_path, "src/harness/x/cli.py", ORPHAN_CLI)
