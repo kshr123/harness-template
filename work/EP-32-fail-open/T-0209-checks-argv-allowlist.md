@@ -16,6 +16,7 @@ verified_by:
   - tests/test_verification_mechanism.py::test_checks_config_rejects_dangling_m
   - tests/test_verification_mechanism.py::test_checks_config_accepts_stage_reassignment
   - tests/test_verification_mechanism.py::test_checks_config_accepts_valid_config
+  - tests/test_agent_goal.py::test_goal_rejects_empty_thresholds_at_construction
 ---
 # T-0209 checks.toml のコマンドを argv allowlist にする（T-0198 の追補）
 
