@@ -26,16 +26,22 @@ RETRAIN = ".github/workflows/retrain.yml"
 _PYPROJECT = '[project]\nname = "copy-dest"\nversion = "0.1.0"\nrequires-python = ">=3.14"\n'
 
 
-def _copy_templates(tmp_path: Path, *, with_pyproject: bool = True) -> Path:
+def _copy_templates(
+    tmp_path: Path, *, with_pyproject: bool = True, profiles_line: str = 'profiles = ["harness.ds"]'
+) -> Path:
     """実テンプレート一式＋最小 pyproject を一時プロジェクトへ置き、その root を返す。
 
     templates/experiment/ も一緒に置く：retrain.yml は train.py をそこから参照する（スクリプト参照の
     実在検査の対象）ので、置かないと他の観点のテストまで参照エラーで落ちてしまう。
+    profiles_line で .harness/config.toml の profiles を書く（既定は DS 案件＝--all-extras を要求する側）。
     """
     shutil.copytree(TEMPLATES, tmp_path / "templates" / "ci")
     shutil.copytree(REPO_ROOT / "templates" / "experiment", tmp_path / "templates" / "experiment")
     if with_pyproject:
         (tmp_path / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    cfg = tmp_path / ".harness" / "config.toml"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text(f"{profiles_line}\n", encoding="utf-8")
     return tmp_path
 
 
@@ -119,17 +125,25 @@ def test_without_pyproject_version_check_skipped(tmp_path: Path) -> None:
     assert ci_lint.run_checks(tmp_path) == []
 
 
-# --- uv sync の extras（verify 環境は全部入り＝AGENTS の規約） ---
+# --- uv sync の extras（プロファイルを使う案件の verify 環境は全部入り＝AGENTS の規約） ---
 
 
 @pytest.mark.unit
 def test_missing_all_extras_flagged(tmp_path: Path) -> None:
-    # uv sync から --all-extras だけを外す（step 自体は残す）→規約違反の 1 箇所＝error 1 件。
+    # プロファイルを使う案件（profiles=["harness.ds"]）で uv sync から --all-extras を外す→規約違反 1 箇所＝error 1 件。
     root = _copy_templates(tmp_path)
     _mutate(root, "uv sync --all-extras", "uv sync")
     errors = _errors(root)
     assert len(errors) == 1
     assert "--all-extras" in errors[0]
+
+
+@pytest.mark.unit
+def test_missing_all_extras_not_flagged_for_core_only_project(tmp_path: Path) -> None:
+    # 中核のみの案件（profiles=[]）は optional 依存が無い＝素の uv sync でよい→--all-extras 欠如を指摘しない。
+    root = _copy_templates(tmp_path, profiles_line="profiles = []")
+    _mutate(root, "uv sync --all-extras", "uv sync")
+    assert not any("--all-extras" in m for m in _errors(root))
 
 
 # --- 継続学習（CT）雛形 retrain.yml（任意テンプレ＝在れば内容を検査・無くても error にしない） ---
