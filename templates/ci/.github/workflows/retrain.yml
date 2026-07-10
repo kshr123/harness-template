@@ -37,12 +37,12 @@ jobs:
       # 「監視→課題起票の閉ループ」）。shadow 配信中は既定 --role primary が二重計上を防ぐ（docs/serve.md）。
       - name: ドリフト確認（門番にしない）
         run: uv run data monitor --baseline train_table # ← 複製先が編集する箇所：学習基準テーブルの id
-      # 昇格＝既存の promote_model が唯一の関門：絶対（thresholds＝eval.passes と同じ合否）かつ
+      # 昇格の判定は promote_model の 1 か所だけ：value_threshold（thresholds）かつ
       # 相対（現 champion に primary で勝つ）を満たすときだけ champion を更新する。版は手書きしない＝
       # 再学習 step の結果記録（results/metrics_<variant>.yaml の model.name/version）から結線する。
-      # 関門で不合格なら ValueError で step が落ちる＝昇格なし（意図した停止。赤で残したくなければ
+      # 判定で却下されたら PromotionError（ValueError）で step が落ちる＝昇格なし（意図した停止。赤で残したくなければ
       # continue-on-error: true をこの step に付ける）。
-      - name: 閾値を満たしたときだけ昇格（関門は promote_model）
+      - name: 閾値を満たしたときだけ昇格（判定は promote_model）
         run: |
           uv run python - <<'PY'
           from pathlib import Path

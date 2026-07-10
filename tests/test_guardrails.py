@@ -53,7 +53,7 @@ SECRET_READ_DENY: tuple[str, ...] = (
 # 秘密情報検出フックの id。ローカル（pre-commit）と CI が**同じ入口**（この 1 つのフック）で回す。
 SECRETS_HOOK_ID = "gitleaks"
 
-# 検査委譲の関門で配線した workflow lint 2 種。対象は当リポの workflow 雛形
+# 検査を外部ツールへ委譲している workflow lint 2 種。対象は当リポの workflow 雛形
 # （実 workflow ではない＝GitHub Actions は `.github/` しか読まないため、templates/ 配下を明示的に覆う）。
 WORKFLOW_LINT_HOOK_IDS = ("actionlint", "check-jsonschema")
 # 実際にフックが走査すべきパス文字列（`files:` 正規表現がこの両方に re.search でマッチしなければ
@@ -129,7 +129,7 @@ def test_secrets_scan_wired() -> None:
 
 
 def test_workflow_lint_wired() -> None:
-    """検査委譲の関門：actionlint・check-jsonschema が workflow 雛形を実効走査する配線。
+    """検査の委譲：actionlint・check-jsonschema が workflow 雛形を実効走査する配線。
 
     (a) 2 フックが存在、(b) それぞれの `files` 正規表現が実際のパス文字列（templates/ 配下の
     workflow 雛形 2 か所）の両方に `re.search` でマッチする（マッチしないと「緑だが何も走査していない」
@@ -143,7 +143,7 @@ def test_workflow_lint_wired() -> None:
         hook = next((h for h in hooks if h["id"] == hook_id), None)
         assert hook is not None, (
             f"workflow lint フック '{hook_id}' が .pre-commit-config.yaml に無い。配線"
-            "（検査委譲の関門）が外れている。フックを戻すこと（T-0134 の執行点）"
+            "（外部ツールへの検査委譲）が外れている。フックを戻すこと（T-0134 の執行点）"
         )
         files_pattern = hook.get("files", "")
         assert files_pattern, (

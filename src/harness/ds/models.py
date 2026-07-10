@@ -2,8 +2,8 @@
 
 - 実体は pickle 1 ファイル（特徴量→モデルの Pipeline を丸ごと。前処理と本体がずれない）。
 - store.py と同じ4作法（config URI で置き場を解決／一時ファイル→rename／sha256 指紋／manifest.yaml）は
-  harness.storage の共通部品で行い、ここは方針（保存は常に許す・関門は昇格だけ・manifest 最後＝完了の印）を持つ。
-- 保存は常に許す（実験の記録）。関門は昇格だけ（負の結果も記録で完了、と両立する）。
+  harness.storage の共通部品で行い、ここは方針（保存は常に許す・判定は昇格だけ・manifest 最後＝完了の印）を持つ。
+- 保存は常に許す（実験の記録）。判定を課すのは昇格だけ（負の結果も記録で完了、と両立する）。
 - 形式は FORMATS レジストリが担う（manifest の `format` 文字列で save/load が分岐する拡張ポイント）。
   pickle（既定・常に登録）と skops（安全読込・optional extra `skops` で条件登録）。可搬形式（onnx 等）が
   要る時はここに枝を足す。
@@ -27,7 +27,7 @@ from typing import Any
 
 from harness import gates, storage
 from harness.config import load_config
-from harness.ds.eval import METRICS, passes
+from harness.ds.eval import METRICS, directions
 
 MANIFEST_FILE = "manifest.yaml"
 PROMOTIONS_DIR = "promotions"
@@ -458,7 +458,10 @@ def promote_model(
     primary: str,
     higher_is_better: bool | None = None,
 ) -> Promotion:
-    """昇格の関門。絶対（passes）かつ相対（現 champion に primary で勝つ）を満たすときだけ昇格する。
+    """`value_threshold`（閾値）と `change_threshold`（現 champion からの改善）をすべて満たすときだけ昇格する。
+
+    判定の意味は中核の `harness.gates` が持つ。ここが持つのは「どのレジストリで向きを解決するか」と、
+    落ちたときに `gates.PromotionError`（`ValueError` の下位型）を投げること。
 
     primary の向き（大きいほど良いか）の正本は eval.METRICS。higher_is_better は省略が基本で、
     明示するならレジストリと一致していること（矛盾＝呼び手の思い違いなので ValueError で止める。
@@ -477,31 +480,21 @@ def promote_model(
         raise FileNotFoundError(f"{work}/{name}/{version}: 保存が無い")
     record = _record_from_manifest(version_dir)
 
-    if not passes(record.metrics, dict(thresholds)):
-        raise ValueError(f"絶対関門で不合格: metrics={record.metrics} thresholds={dict(thresholds)}")
-    if primary not in record.metrics:
-        raise ValueError(f"primary 指標 '{primary}' が metrics に無い")
-
     champ = champion(root, work=work, name=name)
-    previous = None
-    if champ is not None:
-        previous = champ.version
-        if primary not in champ.metrics:
-            # 過去の昇格と違う primary に切り替えた場合。測っていない指標では比較できない＝昇格しない
-            # （passes の「測っていない＝満たしたと見なさない」と同じ規約。KeyError で落ちない）。
-            raise ValueError(f"primary 指標 '{primary}' が現 champion（{champ.version}）の metrics に無い")
-        # 比較の意味（向きで正規化した改善量が min_change を超えるか・NaN は fail closed）は中核の gates が持つ。
-        context = gates.GateContext(
-            candidate=record.metrics,
-            baseline=champ.metrics,
-            directions={primary: direction},
-            baseline_label=champ.version,
-        )
-        decision = gates.evaluate(context, [{"kind": "change_threshold", "metric": primary, "baseline": "champion"}])
-        if not decision.approved:
-            raise ValueError(
-                f"相対関門で不合格: {primary} 候補={record.metrics[primary]} 現 champion={champ.metrics[primary]}"
-            )
+    previous = champ.version if champ is not None else None
+    context = gates.GateContext(
+        candidate=record.metrics,
+        baseline=champ.metrics if champ is not None else None,
+        directions=directions([*thresholds, primary]),
+        baseline_label=previous,
+    )
+    specs = [
+        *gates.value_threshold_specs(thresholds),
+        {"kind": "change_threshold", "metric": primary, "baseline": "champion"},
+    ]
+    decision = gates.evaluate(context, specs)
+    if not decision.approved:
+        raise gates.PromotionError(f"{work}/{name}/{version} は昇格を却下（rejected）: {decision.summary}", decision)
 
     decided = _utcnow().strftime(VERSION_FORMAT)
     promotion = {

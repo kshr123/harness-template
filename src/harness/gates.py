@@ -119,12 +119,14 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
         raise ValueError(f"change_threshold の baseline は 'champion' だけ（'{baseline}' は未対応）")
     direction = ctx.direction(metric)
     label = f"champion({ctx.baseline_label})" if ctx.baseline_label else "champion"
-    if ctx.baseline is None:  # 初回昇格＝比較対象が無いので、この判定は課さない
-        detail = "change_threshold: baseline が無い（初回昇格なので比較しない）"
-        return GateResult("change_threshold", metric, True, "no_baseline", None, None, min_change, detail)
+    # 候補の未測定は baseline の有無より先に見る（初回昇格でも、測っていない指標では昇格を認めない）。
     if metric not in ctx.candidate:
         detail = f"change_threshold: 候補が {metric} を測っていないので比較できない"
         return GateResult("change_threshold", metric, False, "not_measured", None, None, min_change, detail)
+    if ctx.baseline is None:  # 初回昇格＝比較対象が無いので、この判定は課さない
+        detail = "change_threshold: baseline が無い（初回昇格なので比較しない）"
+        observed_only = ctx.candidate[metric]
+        return GateResult("change_threshold", metric, True, "no_baseline", observed_only, None, min_change, detail)
     if metric not in ctx.baseline:
         detail = f"change_threshold: {label} が {metric} を測っていないので比較できない"
         observed_only = ctx.candidate[metric]
@@ -136,8 +138,10 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
     improvement = observed - before if direction else before - observed
     passed = improvement > min_change  # NaN はどちらの比較も False＝fail closed。同点（0.0）も不合格。
     verdict = "を満たす" if passed else "を満たさない"
+    # 改善量は引き算の結果なので浮動小数点の桁が出る（0.6-0.9=-0.30000000000000004）。読む人には無意味なので丸める。
     detail = (
-        f"change_threshold: {metric} 候補={observed} {label}={before} 改善量={improvement} は > {min_change} {verdict}"
+        f"change_threshold: {metric} 候補={observed} {label}={before} "
+        f"改善量={improvement:+.6g} は > {min_change} {verdict}"
     )
     reason = "ok" if passed else "no_improvement"
     return GateResult("change_threshold", metric, passed, reason, observed, before, min_change, detail)

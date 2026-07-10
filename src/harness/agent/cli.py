@@ -259,19 +259,21 @@ def _agent_promote(
     work: Annotated[str, typer.Option(help="作業単位ID（保存先 work/<work>/agents/…）")],
     name: Annotated[str, typer.Option(help="エージェント名")],
     version: Annotated[str, typer.Option(help="昇格候補の版（UTC タイムスタンプ）")],
-    primary: Annotated[str, typer.Option(help="相対関門の指標（AGENT_METRICS の kind・向きはレジストリが正本）")],
+    primary: Annotated[
+        str, typer.Option(help="change_threshold で比べる指標（AGENT_METRICS の kind・向きはレジストリが正本）")
+    ],
     threshold: Annotated[
-        list[str], typer.Option("--threshold", help="絶対関門の閾値 名=値（繰り返し可。例: exact_match=0.8）")
+        list[str], typer.Option("--threshold", help="value_threshold の閾値 名=値（繰り返し可。例: exact_match=0.8）")
     ],
 ) -> None:
-    """評価済みの版を champion へ昇格する（絶対関門＝閾値・相対関門＝現 champion に primary で勝つ）。"""
+    """評価済みの版を champion へ昇格する（value_threshold＝閾値・change_threshold＝現 champion からの改善）。"""
     from harness.agent import store
 
     try:
         promo = store.promote_agent(
             _root(), work=work, name=name, version=version, thresholds=_parse_thresholds(threshold), primary=primary
         )
-    except ValueError as exc:  # 関門で不合格（絶対/相対）・未登録 primary → 昇格しない＝非ゼロ終了
+    except ValueError as exc:  # 判定で却下（PromotionError）・未登録 primary → 昇格しない＝非ゼロ終了
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     shown = "  ".join(f"{k}={v:.4f}" for k, v in sorted(promo.metrics.items()))

@@ -108,6 +108,12 @@ def test_change_threshold_passes_when_there_is_no_baseline() -> None:
     assert result.passed is True and result.reason == "no_baseline"
 
 
+def test_change_threshold_fails_when_the_candidate_lacks_the_metric_even_without_a_baseline() -> None:
+    # 候補が測っていない指標では、比較対象の有無に関わらず昇格を認めない（baseline 不在より先に見る）。
+    result = gates.change_threshold(_ctx({"loss": 0.1}, None), metric="score", baseline="champion")
+    assert result.passed is False and result.reason == "not_measured"
+
+
 def test_change_threshold_fails_when_the_baseline_lacks_the_metric() -> None:
     result = gates.change_threshold(_ctx({"score": 0.9}, {"loss": 0.1}), metric="score", baseline="champion")
     assert result.passed is False and result.reason == "baseline_not_measured"

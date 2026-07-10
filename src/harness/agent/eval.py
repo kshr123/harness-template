@@ -2,9 +2,9 @@
 
 - 採点器は ds の指標と同じ形（Registry[MetricEntry]・description は docstring 1 行目）。
   thresholds に書ける名前＝このレジストリの kind（一覧は `uv run agent metrics`）。
-- `passes` は `harness.ds.eval.passes` と同じ規約（合格条件を正の形で問う＝NaN は不合格・fail closed・L-009）。
-  ds 版は名前を ds の METRICS で検証するため exact_match 等を渡せない＝向きの解決だけ AGENT_METRICS に
-  差し替えた小さな複製。3 箇所目が出たら core への昇格を DEC 化する（item.md の leaderboard と同じ扱い）。
+- `passes` の判定そのものは中核の `harness.gates.value_threshold` が持つ（ds の `passes` と同じ実体）。
+  この 2 つの `passes` に残る違いは「どのレジストリで向きを解決するか」だけ（ds は METRICS・agent は
+  AGENT_METRICS）。合格条件を正の形で問う＝NaN は不合格・fail closed（L-009）。
 - `llm_judge`（`JudgeEntry`）は `MetricEntry.fn` の純関数契約（provider を持たない）を破らない：`.fn` へは
   アクセスさせず、案内つき ValueError で「goal YAML の judge: 節か `GoalGate(judge=…)` 経由で使う」ことを
   教える（登録はカタログ・`passes` の membership・向き解決を既存機構にそのまま乗せるため。実体の束ねは
@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -73,12 +73,18 @@ def passes(metrics: dict[str, float], thresholds: dict[str, float]) -> bool:
     判定そのものは中核の `harness.gates.value_threshold` が持つ（ds プロファイルの `passes` と同じ実体）。
     ここが持つのは「どのレジストリで向きを解決するか」だけ。
     """
-    for name in thresholds:
+    ctx = gates.GateContext(candidate=metrics, baseline=None, directions=directions(thresholds))
+    return gates.evaluate(ctx, gates.value_threshold_specs(thresholds)).approved
+
+
+def directions(names: Iterable[str]) -> dict[str, bool]:
+    """採点器の名 → 向き（大きいほど良いか）。未登録の名があれば ValueError（typo を黙って不合格にしない）。
+
+    向きの正本は AGENT_METRICS。昇格の判定（`harness.gates`）は解決済みの向きだけを受け取る。
+    """
+    resolved: dict[str, bool] = {}
+    for name in names:
         if name not in AGENT_METRICS:
             raise ValueError(f"未登録の採点器 '{name}'（thresholds に書けるのは {sorted(AGENT_METRICS)}）")
-    ctx = gates.GateContext(
-        candidate=metrics,
-        baseline=None,
-        directions={name: AGENT_METRICS[name].higher_is_better for name in thresholds},
-    )
-    return gates.evaluate(ctx, gates.value_threshold_specs(thresholds)).approved
+        resolved[name] = AGENT_METRICS[name].higher_is_better
+    return resolved

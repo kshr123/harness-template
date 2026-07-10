@@ -8,8 +8,8 @@ depends_on: [T-0095, EP-21]
 verified_by:
   - tests/test_ci_lint.py::test_repo_retrain_template_passes
   - tests/test_ci_lint.py::test_retrain_template_out_of_order_steps_flagged
-  - tests/test_ds_models.py::test_promotion_gate
-  - tests/test_ds_models.py::test_promotion_relative_reject
+  - tests/test_ds_models.py::test_promotion_value_threshold_and_champion_move
+  - tests/test_ds_models.py::test_promotion_change_threshold_reject
   - tests/test_doclint.py::test_real_repo_docs_have_no_dead_links
 ---
 # T-0120 ops retrain 閉ループの loops 位置づけ（done）
@@ -50,14 +50,14 @@ run はステートレスな 1 周（sync→train→monitor→promote で終了�
 ## verified_by（すべて既存・実在確認して束ねる）
 - `tests/test_ci_lint.py::test_repo_retrain_template_passes`
 - `tests/test_ci_lint.py::test_retrain_template_out_of_order_steps_flagged`
-- `tests/test_ds_models.py::test_promotion_gate`
-- `tests/test_ds_models.py::test_promotion_relative_reject`
+- `tests/test_ds_models.py::test_promotion_value_threshold_and_champion_move`
+- `tests/test_ds_models.py::test_promotion_change_threshold_reject`
 - `tests/test_doclint.py::test_real_repo_docs_have_no_dead_links`
 （実名は着手時に grep で確認し、指す先が無ければ実在する同等テストに合わせる＝空振りは verify で失敗。）
 
 ## 効かせる guard（maker≠checker・このミューテーションで RED＝記述の指す実体の両端が既存テストで固定）
 1. retrain.yml の step を並べ替え（監視→昇格の順序を崩す）→ `test_repo_retrain_template_passes`（ci_lint の ordered）が RED。
-2. `promote_model` の相対関門を外す → `test_promotion_relative_reject` が RED（絶対なら `test_promotion_gate`）。
+2. `promote_model` の相対関門を外す → `test_promotion_change_threshold_reject` が RED（絶対なら `test_promotion_value_threshold_and_champion_move`）。
 3. 同型のもう一端（GoalGate）を DEC なしに一般化 → T-0099 の番人 `test_stop_condition_signature_stays_agent_shaped_until_dec` が RED（既存・重複計上しない）。
 
 ## やらないこと

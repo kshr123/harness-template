@@ -5,7 +5,7 @@ status: done
 title: 評価スコアで昇格するライフサイクル（agent/store.py＝save/champion/promote_agent）
 created: 2026-07-06
 depends_on: [T-0089]
-verified_by: [tests/test_agent_store.py::test_promote_agent_absolute_and_relative_gates]
+verified_by: [tests/test_agent_store.py::test_promote_agent_value_and_change_thresholds]
 ---
 # T-0090 評価スコアで昇格するライフサイクル（agent/store.py）
 
@@ -56,7 +56,7 @@ ML の `ds/models.py`（champion/promote_model）と**同じ形**だが、プロ
 `ds/**`・`serve/**` は変更しない（`ds.experiment.leaderboard` は読むだけ＝遅延 import で再利用）。
 
 ## 検査（テスト先書き・構成から導く・マーカー必須）
-- `test_agent_store.py::test_promote_agent_absolute_and_relative_gates`（**unit** or **integration**）：
+- `test_agent_store.py::test_promote_agent_value_and_change_thresholds`（**unit** or **integration**）：
   - save→未 champion で絶対関門だけ効く：metrics が閾値以上なら promote 成功・未満なら ValueError（構成した metrics から導く）。
   - 2 版目：primary で現 champion に勝つ版だけ昇格・負け/同点版は相対関門で ValueError。
   - `champion` が最新昇格版を返す・昇格記録の向きは AGENT_METRICS 由来（引数の思い違いに依らない）。
@@ -69,7 +69,7 @@ ML の `ds/models.py`（champion/promote_model）と**同じ形**だが、プロ
 ## 独立レビュー（maker≠checker・差分のみ・実測・変異）
 実装は fable。レビューは別文脈・別モデル（Opus）が差分のみを実測・変異で確認（APPROVE）。
 - **相対関門の向き（最重要）＝変異で確認**：`store.py` の相対判定を 2 通り変異（`>`→`>=`／`if direction` 反転）。
-  どちらも `test_promote_agent_absolute_and_relative_gates` が RED（劣位版・同点版が昇格しないことをテストが実際に捕捉）。
+  どちらも `test_promote_agent_value_and_change_thresholds` が RED（劣位版・同点版が昇格しないことをテストが実際に捕捉）。
   変異は毎回バイト同一に復元。向きは `AGENT_METRICS[primary].higher_is_better` 由来で引数に無い＝呼び手の思い違いで劣位版が昇格する事故を構造的に排除。
 - **絶対関門＋fail-closed**：閾値未達（0.6<0.7）で相対比較前に ValueError。NaN・primary 欠落も不合格（passes は T-0089 で fail-closed 確認済み）。
 - **save の atomic 性・版の非再利用**：実体ファイルは無く manifest（write_manifest＝tmp→replace）が唯一かつ最後の書き込み＝存在が完了の印。同版は `exist_ok=False` で拒否（`test_same_version_is_rejected`）。時刻は `_utcnow` を monkeypatch で固定（グローバル種・実時刻レースに依らない）。

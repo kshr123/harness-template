@@ -128,7 +128,7 @@ def test_passes_respects_direction_and_rejects_unknown() -> None:
 
 def test_passes_nan_fails_closed() -> None:
     # NaN はどの比較とも False（比較が常に偽）→ 素通り（fail open）せず、両向きとも不合格にする。
-    # 発散したモデル（log_loss=nan・rmse=nan 等）が関門を通って昇格してはいけない。
+    # 発散したモデル（log_loss=nan・rmse=nan 等）が判定を通って昇格してはいけない。
     assert not ev.passes({"roc_auc": float("nan")}, {"roc_auc": 0.8})  # 大きいほど良い向き
     assert not ev.passes({"log_loss": float("nan")}, {"log_loss": 0.5})  # 小さいほど良い向き
     # 通常の合否は従来どおり（境界値＝閾値ちょうどは合格）。

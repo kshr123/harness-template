@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from harness import gates
 from harness.agent import store
 from harness.agent.spec import AgentSpec
 
@@ -44,22 +45,24 @@ def _spec(prompt: str = "そのまま返す") -> AgentSpec:
 
 
 @pytest.mark.integration
-def test_promote_agent_absolute_and_relative_gates(
+def test_promote_agent_value_and_change_thresholds(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # exact_match は higher_is_better=True（AGENT_METRICS の登録どおり）＝閾値は >=・相対関門は > で判定。
+    # exact_match は higher_is_better=True（AGENT_METRICS の登録どおり）＝value_threshold は >=・
+    # change_threshold は「改善量 > 0」で判定する。
     _clock(monkeypatch, [_T1, _T2, _T3])
     proj = make_project()
     store.save_agent(proj.root, _spec(), work="E-9001", name="helper", metrics={"exact_match": 0.8})
     store.save_agent(proj.root, _spec(), work="E-9001", name="helper", metrics={"exact_match": 0.9})
     store.save_agent(proj.root, _spec(), work="E-9001", name="helper", metrics={"exact_match": 0.6})
 
-    # 絶対関門（champion 不在でも効く）：0.6 < 0.7 は不合格。
-    with pytest.raises(ValueError, match="絶対関門"):
+    # value_threshold（champion 不在でも効く）：0.6 < 0.7 は不合格。文言でなく判定の種類で照合する。
+    with pytest.raises(gates.PromotionError) as rejected:
         store.promote_agent(
             proj.root, work="E-9001", name="helper", version=_V3, thresholds={"exact_match": 0.7}, primary="exact_match"
         )
-    # 初回昇格は絶対関門のみ（0.8 >= 0.5 で champion に）。向きの記録はレジストリ由来（引数に無い）。
+    assert [f.kind for f in rejected.value.decision.failures] == ["value_threshold"]
+    # 初回昇格は value_threshold だけで決まる（0.8 >= 0.5 で champion に）。向きの記録はレジストリ由来。
     promo1 = store.promote_agent(
         proj.root, work="E-9001", name="helper", version=_V1, thresholds={"exact_match": 0.5}, primary="exact_match"
     )
@@ -68,16 +71,18 @@ def test_promote_agent_absolute_and_relative_gates(
     champ1 = store.champion(proj.root, work="E-9001", name="helper")
     assert champ1 is not None and champ1.version == _V1
 
-    # 相対関門：絶対関門は通る（0.6 >= 0.5）が champion（0.8）に負ける版は昇格しない。
-    with pytest.raises(ValueError, match="相対関門"):
+    # change_threshold：value_threshold は通る（0.6 >= 0.5）が champion（0.8）に負ける版は昇格しない。
+    with pytest.raises(gates.PromotionError) as rejected:
         store.promote_agent(
             proj.root, work="E-9001", name="helper", version=_V3, thresholds={"exact_match": 0.5}, primary="exact_match"
         )
-    # 同点（0.8 vs 0.8＝champion 自身の再昇格）も昇格しない（> の判定＝同点は勝ちでない）。
-    with pytest.raises(ValueError, match="相対関門"):
+    assert [f.kind for f in rejected.value.decision.failures] == ["change_threshold"]
+    # 同点（0.8 vs 0.8＝champion 自身の再昇格）も昇格しない（改善量 0.0 は > 0.0 を満たさない）。
+    with pytest.raises(gates.PromotionError) as tie:
         store.promote_agent(
             proj.root, work="E-9001", name="helper", version=_V1, thresholds={"exact_match": 0.5}, primary="exact_match"
         )
+    assert tie.value.decision.failures[0].reason == "no_improvement"
     # 勝つ版（0.9 > 0.8）だけ昇格し、champion が最新昇格版へ移る。
     promo2 = store.promote_agent(
         proj.root, work="E-9001", name="helper", version=_V2, thresholds={"exact_match": 0.5}, primary="exact_match"

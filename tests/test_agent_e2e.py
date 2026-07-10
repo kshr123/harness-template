@@ -75,7 +75,7 @@ def test_agent_run_test_flag_is_wired_and_offline(
 
 def test_agent_lifecycle_save_promote_champion_no_network(make_project: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     # ライフサイクルの一巡：宣言→run_agent_eval→save_agent→promote_agent→champion（ネットワーク 0）。
-    # metrics は cases の構成から 2/3（上のスモークと同じ導出）＝閾値 0.5 の絶対関門を通り初回昇格する。
+    # metrics は cases の構成から 2/3（上のスモークと同じ導出）＝閾値 0.5 の value_threshold を通り初回昇格する。
     _cut_network(monkeypatch)
     from harness.agent import store
 
@@ -95,7 +95,7 @@ def test_agent_lifecycle_save_promote_champion_no_network(make_project: Any, mon
         thresholds={"exact_match": 0.5},
         primary="exact_match",
     )
-    assert promo.previous_version is None  # 初回昇格（champion 不在→絶対関門のみ）
+    assert promo.previous_version is None  # 初回昇格（champion 不在→value_threshold のみ）
     champ = store.champion(proj.root, work="E-9900", name=spec.name)
     assert champ is not None and champ.version == record.version
     assert champ.metrics["exact_match"] == pytest.approx(2 / 3)  # 仕込んだ 2 件だけ一致（構成から導出）

@@ -29,7 +29,7 @@ def test_passes_true_when_threshold_met() -> None:
 
 @pytest.mark.unit
 def test_passes_nan_fails_closed() -> None:
-    # NaN はどの比較も False＝必ず不合格（発散を関門で止める。ds.eval.passes と同じ fail closed）。
+    # NaN はどの比較も False＝必ず不合格（発散した版を昇格させない。ds.eval.passes と同じ fail closed）。
     assert passes({"exact_match": math.nan}, {"exact_match": 0.5}) is False
 
 

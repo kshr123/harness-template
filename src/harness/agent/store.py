@@ -5,7 +5,7 @@
 - **非対称**：agent の実体は宣言 YAML そのもの＝学習済みバイナリが無いので FORMATS（保存形式の
   拡張ポイント）は要らない（manifest に spec を config として畳み込むの非対称）。
   よって実体ファイルの atomic_write も無く、manifest（write_manifest＝原子的）だけが保存の全体。
-- 保存は常に許す（評価の記録）。関門は昇格だけ（絶対＝passes・相対＝現 champion に primary で勝つ）。
+- 保存は常に許す（評価の記録）。判定を課すのは昇格だけ（value_threshold と change_threshold・`harness.gates`）。
 - `prompt_fingerprint`（system_prompt の sha256）＝「どのプロンプトで測った metrics か」の印。
 """
 
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from harness import gates, storage
-from harness.agent.eval import AGENT_METRICS, passes
+from harness.agent.eval import AGENT_METRICS, directions
 from harness.config import load_config
 
 if TYPE_CHECKING:
@@ -153,7 +153,7 @@ def save_agent(root: Path, spec: AgentSpec, *, work: str, name: str, metrics: Ma
 
     実体ファイルは無い（宣言が実体）＝manifest（write_manifest＝原子的）だけを書く。
     manifest 内容＝spec の dict（config）＋metrics＋prompt_fingerprint＋実行環境＋git 来歴＋created。
-    保存は常に許す（評価の記録）。関門は promote_agent だけ。
+    保存は常に許す（評価の記録）。判定を課すのは promote_agent だけ。
     """
     version = _utcnow().strftime(VERSION_FORMAT)
     version_dir = _agent_dir(root, work=work, name=name) / version
@@ -225,42 +225,33 @@ def promote_agent(
     thresholds: Mapping[str, float],
     primary: str,
 ) -> AgentPromotion:
-    """昇格の関門。絶対（passes）かつ相対（現 champion に primary で勝つ）を満たすときだけ昇格する。
+    """`value_threshold`（閾値）と `change_threshold`（現 champion からの改善）をすべて満たすときだけ昇格する。
 
-    primary の向き（大きいほど良いか）の正本は AGENT_METRICS＝引数では受けない（呼び手の向きの
-    思い違いで劣る版が昇格する事故を構造的に塞ぐ）。負け/同点は昇格しない。関門で落ちたら ValueError
-    （昇格は明示ゲート＝ここは exit を止める。監視の「門番にしない」とは別の関心）。
+    判定の意味は中核の `harness.gates` が持つ。primary の向き（大きいほど良いか）の正本は AGENT_METRICS＝
+    引数では受けない（呼び手の向きの思い違いで劣る版が昇格する事故を構造的に塞ぐ）。負け・同点は昇格しない。
+    却下されたら `gates.PromotionError`（`ValueError` の下位型）を投げる（昇格は明示の判定＝ここは exit を
+    止める。監視を止めないのとは別の関心）。
     """
     if primary not in AGENT_METRICS:
         raise ValueError(f"未登録の primary 指標 '{primary}'（{sorted(AGENT_METRICS)} のいずれか）")
-    direction = AGENT_METRICS[primary].higher_is_better  # 向きの正本はレジストリ
     record = load_agent(root, work=work, name=name, version=version)  # 保存が無ければ FileNotFoundError
-
-    if not passes(record.metrics, dict(thresholds)):
-        raise ValueError(f"絶対関門で不合格: metrics={record.metrics} thresholds={dict(thresholds)}")
-    if primary not in record.metrics:
-        raise ValueError(f"primary 指標 '{primary}' が metrics に無い")
+    direction = AGENT_METRICS[primary].higher_is_better  # 向きの正本はレジストリ
 
     champ = champion(root, work=work, name=name)
-    previous = None
-    if champ is not None:
-        previous = champ.version
-        if primary not in champ.metrics:
-            # 過去の昇格と違う primary に切り替えた場合。測っていない指標では比較できない＝昇格しない
-            # （passes の「測っていない＝満たしたと見なさない」と同じ規約。KeyError で落ちない）。
-            raise ValueError(f"primary 指標 '{primary}' が現 champion（{champ.version}）の metrics に無い")
-        # 比較の意味（向きで正規化した改善量が min_change を超えるか・NaN は fail closed）は中核の gates が持つ。
-        context = gates.GateContext(
-            candidate=record.metrics,
-            baseline=champ.metrics,
-            directions={primary: direction},
-            baseline_label=champ.version,
-        )
-        decision = gates.evaluate(context, [{"kind": "change_threshold", "metric": primary, "baseline": "champion"}])
-        if not decision.approved:
-            raise ValueError(
-                f"相対関門で不合格: {primary} 候補={record.metrics[primary]} 現 champion={champ.metrics[primary]}"
-            )
+    previous = champ.version if champ is not None else None
+    context = gates.GateContext(
+        candidate=record.metrics,
+        baseline=champ.metrics if champ is not None else None,
+        directions=directions([*thresholds, primary]),
+        baseline_label=previous,
+    )
+    specs = [
+        *gates.value_threshold_specs(thresholds),
+        {"kind": "change_threshold", "metric": primary, "baseline": "champion"},
+    ]
+    decision = gates.evaluate(context, specs)
+    if not decision.approved:
+        raise gates.PromotionError(f"{work}/{name}/{version} は昇格を却下（rejected）: {decision.summary}", decision)
 
     decided = _utcnow().strftime(VERSION_FORMAT)
     promotion = {

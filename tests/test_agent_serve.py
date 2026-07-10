@@ -43,7 +43,7 @@ def _spec(prompt: str = "そのまま返す") -> AgentSpec:
 
 
 def _make_champion(proj: Any, monkeypatch: pytest.MonkeyPatch, *, work: str = "E-9101") -> None:
-    """provider=dummy の champion を 1 版つくる（保存 → 絶対関門のみで初回昇格）。"""
+    """provider=dummy の champion を 1 版つくる（保存 → value_threshold だけで初回昇格）。"""
     _clock(monkeypatch, [_T1])
     store.save_agent(proj.root, _spec(), work=work, name="helper", metrics={"exact_match": 0.9})
     store.promote_agent(

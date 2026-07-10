@@ -8,7 +8,7 @@ depends_on: [T-0013, T-0014]
 verified_by:
   - tests/test_ds_models.py::test_save_load_roundtrip_and_feature_names
   - tests/test_ds_models.py::test_rejects_missing_manifest_tampered_and_bad_format
-  - tests/test_ds_models.py::test_promotion_gate
+  - tests/test_ds_models.py::test_promotion_value_threshold_and_champion_move
 created: 2026-07-03
 closed: 2026-07-03
 owner: sakurada

@@ -20,7 +20,7 @@ from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
-from harness import storage
+from harness import gates, storage
 from harness.ds import data
 from harness.ds import models as model_store
 from harness.ds.features import Columns, FeaturePipeline, Interactions
@@ -133,17 +133,20 @@ def test_non_file_backend_is_not_implemented(make_project: Callable[..., Any]) -
         model_store.save_model(proj.root, _fitted(), name="baseline", work="E-0001")
 
 
-def test_promotion_gate(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_promotion_value_threshold_and_champion_move(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     _clock(monkeypatch, [_T1, _T2])
     proj = make_project()
     model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.85})
     model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.90})
 
-    # 絶対関門で不合格（閾値 0.95 に届かない）。
-    with pytest.raises(ValueError, match="絶対関門"):
+    # value_threshold で却下（閾値 0.95 に届かない）。文言でなく落ちた判定の種類で照合する。
+    with pytest.raises(gates.PromotionError) as rejected:
         model_store.promote_model(
             proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.95}, primary="roc_auc"
         )
+    assert [f.kind for f in rejected.value.decision.failures] == ["value_threshold"]
     # 初回昇格は無条件（0.85 で champion に）。
     model_store.promote_model(
         proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.80}, primary="roc_auc"
@@ -158,8 +161,8 @@ def test_promotion_gate(make_project: Callable[..., Any], monkeypatch: pytest.Mo
     assert champ2 is not None and champ2.version == _V2
 
 
-def test_promotion_relative_reject(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    # 先に強い版（0.90）を champion に、後から劣る版（0.85）を昇格しようとすると相対関門で棄却。
+def test_promotion_change_threshold_reject(make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    # 先に強い版（0.90）を champion に、後から劣る版（0.85）を昇格しようとすると change_threshold で棄却。
     _clock(monkeypatch, [_T1, _T2])
     proj = make_project()
     model_store.save_model(proj.root, _fitted(), name="m", work="E-0001", metrics={"roc_auc": 0.90})
@@ -167,10 +170,11 @@ def test_promotion_relative_reject(make_project: Callable[..., Any], monkeypatch
     model_store.promote_model(
         proj.root, work="E-0001", name="m", version=_V1, thresholds={"roc_auc": 0.80}, primary="roc_auc"
     )
-    with pytest.raises(ValueError, match="相対関門"):
+    with pytest.raises(gates.PromotionError) as rejected:
         model_store.promote_model(
             proj.root, work="E-0001", name="m", version=_V2, thresholds={"roc_auc": 0.80}, primary="roc_auc"
         )
+    assert [f.kind for f in rejected.value.decision.failures] == ["change_threshold"]
 
 
 def test_promotion_rejects_when_champion_lacks_the_primary_metric(
@@ -219,11 +223,12 @@ def test_promotion_direction_resolved_from_registry(
         proj.root, work="E-0001", name="m", version=_V1, thresholds={"log_loss": 0.70}, primary="log_loss"
     )
     assert promo.higher_is_better is False  # レジストリで解決した向きが記録に残る
-    # 劣る候補（0.60 > 0.50）は相対関門で棄却（向きを取り違えて昇格しない）。
-    with pytest.raises(ValueError, match="相対関門"):
+    # 劣る候補（0.60 > 0.50）は change_threshold で棄却（向きを取り違えて昇格しない）。
+    with pytest.raises(gates.PromotionError) as rejected:
         model_store.promote_model(
             proj.root, work="E-0001", name="m", version=_V2, thresholds={"log_loss": 0.70}, primary="log_loss"
         )
+    assert [f.kind for f in rejected.value.decision.failures] == ["change_threshold"]
     # 勝つ候補（0.40 < 0.50）は昇格し champion が移動する。
     model_store.promote_model(
         proj.root, work="E-0001", name="m", version=_V3, thresholds={"log_loss": 0.70}, primary="log_loss"

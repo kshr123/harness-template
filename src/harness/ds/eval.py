@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from functools import partial
 from typing import Any, Literal
 
@@ -423,15 +423,22 @@ def passes(metrics: dict[str, float], thresholds: dict[str, float]) -> bool:
     判定そのものは中核の `harness.gates.value_threshold` が持つ（agent プロファイルの `passes` と同じ実体）。
     ここが持つのは「どのレジストリで向きを解決するか」だけ。
     """
-    for name in thresholds:
+    ctx = gates.GateContext(candidate=metrics, baseline=None, directions=directions(thresholds))
+    return gates.evaluate(ctx, gates.value_threshold_specs(thresholds)).approved
+
+
+def directions(names: Iterable[str]) -> dict[str, bool]:
+    """指標名 → 向き（大きいほど良いか）。未登録の名があれば ValueError（typo を黙って不合格にしない）。
+
+    向きの正本は METRICS。昇格の判定（`harness.gates`）は解決済みの向きだけを受け取るので、
+    「どのレジストリで解決するか」を決めるのはこの関数の役目。
+    """
+    resolved: dict[str, bool] = {}
+    for name in names:
         if name not in METRICS:
             raise ValueError(f"未登録の指標 '{name}'（thresholds に書けるのは {sorted(METRICS)}）")
-    ctx = gates.GateContext(
-        candidate=metrics,
-        baseline=None,
-        directions={name: METRICS[name].higher_is_better for name in thresholds},
-    )
-    return gates.evaluate(ctx, gates.value_threshold_specs(thresholds)).approved
+        resolved[name] = METRICS[name].higher_is_better
+    return resolved
 
 
 def bootstrap_ci(

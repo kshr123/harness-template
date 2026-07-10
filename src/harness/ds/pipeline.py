@@ -336,7 +336,7 @@ def _dummy_reg(seed: int, **params: Any) -> SklearnLike:  # noqa: ANN401  seed �
     """平均を返すだけの回帰ベースライン。task: regression。
 
     既定 strategy="mean"。"median"/"quantile"（quantile= 併記）/"constant"（constant= 併記）に params で上書き可。
-    回帰モデルの相対関門（この基準を下回る指標なら学習が効いていない）。
+    回帰モデルの baseline（この基準を上回る改善が無いなら学習が効いていない）。
     """
     model: SklearnLike = DummyRegressor(**{"strategy": "mean", **params})
     return model
@@ -504,14 +504,14 @@ OPTIONAL_MODEL_EXTRAS: dict[str, str] = {"lightgbm": "lightgbm", "lightgbm_reg":
 # optional 依存（lightgbm 等）のモデルはファイル末尾で「入っていれば登録」する（§5 条件登録）。
 MODELS: Registry[Entry] = Registry("モデル", catalog="data models", extras_hint=OPTIONAL_MODEL_EXTRAS)
 # 分類
-MODELS.register("dummy", _dummy, task="classification")  # 何も学習しないベースライン（相対関門・T-0062）
+MODELS.register("dummy", _dummy, task="classification")  # 何も学習しない baseline（比較の基準・T-0062）
 MODELS.register("logreg", _logreg, task="classification")
 MODELS.register("knn", _knn, task="classification")
 MODELS.register("tree", _tree, task="classification")
 MODELS.register("random_forest", _random_forest, task="classification")
 MODELS.register("hist_gb", _hist_gb, task="classification")
 # 回帰
-MODELS.register("dummy_reg", _dummy_reg, task="regression")  # 何も学習しないベースライン（相対関門・T-0062）
+MODELS.register("dummy_reg", _dummy_reg, task="regression")  # 何も学習しない baseline（比較の基準・T-0062）
 MODELS.register("ridge", _ridge, task="regression")
 MODELS.register("lasso", _lasso, task="regression")
 MODELS.register("elasticnet", _elasticnet, task="regression")
