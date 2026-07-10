@@ -1,11 +1,19 @@
 ---
 id: T-0179
 kind: task
-status: todo
+status: done
 title: T-0176〜T-0178 の独立レビューを通し、指摘を反映する
 created: 2026-07-10
+closed: 2026-07-10
 depends_on: [T-0178]
-verified_by: []
+verified_by:
+  - tests/test_gates.py::test_value_threshold_rejects_a_non_finite_value
+  - tests/test_gates.py::test_change_threshold_rejects_a_non_finite_candidate_even_without_a_baseline
+  - tests/test_gates.py::test_change_threshold_names_a_non_finite_baseline_distinctly
+  - tests/test_gates.py::test_evaluate_rejects_an_unknown_gate_parameter_as_a_value_error
+  - tests/test_registry.py::test_a_vocabulary_registry_refuses_a_name_without_a_source
+  - tests/test_promotion_characterization.py::test_ds_a_non_finite_metric_never_becomes_champion
+  - tests/test_promotion_characterization.py::test_agent_a_non_finite_metric_never_becomes_champion
 ---
 # T-0179 独立レビュー（T-0176〜T-0178）
 
@@ -22,26 +30,37 @@ NaN を止めない）と、作業記録の誇張を見つけた。レビュー�
 - `e1b24e9` T-0177（`Registry(require_source=True)`）
 - `bdfa870` T-0178（造語の是正・AGENTS の条文・review スキルの手順）
 
-## 深さ（review スキルの規約より）
-`src/`・`tests/` に触れるので **full**：別モデルで独立レビュー＋**ミューテーション**（新しく入れた
-guard を実際に壊して対象テストが赤くなることを実測）。壊す対象は少なくとも次の 4 つ。
-- `value_threshold` / `change_threshold` の `math.isfinite` を外す（両方）
-- `change_threshold` の候補未測定・baseline 不在の分岐順
-- `Registry.register` の `require_source` 判定
-- `_run` の `inspect.signature(...).bind`（未知の引数が TypeError に戻ること）
+## 結果（2026-07-10・別モデルの独立レビュー・別 worktree）
+**判定：問題なし**（完了をブロックする重大な問題は無し）。
 
-## とくに確かめてほしいこと
-1. **T-0178 で新しく導入した review スキルの手順（新しく現れた名前の列挙）を、この差分自身に適用する。**
-   `params`・`not_finite`・`threshold_not_met`・`baseline_not_finite`・`require_source`・`source` は
-   それぞれ出典を答えられるか。答えられないものは造語。
-2. `GateResult.params` を `Mapping[str, Any]` にしたことで、frozen dataclass の等価比較・ハッシュに
-   問題が出ないか（現状ハッシュしていないが、将来 set に入れると壊れる）。
-3. `not_finite` を `value_threshold` にも入れたのは挙動変更である。`inf` を良い値として使う指標が
-   `METRICS` / `AGENT_METRICS` に無いことを確かめる（あれば退行）。
-4. `evaluate` の `inspect.signature(factory).bind(ctx, **params)` は、`ctx` を位置引数として束ねている。
-   将来 `GATES` に `ctx` を第 1 引数に取らない判定を登録できてしまわないか。
+### ミューテーション（指定 4 件＋レビュアーが足した 2 件。すべて RED）
+| 壊した箇所 | 落ちたテスト | 結果 |
+| --- | --- | --- |
+| `value_threshold` の `math.isfinite` を除去 | `test_value_threshold_rejects_a_non_finite_value` | RED |
+| `change_threshold` の候補側 `math.isfinite` を除去 | gates 1 件＋characterization 2 件 | RED |
+| `change_threshold` の baseline 側 `math.isfinite` を除去（追加） | `…names_a_non_finite_baseline_distinctly` | RED |
+| 「候補未測定・有限性」より先に「baseline 不在」を見る順へ入替 | gates 2 件＋characterization 2 件＋store/models 各 1 件 | RED |
+| `Registry.register` の `require_source` 判定を無効化 | registry 1 件＋gates 2 件 | RED |
+| `_run` の `inspect.signature(...).bind` を除去（追加） | `…rejects_an_unknown_gate_parameter_as_a_value_error` | RED |
 
-## 受け入れ基準
-- 独立レビューの判定が出ている（問題なし、または指摘を反映して問題なし）。
-- ミューテーション 4 件がすべて赤になることを実測した記録がある。
-- 指摘を反映したうえで `uv run verify` 全成功。
+緑のまま通ったミューテーションは無い。
+
+### 新しく現れた名前と出典（review スキル手順 3 の自己適用）
+`params`（`inspect` の parameters と同語）・`not_finite`（`math.isfinite` の否定）・
+`threshold_not_met`（threshold は tfma.MetricThreshold・not met は状態の記述）・
+`baseline_not_finite`（既存 `baseline_not_measured` と同型の合成）・`require_source`・`source`。
+出典を答えられない名前は無し＝**造語なし**。出典文字列そのものも実在を確認
+（TFMA の `GenericValueThreshold` / `GenericChangeThreshold`、MLflow 2.9 以降の champion alias、
+SageMaker の `ModelApprovalStatus`）。
+
+### 個別の確認
+- `value_threshold` への `not_finite` 追加は退行でない。`METRICS` 23 件と `AGENT_METRICS` 2 件を実測し、
+  `inf` を良い値として使う指標は無い（大きいほど良い側はすべて上限有界、小さいほど良い側は下限 0）。
+- `GateResult.params` は frozen だがハッシュ不能（実測 `TypeError: unhashable type: 'dict'`）。
+  等価比較は正常。今ハッシュする呼び手は無い。→ T-0185。
+- `ctx` を第 1 引数に取らない判定を `GATES` に登録でき、`bind(ctx, **params)` が `ctx` を別の引数へ
+  位置束縛して**黙って走る**（実測）。現登録の 2 判定は正しいので実害は無い。→ T-0185。
+
+## 完了の根拠
+上記 6 件のミューテーションが RED になることを実測し、`uv run verify` は全成功。重大な指摘は無し。
+軽微な指摘 2 件は完了をブロックしないので、独立したタスク（T-0185）に切り出した。
