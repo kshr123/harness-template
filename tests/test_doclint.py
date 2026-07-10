@@ -48,6 +48,22 @@ def test_req_reference_with_existing_file_is_ok(tmp_path: Path) -> None:
     assert _errors(tmp_path) == []
 
 
+def test_extensionless_reference_whose_parent_dir_exists_is_ok(tmp_path: Path) -> None:
+    # 拡張子の無い 2 セグメントの参照（例 tests/conftest）は、親ディレクトリ tests/ が在れば指摘しない。
+    # 「参照先を含むディレクトリが存在するか」を見るのが検査の意図で、参照そのものがディレクトリである
+    # ことは要求しない（doclint は過検出より取りこぼしを許容する方針）。
+    _doc(tmp_path, "tests/conftest.py", "# 収集フック")
+    _doc(tmp_path, "AGENTS.md", "収集フックは tests/conftest を参照。")
+    assert _errors(tmp_path) == []
+
+
+def test_extensionless_reference_whose_parent_dir_is_absent_is_error(tmp_path: Path) -> None:
+    # 親ディレクトリごと撤去された仕組みへの参照（例 docs/decisions/DEC-0006）は error のまま。
+    _doc(tmp_path, "AGENTS.md", "根拠は docs/decisions/DEC-0006 を参照。")
+    errors = _errors(tmp_path)
+    assert any("docs/decisions" in message for message in errors)
+
+
 def test_reference_to_prefix_whose_home_dir_is_absent_is_error(tmp_path: Path) -> None:
     # docs/decisions/ を撤去済みのプロジェクトで DEC-0001 を参照＝置き場自体が無いのですべて error
     # （T-0165：仕組みを撤去したのに参照が残っている状態を検出する。docs/decisions/ を持たないのは

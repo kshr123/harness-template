@@ -202,9 +202,12 @@ def _path_ref_problems(rel: str, text: str, root: Path) -> list[pm.Problem]:
         elif not target.exists():
             problems.append(pm.Problem("error", f"{rel}: 参照先のパス '{ref}' が存在しない"))
     for ref in sorted(_bare_path_refs(text)):
-        home = "/".join(ref.split("/")[:2])
-        if not (root / home).is_dir():
-            problems.append(pm.Problem("error", f"{rel}: 参照先 '{ref}' の置き場 '{home}' が存在しない"))
+        # 参照先そのものの実在は問わない（拡張子が無いので、ファイルか節の見出しか判別できない）。
+        # 「参照先を含むディレクトリが存在するか」だけを見る＝撤去された仕組み（docs/decisions/…）を捕まえ、
+        # 拡張子を省いたファイル参照（tests/conftest）は誤検出しない。
+        parent = "/".join(ref.split("/")[:-1])
+        if not (root / parent).is_dir():
+            problems.append(pm.Problem("error", f"{rel}: 参照先 '{ref}' の置き場 '{parent}' が存在しない"))
     return problems
 
 

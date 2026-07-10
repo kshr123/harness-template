@@ -40,8 +40,10 @@ verified_by:
 - 上記の検査を追加すると、実際に本文へ残っていた `DEC-` 残骸のうち `src/harness/doclint.py` 自身の
   説明文中の例示（`DEC-0006`）と `src/harness/conventions.py` のエラーメッセージ例示（`ISS-1234`）、
   `.claude/skills/review/SKILL.md` の地の文（`docs/文書タスク...` が偶然パスらしく見えた誤検出）が
-  新たに error として検出された。前者 2 件はプレースホルダ表記（`DEC-xxxx`・実在する `ISS-0001`）へ、
-  後者は文言を調整して解消。
+  新たに error として検出された。前者 2 件はプレースホルダ表記（`DEC-xxxx`・`ISS-xxxx`）へ直した
+  （実在する課題 ID を例示に使わない）。後者は検査の欠陥だったので、抽出規則の側を直した
+  （拡張子もスラッシュ終端も無い参照は、全セグメントが ASCII のパス構成文字のときだけ検査する）。
+  正しい文章を検査に合わせて書き換えるのは、テストを書き換えて成功させるのと同じなので行わない。
 - `pyproject.toml`（2 か所）・`.pre-commit-config.yaml`（1 か所）・`.github/workflows/ci.yaml`（2 か所）・
   `src/harness/doc_source_lint.py`（docstring・エラーメッセージ）・`.claude/skills/harvest/SKILL.md`・
   `templates/schedule/README.md`・`.harness/templates/requirement.md` に残っていた `DEC-` 短縮参照を、
