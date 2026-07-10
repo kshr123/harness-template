@@ -2,7 +2,7 @@
 
 期待値はすべて一時ディレクトリに置くファイルの構成（どんなコードを書いたか）から導く。
 skip/xfail の ISS 参照はヘルパ（testing.skips_without_iss）の単体テストで確かめる＝実テストに実 skip を足さない。
-最後の 1 本は現リポに対する回帰の番人（グローバル種なし・work の code に --test あり）。乱数は使わない。
+最後の 1 本は現リポに対する回帰テスト（グローバル種なし・work の code に --test あり）。乱数は使わない。
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ def test_skipif_is_covered_and_other_markers_are_ignored() -> None:
     assert skips_without_iss(items) == ["t.py::test_d"]
 
 
-# --- 現リポの回帰の番人 ---
+# --- 現リポの回帰テスト ---
 
 
 def test_current_repo_has_no_convention_errors() -> None:
@@ -227,6 +227,6 @@ def test_subprocess_popen_and_call_are_scanned(tmp_path: Path) -> None:
 
 
 def test_real_repo_has_no_subprocess_without_encoding() -> None:
-    # 現リポの回帰の番人：src/・tests/ の subprocess 呼び出しはすべて encoding を指定している。
+    # 現リポの回帰テスト：src/・tests/ の subprocess 呼び出しはすべて encoding を指定している。
     offenders = [m for m in _errors(REPO_ROOT) if "encoding" in m]
     assert offenders == [], "\n".join(offenders)

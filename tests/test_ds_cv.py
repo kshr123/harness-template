@@ -84,7 +84,7 @@ def test_make_folds_stratified_group_keeps_balance_and_no_leak() -> None:
 
 def test_make_folds_group_by_none_matches_sklearn_kfold() -> None:
     # group_by 未指定は素の KFold（shuffle=True・random_state=seed）の分割そのもの＝ラッパが余計をしない。
-    # 実装と同じ引数で sklearn を独立に呼んだ fold 割当と一致（自己比較でなく外部オラクル＝回帰の番人）。
+    # 実装と同じ引数で sklearn を独立に呼んだ fold 割当と一致（自己比較でなく外部オラクル＝回帰テスト）。
     from sklearn.model_selection import KFold
 
     df = pl.DataFrame({"id": np.arange(20, dtype=np.int64)})

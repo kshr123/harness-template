@@ -6,7 +6,8 @@ description: 変更の完了を判定する際に自動参照。共通の検証�
 # verify（完了判定）
 
 ## 共通の検証コマンド（実体は uv。make は使わない）
-- `uv run verify` … まとめて検証（作業単位の検査＋完了↔検証の結びつけ＋課題の整合＋テーブル定義＋ruff＋mypy＋pytest）
+- `uv run verify` … まとめて検証（プロジェクト管理の検査＋ruff・mypy・pytest）。**個々の検査の一覧と要約は
+  `docs/core.md`**（コードから生成しているので常に最新）。
 - 段階を選ぶ：`uv run check --level fast|standard|full`
 
 ## 手順

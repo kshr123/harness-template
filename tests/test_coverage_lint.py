@@ -1,7 +1,7 @@
 """coverage_lint のテスト：CLI コマンドの導線（スキル/正本 docs からの到達可能性）検査。
 
 期待値はすべて一時プロジェクトの構成（どのコマンドを置き・どこに導線を書くか）から導く。
-最後の 1 本は現リポに対する回帰の番人（全コマンドが導線を持つこと＝以後の導線忘れを止める）。
+最後の 1 本は現リポに対する回帰テスト（全コマンドが導線を持つこと＝以後の導線忘れを止める）。
 """
 
 from __future__ import annotations
@@ -203,7 +203,7 @@ def test_coverage_lint_is_wired_into_pm_checks() -> None:
     assert coverage_lint.run_checks in checks.PM_CHECKS
 
 
-# --- 回帰の番人：現リポの全コマンドが導線を持つ（以後の導線忘れを止める） ---
+# --- 回帰テスト：現リポの全コマンドが導線を持つ（以後の導線忘れを止める） ---
 
 
 @pytest.mark.integration

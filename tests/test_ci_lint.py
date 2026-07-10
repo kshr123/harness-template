@@ -62,7 +62,7 @@ def test_no_templates_ci_no_problems(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_repo_template_passes() -> None:
-    # 自リポの出荷テンプレートは 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰の番人）。
+    # 自リポの出荷テンプレートは 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰テスト）。
     assert ci_lint.run_checks(REPO_ROOT) == []
 
 

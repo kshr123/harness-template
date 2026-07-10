@@ -1,7 +1,7 @@
 """doclint のテスト：正本ドキュメントの参照（ISS/パス/コマンド）実在検査。
 
 期待値はすべて一時プロジェクトの構成（何を置き・何を置かないか）から導く。
-最後の 1 本は現リポの実 docs に対する回帰の番人（正本の参照が全部実在すること）。
+最後の 1 本は現リポの実 docs に対する回帰テスト（正本の参照が全部実在すること）。
 """
 
 from __future__ import annotations
@@ -222,7 +222,7 @@ def test_skills_are_scanned(tmp_path: Path) -> None:
     assert any(".claude/skills/foo/SKILL.md" in m and "ISS-9999" in m for m in _errors(tmp_path))
 
 
-# --- 回帰の番人：現リポの正本 ---
+# --- 回帰テスト：現リポの正本 ---
 
 
 def test_real_repo_docs_have_no_dead_links() -> None:
@@ -232,6 +232,6 @@ def test_real_repo_docs_have_no_dead_links() -> None:
 
 def test_template_copy_paths_resolve() -> None:
     # docs/template-copy.md（複製手順）が指すパス参照（templates/・tests/・work/ 等）がすべて実在すること
-    # （T-0140：正本雛形の移設で複製手順が腐っていないかを doclint の走査対象に載せた回帰の番人）。
+    # （T-0140：正本雛形の移設で複製手順が腐っていないかを doclint の走査対象に載せた回帰テスト）。
     errors = [p for p in doclint.run_checks(REPO_ROOT) if p.level == "error" and "docs/template-copy.md" in p.message]
     assert errors == [], [p.message for p in errors]

@@ -54,7 +54,7 @@ def test_no_templates_dir_yields_no_problems(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_real_repo_schedule_template_passes_clean() -> None:
-    # 自リポの出荷雛形は 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰の番人）。
+    # 自リポの出荷雛形は 0 件で通る＝「生きた fixture」（verify のたびに陳腐化を検知する回帰テスト）。
     assert schedule_lint.run_checks(REPO_ROOT) == []
 
 

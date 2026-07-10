@@ -30,7 +30,7 @@
 
 | 層 | 何か | どこに住むか | 機械で担保できるか | 例 |
 |---|---|---|---|---|
-| 機械検査 | 違反すると verify が失敗する検査 | `harness/`（pm.lint・spec_lint・checks.toml）＋ pytest/ruff/mypy | **完全** | done↔verified_by の実在検査 |
+| 機械検査 | 違反すると verify が失敗する検査 | `src/harness/` の検査群＋ pytest/ruff/mypy（**一覧は `docs/core.md`**。コードから生成しているのでここには列挙しない） | **完全** | done↔verified_by の実在検査 |
 | 抽象（拡張ポイント） | 変わりうる部分を切り離す型・設定 | Protocol 定義（満たすべきメソッドだけ定めた差し替え用の型）・config の backend URI（保存先などを差し替える裏側の指定）・レジストリ（名前で部品を引ける登録簿） | **ほぼ完全**（mypy が担保） | 保存形式は manifest（保存物に付く由来書き）の `format` 文字列で分岐（核が形式ライブラリを固定しない） |
 | 規約 | 人と AI が従う決まりごと | `AGENTS.md`（正本） | **部分的**（各項目が検査点を括弧書き。持てない項目は「レビュー観点」） | 「テストの数値は構成由来」 |
 | スキル | セッション中に実行する手順の手引き | `.claude/skills/*/SKILL.md` | 不可（発火は description の語） | harvest：振り返り→learnings 記録 |
@@ -59,7 +59,7 @@
 
 | 気づきの性質 | 落とし先 |
 |---|---|
-| 合否を機械で判定できる | 機械検査（pm.lint / spec_lint / checks.toml / pytest） |
+| 合否を機械で判定できる | 機械検査（足し方と一覧は `docs/core.md`） |
 | 「変わりうる軸」の発見 | 抽象（Protocol・config URI） |
 | セッション中の手順（3 手以上） | スキル |
 | 上のどれでもないが従うべき | AGENTS に 1 行＋「レビュー観点」の印 |

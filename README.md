@@ -26,7 +26,7 @@ uv run status           # work/ の木から STATUS.md を作り直す（生成�
 uv run task-lint        # 作業単位の検査（ID重複・depends_on の指す先が無い・done↔検証、を失敗に）
 uv run issue list       # 課題の一覧（issue check：作業単位との紐付けの整合）
 uv run data list        # テーブル定義の一覧（data lint：定義の静的検査）
-uv run verify           # 完了判定（作業単位＋課題＋テーブル定義の検査＋ruff＋mypy＋pytest）
+uv run verify           # 完了判定（プロジェクト管理の検査＋ruff・mypy・pytest。内訳は docs/core.md）
 uv run data --help      # DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。正本は docs/ds.md）
 uv run serve --help     # 配信プロファイル。champion（評価に合格して現在採用中のモデルの版）を Web API で配信（正本は docs/serve.md）
 uv run agent --help     # LLM エージェントの開発・運用プロファイル。AgentSpec（エージェントを宣言する YAML）を評価（正本は docs/agent.md）

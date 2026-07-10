@@ -1,7 +1,7 @@
 """正本ドキュメントの参照実在検査（doclint）。
 
-AGENTS.md・CLAUDE.md・docs/method.md・docs/learnings.md・docs/template-copy.md・.claude/skills/**/*.md
-が持つ参照（ID 参照・相対パス・`uv run <サブコマンド>`）の実在を検査する。
+AGENTS.md・CLAUDE.md・docs/core.md・docs/method.md・docs/learnings.md・docs/template-copy.md・
+.claude/skills/**/*.md が持つ参照（ID 参照・相対パス・`uv run <サブコマンド>`）の実在を検査する。
 対象が消える／改名されると黙って死にリンクになる問題（ISS-0003）を機械で止める。core の検査（プロファイル非依存）。
 stdlib のみに依存。
 
@@ -48,7 +48,14 @@ from pathlib import Path
 from harness import issues, pm
 
 # 固定の対象（存在するものだけ読む）。glob の対象は _target_files を参照。
-_FIXED_FILES = ("AGENTS.md", "CLAUDE.md", "docs/method.md", "docs/learnings.md", "docs/template-copy.md")
+_FIXED_FILES = (
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/core.md",
+    "docs/method.md",
+    "docs/learnings.md",
+    "docs/template-copy.md",
+)
 
 # 相対パス：既知の先頭ディレクトリで始まり、パスに使う文字だけが続く語。直前がパスの一部なら拾わない。
 _PATH_RE = re.compile(r"(?<![\w./-])((?:docs|src|work|tests|templates|\.claude)/[\w./-]*[\w/])")
@@ -221,7 +228,7 @@ def _command_ref_problems(rel: str, text: str, known_commands: set[str]) -> list
 
 
 def run_checks(root: Path) -> list[pm.Problem]:
-    """正本ドキュメントの参照実在検査。死にリンク＝error、未知コマンド＝warn。"""
+    """正本ドキュメントの参照（ID・パス・`uv run` コマンド）の実在検査。死にリンク＝error、未知コマンド＝info。"""
     problems: list[pm.Problem] = []
     homes = _id_homes(root)
     known_commands = _known_commands(root)

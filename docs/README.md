@@ -12,7 +12,8 @@
 3. [method.md](method.md) … 開発の進め方と、進め方自体を改善する仕組み（考え方の核）。
 4. [../AGENTS.md](../AGENTS.md) … 人と AI が従う決まりごと（強制ルールの正本）。
 5. [DoD.md](DoD.md) … 「完了」と言ってよい条件のチェックリスト。
-6. 必要な領域だけ：[ds.md](ds.md)（表データの学習）・[agent.md](agent.md)（LLM エージェント）・
+6. [core.md](core.md) … 中核（プロファイルに依らない共通部分）。`uv run verify` が実際に何を回すか。
+7. 必要な領域だけ：[ds.md](ds.md)（表データの学習）・[agent.md](agent.md)（LLM エージェント）・
    [serve.md](serve.md)（モデル配信）・[ops.md](ops.md)（CI・継続学習・監視）。
 
 ## ID・略語の凡例
@@ -48,6 +49,7 @@
 | [method.md](method.md) | Explanation | 開発の進め方（最小の骨組みを先に作る）と、進め方自体を進化させる仕組み |
 | [../AGENTS.md](../AGENTS.md) | Reference | 従うべき決まりごと（機械検査つき・正本） |
 | [DoD.md](DoD.md) | Reference | 完了の定義（チェックリスト） |
+| [core.md](core.md) | Reference | 中核の正本。`uv run verify` が回す検査の一覧（コードから生成）と、検査の足し方 |
 | [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と使いどころの地図 |
 | [ds-code.md](ds-code.md) | Explanation | ds のコードの役割・組まれ方・今後の広がり（設計の説明） |
 | [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |

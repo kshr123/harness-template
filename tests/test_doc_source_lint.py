@@ -1,7 +1,7 @@
 """doc_source_lint のテスト：恒久ドキュメントが一時的な作業単位（work/）を参照していないか。
 
 期待値はすべて一時プロジェクトの構成（どの文書にどんな参照を置くか）から導く。最後の 1 本は現リポに対する
-回帰の番人（恒久ドキュメントが work/ の作業単位を参照しないこと＝以後の混入を止める）。
+回帰テスト（恒久ドキュメントが work/ の作業単位を参照しないこと＝以後の混入を止める）。
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def test_doc_source_lint_is_wired_into_pm_checks() -> None:
     assert doc_source_lint.run_checks in checks.PM_CHECKS
 
 
-# --- 回帰の番人：現リポの恒久ドキュメントが work/ の作業単位を参照しない ---
+# --- 回帰テスト：現リポの恒久ドキュメントが work/ の作業単位を参照しない ---
 
 
 @pytest.mark.integration

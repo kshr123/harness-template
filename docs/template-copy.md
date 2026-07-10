@@ -13,7 +13,8 @@
 ## 残す（基盤そのもの・触らない）
 - `src/harness/` … 中核（pm・issues・checks・config・testing）と DS プロファイル（`src/harness/ds/`）。
 - `tests/` … 上記の検査。
-- `docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）。
+- `docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）・`docs/core.md`（中核の正本。自動生成節は
+  複製先でも `uv run doc-sync` が同じ内容を作る＝config に依らない）。
 - `.claude/skills/`（スキル）・`AGENTS.md`・`CLAUDE.md`・`pyproject.toml`・`checks.toml`・`.pre-commit-config.yaml`。
 - `docs/data/` のテーブル定義の仕組み（中身は案件のデータに合わせて入れ替える）。
 - `templates/experiment/`（実験の正本雛形＝`train.py`・`config*.yaml`・`data/*.yaml` のテーブル定義。以後の実験は

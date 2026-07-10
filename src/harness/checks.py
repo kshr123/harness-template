@@ -1,12 +1,14 @@
 """共通の検証コマンドの実体。
 
-一つの入口（uv run check / verify）で、言語ツール（ruff/mypy/pytest）と
-プロジェクト管理の決まりごと（参照チェック・完了↔検証の結びつけ）を走らせ、
-合否（成功/失敗）を返す。CI もローカルもこの同じ入口を使う＝完了の定義を一致させる。
+一つの入口（uv run check / verify）で、プロジェクト管理の検査（`PM_CHECKS`）と言語ツール
+（`checks.toml` の ruff/mypy/pytest）を走らせ、合否を返す。CI もローカルもこの同じ入口を使う
+＝完了の定義を一致させる。**個々の検査の一覧と要約は `docs/core.md`**（`PM_CHECKS` と `checks.toml`
+から `uv run doc-sync` が生成する。ここに手書きで列挙しない）。
 """
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import tomllib
 from pathlib import Path
@@ -16,6 +18,7 @@ from harness import (
     conventions,
     coverage_lint,
     doc_source_lint,
+    doc_sync,
     doclint,
     issues,
     pm,
@@ -38,6 +41,7 @@ PM_CHECKS: list[PmCheck] = [
     doc_source_lint.run_checks,
     code_doc_lint.run_checks,
     conventions.run_checks,
+    doc_sync.run_checks,
 ]
 
 
@@ -73,7 +77,8 @@ def _pm_checks(root: Path) -> bool:
         if p.level == "error":
             ok = False
     if ok:
-        print("  ○ プロジェクト管理の検査（参照チェック・完了↔検証・課題の整合＋プロファイルの検査）")
+        # 件数は実測（config で有効にしたプロファイルの検査も数に入る）。内訳の手書き列挙は置かない。
+        print(f"  ○ プロジェクト管理の検査 {len(all_checks)} 件すべて通過（内訳は docs/core.md）")
     return ok
 
 
@@ -88,7 +93,8 @@ def run_check(root: Path, level: str = "full") -> int:
     ok = _pm_checks(root)
 
     for cmd in _load_commands(root, level):
-        print(f"  → {' '.join(cmd)}")
+        # shlex.join：空白を含む引数（`-m "unit and not slow"`）を引用する＝表示をそのまま手で再実行できる。
+        print(f"  → {shlex.join(cmd)}")
         result = subprocess.run(cmd, cwd=root)
         if result.returncode != 0:
             # pytest は「選んだ目印に該当するテストが 1 件も無い」を終了コード 5 で表す。

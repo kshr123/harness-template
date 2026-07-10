@@ -13,7 +13,7 @@ from typing import Annotated
 
 import typer
 
-from harness import checks, commit_lint, issues, pm
+from harness import checks, commit_lint, doc_sync, issues, pm
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
 # クロスプラットフォームの前提（make 非依存と同じ理由）。
@@ -76,6 +76,22 @@ def verify_main() -> None:
     """完了判定＝check full と同じ。すべて成功したら done にできる。"""
 
     sys.exit(checks.run_check(_root(), "full"))
+
+
+def doc_sync_main() -> None:
+    """`docs/core.md` の自動生成節（検査の一覧・言語ツールのコマンド）を作り直す。
+
+    出所は `checks.PM_CHECKS`（名前と docstring 1 行目）と `checks.toml`。検査を足した・docstring を
+    直したあとにこれを走らせる。走らせ忘れは verify（doc_sync.run_checks）が失敗として教える。
+    """
+
+    root = _root()
+    try:
+        changed = doc_sync.sync(root)
+    except ValueError as exc:
+        typer.echo(f"✗ {exc}")
+        sys.exit(1)
+    typer.echo(f"更新: {root / doc_sync.DOC_REL}" if changed else "変更なし（すでに最新）")
 
 
 def commit_msg_lint_main() -> None:
