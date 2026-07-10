@@ -43,7 +43,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `issues.run_checks` | 課題の整合検査。作業単位との紐付けが崩れていないかを見る（backend によらず同じ）。 |
 | `doclint.run_checks` | 正本ドキュメントの参照（ID・パス・`uv run` コマンド）の実在検査。死にリンク＝error、未知コマンド＝info。 |
 | `coverage_lint.run_checks` | CLI コマンドの導線カバレッジ検査。スキル/正本 docs から到達できないコマンド＝error。 |
-| `doc_source_lint.run_checks` | 恒久ドキュメントが `work/` の作業単位を設計の根拠に参照していないか検査する。参照＝error。 |
+| `doc_source_lint.run_checks` | 複製後も残る資産が `work/` の作業単位・`issues/` の課題を設計の根拠に参照していないか検査する。参照＝error。 |
 | `code_doc_lint.run_checks` | 公開モジュールが正本ドキュメント（中核＝docs/core.md・プロファイル＝docs/<名>.md）に載っているか検査する。 |
 | `conventions.run_checks` | テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。 |
 | `doc_sync.run_checks` | 中核の正本ドキュメントの自動生成節が最新か検査する。古い・マーカー異常＝error。 |
@@ -66,7 +66,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 
 `src/harness/` の直下にあるものが中核。ここに公開モジュールを足したら、この表に 1 行足すこと
 （触れ忘れは `code_doc_lint` が verify で失敗させる）。逆に、モジュールを消したときに行が残っても
-機械では検出できない（ISS-0015）。
+機械では検出できない（正本ドキュメントに実在しないモジュール名の行が残る「逆向きの腐り」は未解決の既知の穴）。
 
 **中核のしくみ**
 
@@ -86,7 +86,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | モジュール | 何を見るか |
 | --- | --- |
 | `doclint.py` | 正本ドキュメントの参照（ID・相対パス・`uv run` コマンド）が実在するか |
-| `doc_source_lint.py` | 恒久ドキュメントが一時的な作業単位（`work/`）を設計の根拠に参照していないか |
+| `doc_source_lint.py` | 複製後も残る資産（docs・src・tests・templates・skills）が一時的な単位（`work/`・`issues/`）を設計の根拠に参照していないか |
 | `code_doc_lint.py` | 公開モジュールが、対応する正本ドキュメントで触れられているか |
 | `coverage_lint.py` | CLI コマンドの使い方が、スキルか正本ドキュメントから辿れるか |
 | `doc_sync.py` | この文書の自動生成節が `PM_CHECKS`・`checks.toml` の現状と一致しているか |

@@ -140,16 +140,16 @@ def test_resolved_same_drift_refiles(make_project: Callable[..., Any], monkeypat
 
     first = runner.invoke(data_app, ["monitor", "--baseline", "fi_base", "--file-issue"])
     assert first.exit_code == 0
-    (iss,) = _issue_files(proj.root)  # ISS-0001（open）
+    (iss,) = _issue_files(proj.root)  # 最初に起票される課題（open）
 
-    # ISS-0001 を「解決済み」に倒す（frontmatter の state を open→resolved に書き換え）。
+    # 起票済みの課題を「解決済み」に倒す（frontmatter の state を open→resolved に書き換え）。
     iss.write_text(iss.read_text(encoding="utf-8").replace("state: open", "state: resolved", 1), encoding="utf-8")
     (reloaded,) = issues.load_issues(proj.root)
     assert reloaded.issue.state is issues.IssueState.resolved  # 前提が成立していることを確かめてから再実行
 
     again = runner.invoke(data_app, ["monitor", "--baseline", "fi_base", "--file-issue"])
     assert again.exit_code == 0
-    assert len(_issue_files(proj.root)) == 2  # 同じ指紋でも resolved は照合対象外＝ISS-0002 を新規起票
+    assert len(_issue_files(proj.root)) == 2  # 同じ指紋でも resolved は照合対象外＝別の課題を新規起票
     assert "起票: ISS-0002" in again.output
 
 

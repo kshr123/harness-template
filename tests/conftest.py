@@ -15,11 +15,22 @@ import frontmatter
 import pytest
 import yaml
 
+from harness import profiles
 from harness.testing import SKIP_MARKERS, skips_without_iss, unmarked
 
 # T-0202: pytester フィクスチャ（自分の collect フックを実テストで確かめる pytest 標準ツール）を有効化する。
 # 既定は無効なので、root の conftest.py で明示的に opt-in する必要がある。
 pytest_plugins = ["pytester"]
+
+# T-0192: テストをプロファイルの持ち物にする。無効なプロファイル（.harness/config.toml の profiles に
+# 載っていない＝そのプロファイルの optional 依存が入っていない）が所有するテストを収集から外す。
+# 非 DS の案件（profiles=[]）は polars・fastapi 等が無くても pytest 収集が通る（トップレベル import で 45 errors
+# にならない）。当リポは全プロファイル有効なので除外は空＝全テストが従来どおり収集される。ファイルは移動・改名
+# しない（work/ の verified_by 参照を壊さない）＝所有は Profile.test_globs の宣言だけで表す。
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+collect_ignore_glob = sorted(
+    {glob for profile in profiles.disabled_profiles(_REPO_ROOT) for glob in profile.test_globs}
+)
 
 
 def _marker_reason(mark: pytest.Mark) -> str:
@@ -36,9 +47,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """ピラミッドの目印（unit/integration/e2e）が無いテストは collect でエラーにする（迷子テストを塞ぐ）。
 
     -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れを止める。
-    あわせて skip/skipif/xfail/slow の reason に課題参照（ISS-<番号>）が無いテストも collect でエラーにする
-    （理由の無い skip 禁止＝AGENTS・ISS-0002。slow は checks.toml の全段階が `not slow` で除外し続ける＝
-    ISS 無しだと「テストを永久に回さない」抜け道になるため skip/xfail と同格にする＝T-0202。
+    あわせて skip/skipif/xfail/slow の reason に課題参照（`ISS-<番号>`）が無いテストも collect でエラーにする
+    （理由の無い skip 禁止＝AGENTS。slow は checks.toml の全段階が `not slow` で除外し続ける＝
+    課題参照が無いと「テストを永久に回さない」抜け道になるため skip/xfail と同格にする。
     判定は harness.testing.skips_without_iss。マーカーが関数装飾か `pytestmark = pytest.mark.slow`
     （モジュール全体）かは iter_markers() が同じ形で渡すので区別しない）。
     """

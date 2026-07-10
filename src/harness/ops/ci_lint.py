@@ -18,7 +18,9 @@ GitHub Actions は実行しない・ネットワークも使わない。テン�
 - 表の required_triggers（例 schedule）が on: に無い＝error（定期実行の起点が抜けた CT 雛形）。
 - `python-version` がリポの正（pyproject の requires-python）と食い違う・指定が無い＝error。
   リポの正を導出できない root（pyproject が無いコピー先）では版検査を行わない（誤検知しない）。
-- `uv sync` の step に `--all-extras` が無い＝error（開発・verify 環境は全部入り＝AGENTS の規約）。
+- `uv sync` の step に `--all-extras` が無い＝error（プロファイルを使う案件の verify 環境は全部入り＝AGENTS の規約）。
+  ただし中核のみの案件（`.harness/config.toml` の `profiles = []`）は optional 依存が無いので要求しない
+  （素の `uv sync` で足りる。依存監査＝L-016 は別ジョブで全部入りのまま）。
 - `templates/ci/**/*.yml` の run が参照する「リポジトリ内の相対パスらしき .py」が実在しない＝error
   （複製時に消えた・移設先がずれた雛形。表 _WORKFLOWS に載っていない yml も対象＝全ワークフロー共通の検査）。
   抽出は保守的：トークン全体が英数字・`_`・`.`・`/`・`-` だけのものだけを見る（`$VAR`・`<...>` のような
@@ -38,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from harness import pm
+from harness.config import load_config
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,9 @@ def run_checks(root: Path) -> list[pm.Problem]:
 
     problems: list[pm.Problem] = []
     repo_python = _repo_python_version(root)
+    # プロファイルを使う案件だけ「uv sync は全部入り」を要求する（optional 依存のテストを skip しないため）。
+    # 中核のみの案件（profiles=[]）は optional 依存が無い＝素の `uv sync` で十分＝--all-extras を強制しない。
+    profiles_enabled = bool(load_config(root).profiles)
 
     for spec in _WORKFLOWS:
         path = base / spec.rel
@@ -105,7 +111,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
         _check_required_triggers(problems, spec, doc)
         _check_required_runs(problems, spec, doc)
         _check_run_order(problems, spec, doc)
-        _check_uv_sync_extras(problems, spec, doc)
+        _check_uv_sync_extras(problems, spec, doc, profiles_enabled)
         _check_python_version(problems, spec, doc, repo_python)
     _check_script_refs(problems, root, base)
     return problems
@@ -171,10 +177,14 @@ def _check_run_order(problems: list[pm.Problem], spec: _WorkflowSpec, doc: Any) 
             return  # 最初の逆転 1 件だけ報告（壊れた並びを名指しできれば十分・多重報告しない）
 
 
-# --- uv sync の extras（開発・verify 環境は全部入り＝AGENTS の規約） ---
+# --- uv sync の extras（プロファイルを使う案件の verify 環境は全部入り＝AGENTS の規約） ---
 
 
-def _check_uv_sync_extras(problems: list[pm.Problem], spec: _WorkflowSpec, doc: Any) -> None:
+def _check_uv_sync_extras(problems: list[pm.Problem], spec: _WorkflowSpec, doc: Any, profiles_enabled: bool) -> None:
+    # 中核のみの案件（profiles=[]）は optional 依存が無い＝素の `uv sync` で十分。--all-extras 強制は
+    # プロファイル（DS 等）を使う案件の都合なので要求しない（依存監査＝L-016 は別ジョブで全部入りのまま）。
+    if not profiles_enabled:
+        return
     for run in _run_commands(doc):
         for line in run.splitlines():
             if "uv sync" in line and "--all-extras" not in line:

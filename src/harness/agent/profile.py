@@ -10,4 +10,10 @@ from __future__ import annotations
 from harness.agent import lint, schedule_lint
 from harness.profiles import Profile
 
-PROFILE = Profile(name="agent", pm_checks=(lint.run_checks, schedule_lint.run_checks))
+# agent プロファイルが所有するテスト（tests/ からの glob）。非 agent の案件では収集・型検査から外す
+# （anthropic/fastapi を import する cassette/serve のテスト等。昇格の特性化は ds とも共有）。
+PROFILE = Profile(
+    name="agent",
+    pm_checks=(lint.run_checks, schedule_lint.run_checks),
+    test_globs=("test_agent_*.py", "test_promotion_characterization.py"),
+)

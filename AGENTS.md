@@ -69,7 +69,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   知らず、次の新語を必ず見逃す）ので、**レビューが「この差分で新しく現れた名前と、その出典」を確かめる**
   （review スキル）。
 - **新しい CLI コマンドは、スキルか正本 docs から使い方にたどり着けるリンク・記載が必須**。コマンドを足したら同じタスクでスキルか正本 docs（AGENTS/README/docs 直下）に使い方を書く。免除は理由必須の allowlist だけ（検査点：coverage_lint が未到達コマンドを verify で失敗にする）。
-- **恒久ドキュメントは一時的な作業単位（`work/…`）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` は複製すると `work/` が消える／置き換わるので、根拠は本文の説明として書く（複製手順の説明だけは `docs/template-copy.md` に）。検査点：doc_source_lint が `work/EP-…` 等の参照を verify で失敗にする。
+- **複製後も残る資産は一時的な単位（`work/…` の作業単位・`issues/…` の課題）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` だけでなく `src/harness/**`・`tests/**`・`templates/**`・`.claude/skills/**` も複製後に残るのに対し、`work/` と `issues/` は複製すると消える／置き換わる。根拠は本文の説明として書く（「`ISS-…` の対処」でなく、その課題が何だったかを 1 文で書く）。複製手順の説明だけは `docs/template-copy.md` に。検査点：doc_source_lint が `work/EP-…`・`ISS-…` の参照を verify で失敗にする（`.py` はコメント／docstring だけを見る＝テストの合成データ文字列は対象外）。
 
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。
@@ -107,7 +107,8 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - **乱数は明示引数（`seed=`）で渡す**。`np.random.seed` などグローバルな種設定は禁止（呼ぶ場所で決めた種だけが効くようにする）。
 - **層をマーカーで示す**：`unit`（純粋・速い）／`integration`（部品の結線）／`e2e`（実験の一巡のスモーク）／`slow`（重い）。未登録のマーカーは失敗（`--strict-markers`）。
 - **done の実験は結果記録（`results/` の指標・設定・データの fingerprint〔中身から計算する短い識別子。中身が変われば必ず変わるので、どのデータで得た結果かを後から照合できる〕）が必須**（DS プロファイル）。フォルダ単位で再現一式を同居させる（検査が空の done を失敗にする）。
-- **開発・verify 環境は `uv sync --all-extras`（全部入り）**（DS プロファイル）。optional 依存（lightgbm 等）のテストを skip しないため。案件の実行環境だけ必要な extra に絞る。
+- **プロファイル（DS 等）を使う開発・verify 環境は `uv sync --all-extras`（全部入り）**。optional 依存（lightgbm 等）のテストを skip しないため。**プロファイルを使わない案件（`profiles = []`）は素の `uv sync` でよい**（optional 依存を飼わない）。案件の実行環境だけ必要な extra に絞る。**依存監査（pip-audit＝L-016）は案件の別ジョブで `--all-extras` のまま**（入れうる extra の脆弱性まで監査する。テストを回す環境を絞ることとは別の話）。
+- **テストはこのリポジトリの実状態（`.harness/config.toml` の値・`issues/` の実在 ID・`work/` の中身）を仮定しない**。期待値は tmp_path 上に組み立てた入力から導く（テンプレート自身の設定値をハードコードすると、`profiles = []` の複製で落ちる）。ソースの実在（`src/harness/<profile>/`）や生成物の構造の検査は可（可変領域でない）。
 - **`verified_by` に `::テスト名` を付けたら、その名前が指すファイルに実在すること**。ファイルは在るが指すテストが無い空振りは失敗。
 
 ## 型・スタイル

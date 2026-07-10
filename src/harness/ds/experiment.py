@@ -69,11 +69,14 @@ class VariantSpec(BaseModel):
 
 
 class ExperimentSpec(BaseModel):
-    """実験 config.yaml 全体の型（pydantic v2・extra=forbid）。ISS-0007 の対処。
+    """実験 config.yaml 全体の型（pydantic v2・extra=forbid）。
+
+    もともと実験 config は型が無く、`threshold`（決定境界の float）と `thresholds`（合否辞書）の取り違えや
+    未知トップレベルキーが黙って無視される穴があった。この型でトップレベルを締めてそれを塞ぐ。
 
     train.py 雛形は yaml.safe_load の直後に `ExperimentSpec.model_validate(cfg)` で検証**してから spec を使う**
     ＝未知キー（typo）・型違い・空の variants を起動時に止める。optional キー
-    （metrics/stratify_by/order_by/id_column）は雛形が run_experiment へ流す（黙って無視されない＝ISS-0007 の要点）。
+    （metrics/stratify_by/order_by/id_column）は雛形が run_experiment へ流す（黙って無視されないのが要点）。
     `thresholds`（合否の辞書）は指標名→閾値。**決定境界の float は config キーでなく関数引数**
     `run_experiment(..., decision_threshold=...)`（既定 0.5）＝雛形は OOF から `select_threshold_max_f1` で選ぶので
     config に `decision_threshold` は書かない（書くと extra=forbid で起動時エラー＝混同を断つ）。

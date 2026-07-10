@@ -148,7 +148,7 @@ def _fitted_multiclass() -> Pipeline:
 
 
 def test_predict_multiclass_writes_per_class_columns(make_project: Callable[..., Any]) -> None:
-    # 多クラス champion は陽性 1 列に潰さず proba_0/1/2（各∈[0,1]・行和 1）＝黙って Array 列にしない（ISS-0009）。
+    # 多クラス champion は陽性 1 列に潰さず proba_0/1/2（各∈[0,1]・行和 1）＝黙って Array 列にしない。
     proj = make_project()
     record = model_store.save_model(proj.root, _fitted_multiclass(), name="mc", work="E-0001", metrics={"roc_auc": 0.9})
     model_store.promote_model(

@@ -5,7 +5,7 @@ status: done
 title: core→ds のプロファイル分離（data CLI 移動・profiles 機構・checks 脱ds）
 created: 2026-07-05
 verified_by:
-  - tests/test_profiles.py::test_load_profiles_returns_ds_profile_for_this_repo
+  - tests/test_profiles.py::test_load_profiles_wires_declared_profile
   - tests/test_profiles.py::test_empty_profiles_means_core_only
   - tests/test_profiles.py::test_bogus_profile_module_raises_clear_error
   - tests/test_profiles.py::test_module_without_profile_raises_clear_error

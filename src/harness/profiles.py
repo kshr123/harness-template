@@ -9,7 +9,7 @@ DS の検査が外れる（checks.py の手動編集は不要のプロファイ�
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,10 +22,18 @@ PmCheck = Callable[[Path], list[pm.Problem]]
 
 @dataclass(frozen=True)
 class Profile:
-    """プロファイルの宣言。各プロファイルはモジュール直下に `PROFILE` として 1 つ公開する。"""
+    """プロファイルの宣言。各プロファイルはモジュール直下に `PROFILE` として 1 つ公開する。
+
+    検査（`pm_checks`）だけでなく、そのプロファイルが所有するテスト（`test_globs`＝tests/ からの glob）も
+    同じ宣言に束ねる。非 DS の案件（`profiles = []`）では、無効なプロファイルの `test_globs` を
+    収集除外（tests/conftest.py の collect_ignore_glob）と mypy の対象除外（checks.py）が使い、optional 依存
+    （polars・fastapi 等）を import するテスト・ソースを収集/型検査から外す。持ち物は 1 か所（この宣言）に
+    集める＝2 つ目の台帳を作らない（pm_checks と同じ束ね方）。"""
 
     name: str
     pm_checks: tuple[PmCheck, ...] = ()
+    # このプロファイルが所有するテストファイル（tests/ からの glob）。無効時に収集・型検査から外す集合。
+    test_globs: tuple[str, ...] = ()
 
 
 def load_profiles(root: Path) -> list[Profile]:
@@ -47,3 +55,32 @@ def load_profiles(root: Path) -> list[Profile]:
             raise ImportError(f"プロファイル '{module_path}' がモジュール直下に PROFILE を公開していない")
         result.append(profile)
     return result
+
+
+def discover_profiles(root: Path) -> dict[str, Profile]:
+    """このリポに同梱された全プロファイル候補（`src/harness/<name>/profile.py` を持つ）を集める。
+
+    `load_profiles` は config の `profiles` に**載っている**（有効な）ものだけを返すのに対し、これは有効・無効を
+    問わず候補すべてを返す（module_path→PROFILE）。無効なプロファイルの持ち物（テスト・ソース）を、収集除外や
+    mypy の対象除外が知るために使う。プロファイルのモジュールは軽い（重い依存を top で import しない規約＝
+    test_ops_profile 等で固定）ので、extra 未導入の環境でも import できる。
+    """
+    result: dict[str, Profile] = {}
+    pkg_dir = root / "src" / "harness"
+    for profile_py in sorted(pkg_dir.glob("*/profile.py")):
+        module_path = f"harness.{profile_py.parent.name}"
+        module = importlib.import_module(module_path)
+        profile = getattr(module, "PROFILE", None)
+        if isinstance(profile, Profile):
+            result[module_path] = profile
+    return result
+
+
+def disabled_profiles(root: Path, enabled: Iterable[str] | None = None) -> list[Profile]:
+    """同梱されているが有効化されていないプロファイル（＝ソースはあるが `profiles` に載っていない）。
+
+    `enabled` を渡さなければ config（`.harness/config.toml` の profiles）から読む。渡せば、それを有効集合として
+    使う（テストが config を組み立てずに判定を確かめられるように・全部入りの当リポでは空を返す）。
+    """
+    enabled_set = set(load_config(root).profiles if enabled is None else enabled)
+    return [profile for module_path, profile in discover_profiles(root).items() if module_path not in enabled_set]
