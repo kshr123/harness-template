@@ -13,7 +13,7 @@ from typing import Annotated
 
 import typer
 
-from harness import checks, commit_lint, doc_sync, issues, pm
+from harness import checks, commit_lint, doc_sync, gates, issues, pm, registry
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
 # クロスプラットフォームの前提（make 非依存と同じ理由）。
@@ -76,6 +76,12 @@ def verify_main() -> None:
     """完了判定＝check full と同じ。すべて成功したら done にできる。"""
 
     sys.exit(checks.run_check(_root(), "full"))
+
+
+def gates_main() -> None:
+    """昇格の判定（GATES レジストリ）の一覧。config の `kind` に書ける名前と、その意味を出す。"""
+
+    registry.render_catalog(gates.GATES, show_params=True)
 
 
 def doc_sync_main() -> None:

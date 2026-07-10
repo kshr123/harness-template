@@ -40,6 +40,7 @@ from sklearn.metrics import (
     root_mean_squared_error,
 )
 
+from harness import gates
 from harness.registry import MetricEntry, Registry
 
 
@@ -417,20 +418,20 @@ def passes(metrics: dict[str, float], thresholds: dict[str, float]) -> bool:
     higher_is_better なら `>=`、そうでなければ `<=`（例 log_loss: 0.5 は「0.5 以下で合格」）。
     thresholds に METRICS 未登録の名があれば ValueError（typo を黙って不合格にしない）。
     metrics 側に無い登録済みの名は不合格（測っていない＝満たしたと見なさない）。
-    値が NaN のときも不合格（fail closed。発散したモデルを関門で止める）。
+    値が NaN のときも不合格（fail closed。発散したモデルを昇格させない）。
+
+    判定そのものは中核の `harness.gates.value_threshold` が持つ（agent プロファイルの `passes` と同じ実体）。
+    ここが持つのは「どのレジストリで向きを解決するか」だけ。
     """
-    for name, limit in thresholds.items():
+    for name in thresholds:
         if name not in METRICS:
             raise ValueError(f"未登録の指標 '{name}'（thresholds に書けるのは {sorted(METRICS)}）")
-        if name not in metrics:
-            return False
-        value = metrics[name]
-        # 合格条件を正の形（>= / <=）で問う＝NaN はどの比較も False なので必ず不合格（fail closed）。
-        # 「不合格条件が成り立つか」で書くと NaN が素通りする（発散したモデルが昇格してしまう）。
-        ok = value >= limit if METRICS[name].higher_is_better else value <= limit
-        if not ok:
-            return False
-    return True
+    ctx = gates.GateContext(
+        candidate=metrics,
+        baseline=None,
+        directions={name: METRICS[name].higher_is_better for name in thresholds},
+    )
+    return gates.evaluate(ctx, gates.value_threshold_specs(thresholds)).approved
 
 
 def bootstrap_ci(

@@ -53,6 +53,8 @@ issue = "harness.cli:issue_main"
 # data は DS プロファイルの CLI（プロファイル境界。中核 CLI とはモジュールを分ける）。
 data = "harness.ds.cli:data_main"
 changelog = "harness.cli:changelog_main"
+# 昇格の判定（GATES レジストリ）のカタログ。中核の部品なので ds/agent のどちらからも同じものが見える。
+gates = "harness.cli:gates_main"
 # docs/core.md の自動生成節（検査の一覧・言語ツール）を作り直す。最新かどうかは verify（doc_sync）が検査する。
 doc-sync = "harness.cli:doc_sync_main"
 # commit-msg フックの実体（引数＝git が渡すメッセージファイルのパス。有効化は AGENTS.md コマンド節参照）。

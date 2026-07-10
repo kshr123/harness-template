@@ -18,6 +18,7 @@
 | `uv run verify` | 完了判定。`check --level full` と同じ。すべて成功して初めて done にできる |
 | `uv run check --level fast` | 編集中の速い検査（`standard`・`full` も指定できる。段階は累積） |
 | `uv run doc-sync` | 下の自動生成節を作り直す（検査を足した・docstring を直したあとに走らせる） |
+| `uv run gates` | 昇格の判定の一覧（config の `kind` に書ける名前と意味）。実体は `src/harness/gates.py` |
 
 実体は `src/harness/checks.py` の `run_check`。次の 2 つを順に走らせる。
 
@@ -78,6 +79,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `profiles.py` | config が指すプロファイルの `PROFILE` 宣言を読み込み、検査に繋ぐ |
 | `checks.py` | 検証の入口。`PM_CHECKS` と `checks.toml` の言語ツールを束ねて走らせ、合否を返す |
 | `cli.py` | 中核 CLI（typer）の入口。`uv run <コマンド>` はここから呼ばれる |
+| `gates.py` | 昇格の判定（`value_threshold`・`change_threshold`）。champion を差し替えてよいかを決める |
 
 **検査**（上の自動生成の表の各行に対応する）
 

@@ -25,7 +25,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from harness import storage
+from harness import gates, storage
 from harness.config import load_config
 from harness.ds.eval import METRICS, passes
 
@@ -490,11 +490,15 @@ def promote_model(
             # 過去の昇格と違う primary に切り替えた場合。測っていない指標では比較できない＝昇格しない
             # （passes の「測っていない＝満たしたと見なさない」と同じ規約。KeyError で落ちない）。
             raise ValueError(f"primary 指標 '{primary}' が現 champion（{champ.version}）の metrics に無い")
-        if direction:
-            better = record.metrics[primary] > champ.metrics[primary]
-        else:
-            better = record.metrics[primary] < champ.metrics[primary]
-        if not better:
+        # 比較の意味（向きで正規化した改善量が min_change を超えるか・NaN は fail closed）は中核の gates が持つ。
+        context = gates.GateContext(
+            candidate=record.metrics,
+            baseline=champ.metrics,
+            directions={primary: direction},
+            baseline_label=champ.version,
+        )
+        decision = gates.evaluate(context, [{"kind": "change_threshold", "metric": primary, "baseline": "champion"}])
+        if not decision.approved:
             raise ValueError(
                 f"相対関門で不合格: {primary} 候補={record.metrics[primary]} 現 champion={champ.metrics[primary]}"
             )
