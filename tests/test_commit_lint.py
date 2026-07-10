@@ -182,13 +182,23 @@ def test_cli_entry_exit_codes(tmp_path: Path) -> None:
 
     msg_file.write_text(f"{_EPIC_ID} {_TASK_IDS[1]}：正しい書式", encoding="utf-8")
     ok = subprocess.run(
-        [sys.executable, "-c", code, str(msg_file)], cwd=tmp_path, capture_output=True, text=True, check=False
+        [sys.executable, "-c", code, str(msg_file)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
     )
     assert ok.returncode == 0, f"実在 ID のメッセージが弾かれた: {ok.stdout}{ok.stderr}"
 
     msg_file.write_text("IDの無いメッセージ", encoding="utf-8")
     bad = subprocess.run(
-        [sys.executable, "-c", code, str(msg_file)], cwd=tmp_path, capture_output=True, text=True, check=False
+        [sys.executable, "-c", code, str(msg_file)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
     )
     assert bad.returncode == 1, "ID 無しのメッセージが通った（fail closed になっていない）"
     assert "作業単位 ID" in bad.stdout  # なぜ落ちたかを人・エージェントに案内する

@@ -45,7 +45,9 @@ def _run(root: Path, *, color: str = "", columns: str = "") -> subprocess.Comple
         "HARNESS_UNSUP_COLOR": color,
         "HARNESS_UNSUP_COLUMNS": columns,
     }
-    return subprocess.run([sys.executable, str(_NOTEBOOK)], capture_output=True, text=True, env=env, cwd=str(root))
+    return subprocess.run(
+        [sys.executable, str(_NOTEBOOK)], capture_output=True, text=True, encoding="utf-8", env=env, cwd=str(root)
+    )
 
 
 def test_unsupervised_notebook_runs_headless(make_project: Callable[..., object]) -> None:

@@ -45,7 +45,9 @@ def _run(root: Path, *, target: str, test: str = "") -> subprocess.CompletedProc
         "HARNESS_EDA_TARGET": target,
         "HARNESS_EDA_TEST": test,
     }
-    return subprocess.run([sys.executable, str(_NOTEBOOK)], capture_output=True, text=True, env=env, cwd=str(root))
+    return subprocess.run(
+        [sys.executable, str(_NOTEBOOK)], capture_output=True, text=True, encoding="utf-8", env=env, cwd=str(root)
+    )
 
 
 def test_eda_notebook_runs_headless(make_project: Callable[..., object]) -> None:
