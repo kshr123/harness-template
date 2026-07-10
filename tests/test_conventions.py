@@ -1,7 +1,8 @@
 """conventions lint（テスト規約の機械検査・ISS-0002）のテスト。
 
 期待値はすべて一時ディレクトリに置くファイルの構成（どんなコードを書いたか）から導く。
-skip/xfail の ISS 参照はヘルパ（testing.skips_without_iss）の単体テストで確かめる＝実テストに実 skip を足さない。
+skip/xfail/slow の ISS 参照はヘルパ（testing.skips_without_iss）の単体テストで確かめる＝実テストに実 skip を足さない。
+slow のモジュール直書き（`pytestmark = pytest.mark.slow`）が同じ抽出で拾えることは pytester（T-0202）で確かめる。
 最後の 1 本は現リポに対する回帰テスト（グローバル種なし・work の code に --test あり）。乱数は使わない。
 """
 
@@ -12,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from harness import conventions
-from harness.testing import skips_without_iss
+from harness.testing import SKIP_MARKERS, skips_without_iss
 
 pytestmark = pytest.mark.unit
 
@@ -126,14 +127,66 @@ def test_skip_with_empty_reason_is_detected() -> None:
     assert skips_without_iss([("t.py::test_c", [("skip", "")])]) == ["t.py::test_c"]
 
 
-def test_skipif_is_covered_and_other_markers_are_ignored() -> None:
-    # skipif も対象。unit/slow などのピラミッド・フラグの目印は reason を見ない（対象外）。
+def test_skipif_is_covered_and_pyramid_markers_are_ignored() -> None:
+    # skipif も対象。unit などのピラミッドの目印は reason を見ない（対象外。slow は T-0202 以降は対象＝別テスト）。
     items = [
         ("t.py::test_d", [("skipif", "win では動かない")]),
-        ("t.py::test_e", [("unit", ""), ("slow", "")]),
+        ("t.py::test_e", [("unit", "")]),
         ("t.py::test_f", [("skipif", "win では動かない（ISS-0042）")]),
     ]
     assert skips_without_iss(items) == ["t.py::test_d"]
+
+
+def test_slow_without_iss_reference_is_detected() -> None:
+    # T-0202：slow は skip/xfail と同格＝ISS 参照が無ければ検出する（抜け道封鎖）。
+    assert skips_without_iss([("t.py::test_g", [("slow", "")])]) == ["t.py::test_g"]
+
+
+def test_slow_with_iss_reference_is_ok() -> None:
+    assert skips_without_iss([("t.py::test_h", [("slow", "ISS-9999 のため重い")])]) == []
+
+
+def test_skip_markers_include_slow() -> None:
+    # SKIP_MARKERS は conftest の収集フックが参照する対象マーカーの集合。slow を含むこと自体を回帰で固定する。
+    assert "slow" in SKIP_MARKERS
+
+
+# --- slow のモジュール直書き（pytestmark = pytest.mark.slow）も対象になるか（T-0202・決めた点） ---
+#
+# 決定：対象にする。pytest の Item.iter_markers() は関数装飾のマーカーとモジュール直書きの pytestmark を
+# 区別せず同じ形（pytest.Mark）で返す（pytest 自身の仕様）ため、conftest の収集フックの抽出コード
+# （`[(m.name, _marker_reason(m)) for m in item.iter_markers() if m.name in SKIP_MARKERS]`）は書き換え不要で
+# 両方を拾う。ここでは pytester（pytest 標準の自己テスト用フィクスチャ・tests/conftest.py で opt-in 済み）で
+# 実際にモジュールを収集し、iter_markers() が pytestmark 由来の slow を関数装飾と同じ形で返すことを確かめる
+# （書いたコードでなく pytest 本体の挙動の確認＝前提が崩れたら教えてくれる回帰）。
+
+
+def _extract_skip_markers(items: list[pytest.Item]) -> list[tuple[str, list[tuple[str, str]]]]:
+    """conftest の収集フックと同じ抽出（マーカー名, 理由）。テスト用に独立させた同じ書式（複製ではなく検証専用）。"""
+    out: list[tuple[str, list[tuple[str, str]]]] = []
+    for item in items:
+        reasons: list[tuple[str, str]] = []
+        for mark in item.iter_markers():
+            if mark.name not in SKIP_MARKERS:
+                continue
+            parts = [a for a in mark.args if isinstance(a, str)]
+            reason = mark.kwargs.get("reason")
+            if isinstance(reason, str):
+                parts.append(reason)
+            reasons.append((mark.name, " ".join(parts)))
+        out.append((item.nodeid, reasons))
+    return out
+
+
+def test_module_level_pytestmark_slow_without_iss_is_detected(pytester: pytest.Pytester) -> None:
+    items = pytester.getitems("import pytest\npytestmark = pytest.mark.slow\ndef test_a():\n    pass\n")
+    assert skips_without_iss(_extract_skip_markers(items)) == [items[0].nodeid]
+
+
+def test_module_level_pytestmark_slow_with_iss_is_ok(pytester: pytest.Pytester) -> None:
+    source = "import pytest\npytestmark = pytest.mark.slow(reason='ISS-4242 重い')\ndef test_b():\n    pass\n"
+    items = pytester.getitems(source)
+    assert skips_without_iss(_extract_skip_markers(items)) == []
 
 
 # --- 現リポの回帰テスト ---

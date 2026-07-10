@@ -19,6 +19,9 @@ AGENTS のテスト規約のうち「レビュー観点」止まりだった規�
    復号され、UTF-8 の出力を読むと `UnicodeDecodeError` になる。ハーネスの CLI は日本語を出すため必ず踏む。
 
 マーカー版 skip/xfail の ISS 参照は tests/conftest.py の収集フック＋harness.testing.skips_without_iss が担う。
+slow マーカー（`@pytest.mark.slow`／モジュール直書きの `pytestmark = pytest.mark.slow` どちらも）も同じ関数・
+同じ収集フックで ISS 参照必須にする（`harness.testing.SKIP_MARKERS` に slow を含める＝T-0202）。slow には
+呼び出し形（`pytest.slow(...)`）が存在しないため、この静的検査（conventions.py）には対応する枝を足さない。
 """
 
 from __future__ import annotations
