@@ -39,6 +39,25 @@ def test_register_without_description_or_docstring_raises() -> None:
         reg.register("nodoc", no_doc)
 
 
+def test_source_is_optional_by_default() -> None:
+    # 名前が既に外にあるレジストリ（MODELS の kind は sklearn の推定器名の写し）は出典を要求しない。
+    reg = _make()
+    reg.register("f", _factory_with_doc)
+    assert reg["f"].source is None
+
+
+def test_a_vocabulary_registry_refuses_a_name_without_a_source() -> None:
+    # 名前そのものが新しい概念になるレジストリは、出典なしに登録できない
+    # （出典を書くには標準用語を調べるしかない＝名付けの瞬間に調査を強制する）。
+    reg: Registry[Entry] = Registry("昇格の判定", catalog="gates", require_source=True)
+    with pytest.raises(ValueError, match="出典"):
+        reg.register("f", _factory_with_doc)
+    with pytest.raises(ValueError, match="出典"):  # 空白だけの出典は書いていないのと同じ
+        reg.register("f", _factory_with_doc, source="   ")
+    reg.register("f", _factory_with_doc, source="TensorFlow Extended の tfma.MetricThreshold")
+    assert reg["f"].source == "TensorFlow Extended の tfma.MetricThreshold"
+
+
 def test_class_factory_does_not_inherit_parent_docstring() -> None:
     reg = _make()
 

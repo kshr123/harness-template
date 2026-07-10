@@ -21,12 +21,14 @@ class Entry:
 
     task：この部品が解ける課題（モデルの classification/regression 等）。無関係なレジストリは None のまま。
     tags：自由な分類ラベル（現状は空が既定・カタログの絞り込み用の拡張点）。
+    source：この kind の名前がどこから来たか（標準用語の出典）。`require_source=True` のレジストリでは必須。
     """
 
     factory: Callable[..., Any]
     description: str
     task: str | None = None
     tags: tuple[str, ...] = ()
+    source: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -62,12 +64,25 @@ class Registry[E: Entry](Mapping[str, E]):
 
     name はエラー文の主語（例「モデル」→「未知のモデル '...'」）。catalog は一覧コマンド
     （例 "data models"）。extras_hint は optional 依存の kind → extra 名（未導入で使われたときの導入ヒント）。
+
+    require_source：kind の名前に出典（標準用語の由来）を必須にするか。**その名前自体が新しい概念になる**
+    レジストリ（`GATES` 等）で True にする。出典を書くには標準用語を調べるしかないので、造語が生まれる
+    瞬間に調査が強制される（description 必須と同じ fail closed の形）。`MODELS` の kind は sklearn の
+    推定器名の写しで名前が既に外にあるため False（既定）。
     """
 
-    def __init__(self, name: str, *, catalog: str, extras_hint: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        catalog: str,
+        extras_hint: Mapping[str, str] | None = None,
+        require_source: bool = False,
+    ) -> None:
         self.name = name
         self.catalog = catalog
         self.extras_hint: dict[str, str] = dict(extras_hint or {})
+        self.require_source = require_source
         self._entries: dict[str, E] = {}
 
     def register(
@@ -76,12 +91,16 @@ class Registry[E: Entry](Mapping[str, E]):
         factory: Callable[..., Any],
         *,
         description: str | None = None,
+        source: str | None = None,
         task: str | None = None,
         tags: Sequence[str] = (),
         entry_cls: type[E] | None = None,
         **extra: Any,  # noqa: ANN401  entry_cls（MetricEntry 等）の追加フィールドへ素通し
     ) -> None:
-        """項目を 1 つ登録する。description 省略時は factory の docstring 1 行目（無ければ ValueError）。"""
+        """項目を 1 つ登録する。description 省略時は factory の docstring 1 行目（無ければ ValueError）。
+
+        `require_source=True` のレジストリでは `source`（この名前の出典）も必須（無ければ ValueError）。
+        """
         if kind in self._entries:
             raise ValueError(f"{self.name} '{kind}' は登録済み（kind は一意・上書き不可）")
         if description is None:
@@ -92,9 +111,16 @@ class Registry[E: Entry](Mapping[str, E]):
                 f"{self.name} '{kind}' に説明文が無い（factory の docstring 1 行目か description= が必須。"
                 "説明文が無いとカタログに載れない＝カタログ規約に反する）"
             )
+        if self.require_source and not (source or "").strip():
+            raise ValueError(
+                f"{self.name} '{kind}' に用語の出典（source=）が無い。この名前は概念そのものの名前なので、"
+                "出典の無い語を作らない（標準用語を調べて、その由来を書く）"
+            )
         # 既定の Entry は E の下限（bound）。entry_cls 未指定のレジストリは Registry[Entry] として使う前提。
         cls = entry_cls if entry_cls is not None else cast("type[E]", Entry)
-        self._entries[kind] = cls(factory=factory, description=description, task=task, tags=tuple(tags), **extra)
+        self._entries[kind] = cls(
+            factory=factory, description=description, source=source, task=task, tags=tuple(tags), **extra
+        )
 
     def resolve(self, kind: object) -> E:
         """kind から Entry を引く。未知 kind の ValueError はここ 1 か所（候補＋カタログ案内＋extra ヒント）。"""
@@ -145,8 +171,9 @@ def render_catalog(
 ) -> None:
     """レジストリを 1 行 1 項目（タブ区切り）で出す共通レンダラ（ds・agent の全カタログコマンドが使う）。
 
-    列は kind［・task］［・向き（指標のみ）］［・引数一覧］・説明文。説明文はレジストリが登録時に
-    docstring 1 行目から確定させている（空は登録できない）。prefix は data unsupervised の
+    列は kind［・task］［・向き（指標のみ）］［・引数一覧］・説明文［・出典］。説明文はレジストリが登録時に
+    docstring 1 行目から確定させている（空は登録できない）。出典は `require_source=True` のレジストリだけに
+    出る（名前の由来を、使う側がカタログから辿れるようにするため）。prefix は data unsupervised の
     グループ名（dimred/cluster/anomaly）用。ds/cli.py から引き上げた（二重管理を作らない）。
     """
     import inspect
@@ -163,4 +190,6 @@ def render_catalog(
             params = [p for p in inspect.signature(entry.factory).parameters if p != "self"]
             parts.append(f"({', '.join(params)})")
         parts.append(entry.description)
+        if registry.require_source:
+            parts.append(f"出典: {entry.source}")
         typer.echo("\t".join(parts))

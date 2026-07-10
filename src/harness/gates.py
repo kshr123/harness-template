@@ -10,11 +10,8 @@
     [{"kind": "value_threshold", "metric": "roc_auc", "limit": 0.80},
      {"kind": "change_threshold", "metric": "roc_auc", "baseline": "champion"}]
 
-用語の出所:
-- `value_threshold` / `change_threshold` … TensorFlow Extended の `tfma.MetricThreshold`。前者は指標そのものの
-  下限（向きが逆なら上限）、後者は baseline との差。
-- `approved` / `rejected` … Amazon SageMaker Model Registry の `ModelApprovalStatus`。
-- `champion` … MLflow Model Registry の alias（2.9 で Model Stages を非推奨にした後の推奨）。
+判定の名前の出典は `GATES.register(..., source=…)` が正本（`uv run gates` で見える）。このレジストリは
+`require_source=True` なので、出典の無い名前は登録できない＝造語を作れない。
 
 判定はすべて **fail closed**。合格条件を正の形で問い、そこに「観測値が有限である」（`math.isfinite`）を
 含める。比較だけでは足りない：`NaN >= 0.8` は False で止まるが `inf >= 0.8` は True で通り、
@@ -77,7 +74,11 @@ class GateResult:
 
 @dataclass(frozen=True)
 class PromotionDecision:
-    """判定の総合結果。`approved` / `rejected` は SageMaker の ModelApprovalStatus の語彙。"""
+    """判定の総合結果。`approved`（承認）と、その否定＝`rejected`（却下）で表す。
+
+    語の出典：Amazon SageMaker Model Registry の `ModelApprovalStatus`（Approved / Rejected /
+    PendingManualApproval）。人手の承認待ちを入れるときは同じ語彙の `pending_manual_approval` を使う。
+    """
 
     approved: bool
     results: tuple[GateResult, ...]
@@ -128,6 +129,9 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
 
     比較対象が無い初回昇格ではこの判定を課さないが、それは「何でも通す」ことではない。閾値が 1 つも
     宣言されていない設定では、ここが発散した版を止める最後の場所になる（有限性だけは初回でも問う）。
+
+    baseline は比較対象の名前で、今は `"champion"` だけ。この語の出典は MLflow Model Registry の alias
+    （2.9 で Model Stages を非推奨にした後の推奨）。何と比べるかを名前で一意にするため、既定値を持たない。
     """
     if baseline != "champion":
         raise ValueError(f"change_threshold の baseline は 'champion' だけ（'{baseline}' は未対応）")
@@ -165,9 +169,18 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
     return GateResult("change_threshold", metric, passed, reason, observed, before, detail, params)
 
 
-GATES: Registry[Entry] = Registry("昇格の判定", catalog="gates")
-GATES.register("value_threshold", value_threshold)
-GATES.register("change_threshold", change_threshold)
+# 判定の名前は「概念そのものの名前」なので、出典なしに登録できない（require_source）。
+GATES: Registry[Entry] = Registry("昇格の判定", catalog="gates", require_source=True)
+GATES.register(
+    "value_threshold",
+    value_threshold,
+    source="TensorFlow Extended の tfma.MetricThreshold（GenericValueThreshold）",
+)
+GATES.register(
+    "change_threshold",
+    change_threshold,
+    source="TensorFlow Extended の tfma.MetricThreshold（GenericChangeThreshold）",
+)
 
 
 def _run(ctx: GateContext, spec: GateSpec) -> GateResult:

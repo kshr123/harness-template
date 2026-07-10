@@ -10,7 +10,7 @@ import math
 
 import pytest
 
-from harness import gates
+from harness import gates, registry
 
 pytestmark = pytest.mark.unit
 
@@ -231,3 +231,22 @@ def test_every_gate_is_registered_with_a_description_from_its_docstring() -> Non
         first_line = (entry.factory.__doc__ or "").strip().splitlines()[0]
         assert entry.description == first_line, kind
         assert entry.description  # 説明の無い項目は登録できない（Registry の規約）
+
+
+def test_a_new_gate_cannot_be_registered_without_a_source() -> None:
+    # 判定の名前は概念そのものの名前。出典なしに新しい名前を作れない（造語の誕生を登録時に止める）。
+    def bogus(ctx: gates.GateContext) -> None:
+        """説明文はあるが、名前の出典が無い。"""
+
+    with pytest.raises(ValueError, match="出典"):
+        gates.GATES.register("bogus_gate", bogus)
+    assert "bogus_gate" not in gates.GATES  # 失敗した登録は残らない
+
+
+def test_the_gates_catalog_shows_where_each_name_comes_from(capsys: pytest.CaptureFixture[str]) -> None:
+    # 使う側が名前の由来をカタログから辿れる（元コードを読まずに使える、の一部）。
+    registry.render_catalog(gates.GATES, show_params=True)
+    out = capsys.readouterr().out
+    for kind, entry in gates.GATES.items():
+        assert entry.source, kind
+        assert entry.source in out, kind  # 期待値は登録内容から導出（出力の写経ではない）
