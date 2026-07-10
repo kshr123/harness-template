@@ -16,8 +16,11 @@ PYRAMID = ("unit", "integration", "e2e")
 # マーカー式（-m の値）で名前でない語＝論理演算子。名前の抽出時に除く。
 _MARKER_EXPR_KEYWORDS = frozenset({"and", "or", "not"})
 
-# 止めているテストの目印。付けるときは reason に課題参照（ISS-<番号>）が必須（AGENTS・ISS-0002）。
-SKIP_MARKERS = frozenset({"skip", "skipif", "xfail"})
+# 検証のゲート（fast/standard/full）に永久に載らなくなる目印。skip/skipif/xfail はテストを動かさず、
+# slow は checks.toml の全段階が `not slow` で除外する＝回す段階が無い（T-0202）。理由不要だと
+# 「ISS 必須の skip/xfail」を迂回する抜け道になるため、slow も同格に reason への課題参照（ISS-<番号>）を
+# 必須にする（AGENTS・ISS-0002）。
+SKIP_MARKERS = frozenset({"skip", "skipif", "xfail", "slow"})
 
 _ISS_REF_RE = re.compile(r"\bISS-\d+\b")
 
@@ -29,11 +32,13 @@ def unmarked(item_markers: Iterable[tuple[str, set[str]]]) -> list[str]:
 
 
 def skips_without_iss(item_markers: Iterable[tuple[str, list[tuple[str, str]]]]) -> list[str]:
-    """skip/skipif/xfail の reason に課題参照（ISS-<番号>）が無いテストの nodeid を返す。
+    """skip/skipif/xfail/slow の reason に課題参照（ISS-<番号>）が無いテストの nodeid を返す。
 
-    入力は各テストの (nodeid, [(マーカー名, reason の文字列), ...])。reason が空（未指定）の skip 系マーカーも
-    参照無しとして返す。SKIP_MARKERS 以外のマーカー（unit/slow 等）は見ない。unmarked と同じ純粋関数
-    （conftest の収集フックから呼ぶ・単体で確かめられる）。
+    入力は各テストの (nodeid, [(マーカー名, reason の文字列), ...])。reason が空（未指定）の対象マーカーも
+    参照無しとして返す。SKIP_MARKERS 以外のマーカー（unit 等）は見ない。unmarked と同じ純粋関数
+    （conftest の収集フックから呼ぶ・単体で確かめられる）。マーカーが関数装飾か、モジュール直書きの
+    `pytestmark = pytest.mark.slow` かは問わない（pytest の `Item.iter_markers()` がどちらも同じ形で
+    渡すため、呼び出し側の抽出だけで両方を拾える＝T-0202）。
     """
     bad: list[str] = []
     for nodeid, markers in item_markers:
