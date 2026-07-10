@@ -1,7 +1,7 @@
 """CI 設定（.github/workflows/ci.yaml）の退行を止める検査。
 
 Windows CI ジョブは cp932 コンソール・パス区切り等の OS 差を止める意図的な投資。誰かが matrix から
-windows-latest を落としても気づけるよう、両 OS で verify が走る構成を機械で固定する（ratchet・ISS-0002 と同型）。
+windows-latest を落としても気づけるよう、両 OS で verify が走る構成を機械で固定する（退行を止めるラチェット）。
 """
 
 from __future__ import annotations

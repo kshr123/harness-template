@@ -78,7 +78,7 @@ def test_reference_to_prefix_whose_home_dir_is_absent_is_error(tmp_path: Path) -
 
 
 def test_missing_iss_reference_is_error(tmp_path: Path) -> None:
-    # 既定 backend は file:issues。issues/ に ISS-9999 が無い＝error。
+    # 既定 backend は file:issues。存在しない課題 ID を参照＝error。
     _doc(tmp_path, "AGENTS.md", "課題 ISS-9999 を参照。")
     assert any("ISS-9999" in m for m in _errors(tmp_path))
 

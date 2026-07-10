@@ -1,4 +1,4 @@
-"""ExperimentSpec（実験 config の型付け・ISS-0007）のテスト。
+"""ExperimentSpec（実験 config の型付け）のテスト。
 
 期待値はすべて config の構成から導く：正しい構造（現行 config.yaml 相当）は通り、
 未知キー（typo）・型違い・空の variants/features・範囲外の値は ValidationError になる。
@@ -152,7 +152,7 @@ def test_decision_threshold_is_not_a_config_key() -> None:
 
 
 def test_optional_keys_are_captured_not_ignored() -> None:
-    # metrics/stratify_by/order_by/id_column は雛形が run_experiment へ流す（黙って無視されない＝ISS-0007 の要点）。
+    # metrics/stratify_by/order_by/id_column は雛形が run_experiment へ流す（黙って無視されないのが要点）。
     cfg = _valid_config()
     cfg["metrics"] = ["roc_auc"]
     cfg["id_column"] = "row_id"

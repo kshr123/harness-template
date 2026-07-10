@@ -33,7 +33,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
     -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れを止める。
     あわせて skip/skipif/xfail の reason に課題参照（ISS-<番号>）が無いテストも collect でエラーにする
-    （理由の無い skip 禁止＝AGENTS・ISS-0002。判定は harness.testing.skips_without_iss）。
+    （理由の無い skip 禁止＝AGENTS。判定は harness.testing.skips_without_iss）。
     """
     bad = unmarked((item.nodeid, {m.name for m in item.iter_markers()}) for item in items)
     if bad:

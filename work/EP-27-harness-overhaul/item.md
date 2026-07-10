@@ -49,7 +49,7 @@ created: 2026-07-10
 | champion を alias で指す | T-0174 | `sorted(promotions/*.yaml)[-1]` は `notes.yaml` を 1 つ置くだけで壊れる（数字は英字より前に並ぶ） |
 | 切り戻しと ds の昇格 CLI | T-0175 | 戻す手段が無い。ds には promote/champion の CLI すら無く agent と非対称 |
 | `cluster`・`anomaly_score` 列の黙った上書き | T-0180 | 実害のあるデータ破壊（再現済み） |
-| `doc_source_lint` の対象拡張 | T-0181 | `docs/*.md` しか見ていない。`templates/**`・`.claude/skills/**` が対象外＝最大の穴 |
+| `doc_source_lint` の対象拡張 | T-0181（→ EP-31 で実施） | `docs/*.md` しか見ていない。`templates/**`・`.claude/skills/**` が対象外＝最大の穴 |
 | `SPLITTERS` レジストリ | T-0182 | `cv.make_folds` は分割器を if/elif で固定。**唯一、拡張口の無い軸** |
 | 非 DS 案件で ds を外せるようにする | T-0183 | tests がトップレベルで polars/sklearn を import。`conftest` にプロファイル連動の `collect_ignore` が無い |
 

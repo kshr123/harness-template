@@ -1,4 +1,4 @@
-"""conventions lint（テスト規約の機械検査・ISS-0002）のテスト。
+"""conventions lint（テスト規約の機械検査）のテスト。
 
 期待値はすべて一時ディレクトリに置くファイルの構成（どんなコードを書いたか）から導く。
 skip/xfail の ISS 参照はヘルパ（testing.skips_without_iss）の単体テストで確かめる＝実テストに実 skip を足さない。

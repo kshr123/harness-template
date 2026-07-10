@@ -127,7 +127,7 @@ def test_blank_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         coverage_lint.run_checks(tmp_path)
 
 
-# --- [project.scripts] 走査（ISS-0014）：plain main のコマンドも導線検査の対象になる ---
+# --- [project.scripts] 走査：plain main のコマンドも導線検査の対象になる ---
 
 # tomllib で読む最小の pyproject.toml。`frob` は導線を書かない限り未到達（構成から期待値を導く）。
 PYPROJECT_WITH_FROB = '[project]\nname = "x"\nversion = "0"\n\n[project.scripts]\nfrob = "x:main"\n'
