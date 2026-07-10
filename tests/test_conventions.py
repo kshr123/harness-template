@@ -184,3 +184,49 @@ def test_from_import_seed_call_is_error(tmp_path: Path) -> None:
     _write(tmp_path, "src/mod.py", "from numpy.random import seed\nseed(0)\n")
     errors = _errors(tmp_path)
     assert len(errors) == 1 and "src/mod.py:2" in errors[0]
+
+
+def test_subprocess_text_without_encoding_is_error(tmp_path: Path) -> None:
+    # text=True は encoding 省略時にロケール既定（Windows では cp932）で復号する → UTF-8 の出力で落ちる。
+    _write(tmp_path, "src/mod.py", "import subprocess\nsubprocess.run(['git'], text=True)\n")
+    errors = _errors(tmp_path)
+    assert len(errors) == 1
+    assert "src/mod.py:2" in errors[0] and "encoding" in errors[0]
+
+
+def test_subprocess_universal_newlines_without_encoding_is_error(tmp_path: Path) -> None:
+    # universal_newlines は text の別名。同じ復号が起きるので同じく error（1 呼び出しにつき 1 件）。
+    _write(
+        tmp_path, "tests/test_x.py", "import subprocess\nsubprocess.check_output(['git'], universal_newlines=True)\n"
+    )
+    errors = _errors(tmp_path)
+    assert len(errors) == 1 and "tests/test_x.py:2" in errors[0]
+
+
+def test_subprocess_with_encoding_or_bytes_mode_is_ok(tmp_path: Path) -> None:
+    # encoding 明示＝復号が決まる。text 無し／text=False＝bytes のまま＝復号が起きない。どれも error にしない。
+    _write(
+        tmp_path,
+        "src/mod.py",
+        "import subprocess\n"
+        "subprocess.run(['git'], text=True, encoding='utf-8')\n"
+        "subprocess.run(['git'], capture_output=True)\n"
+        "subprocess.run(['git'], text=False)\n",
+    )
+    assert _errors(tmp_path) == []
+
+
+def test_subprocess_popen_and_call_are_scanned(tmp_path: Path) -> None:
+    # 文字列モードを取りうる呼び出しはすべて対象（Popen・call）。2 呼び出しなので error も 2 件。
+    _write(
+        tmp_path,
+        "src/mod.py",
+        "import subprocess\nsubprocess.Popen(['git'], text=True)\nsubprocess.call(['git'], text=True)\n",
+    )
+    assert len(_errors(tmp_path)) == 2
+
+
+def test_real_repo_has_no_subprocess_without_encoding() -> None:
+    # 現リポの回帰の番人：src/・tests/ の subprocess 呼び出しはすべて encoding を指定している。
+    offenders = [m for m in _errors(REPO_ROOT) if "encoding" in m]
+    assert offenders == [], "\n".join(offenders)

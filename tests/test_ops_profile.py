@@ -42,5 +42,5 @@ def test_ops_profile_light_import() -> None:
         "heavy = [m for m in ('fastapi', 'uvicorn', 'polars', 'sklearn', 'anthropic') if m in sys.modules]\n"
         "assert not heavy, f'import harness.ops が重い依存を読み込んだ: {heavy}'\n"
     )
-    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr

@@ -131,5 +131,5 @@ def test_import_harness_agent_stays_light() -> None:
         "heavy = [m for m in ('anthropic', 'fastapi', 'uvicorn', 'polars', 'sklearn') if m in sys.modules]\n"
         "assert not heavy, f'import harness.agent が重い依存を読み込んだ: {heavy}'\n"
     )
-    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr

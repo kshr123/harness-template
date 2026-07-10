@@ -14,6 +14,9 @@ AGENTS のテスト規約のうち「レビュー観点」止まりだった規�
    src/・tests/ の argparse CLI にはこの規約を課さない。
 3. **命令形 skip の ISS 参照必須**：テスト本体で呼ぶ `pytest.skip(...)`／`pytest.xfail(...)` は理由に `ISS-\\d+` が
    無ければ error（マーカー版はそこを素通りするので補完）。`pytest.importorskip(...)` は optional 依存の入口＝対象外。
+4. **`subprocess` の文字列モードに `encoding` 必須**：`text=True`／`universal_newlines=True` を渡すのに
+   `encoding=` が無い呼び出しを error。省略時はロケールの符号化方式（Windows の日本語環境では cp932）で
+   復号され、UTF-8 の出力を読むと `UnicodeDecodeError` になる。ハーネスの CLI は日本語を出すため必ず踏む。
 
 マーカー版 skip/xfail の ISS 参照は tests/conftest.py の収集フック＋harness.testing.skips_without_iss が担う。
 """
@@ -32,6 +35,12 @@ _GLOBAL_SEED_CALLS = frozenset({"np.random.seed", "numpy.random.seed", "random.s
 _SEED_IMPORT_MODULES = frozenset({"numpy.random", "random"})
 _ISS_REF = re.compile(r"ISS-\d+")
 _IMPERATIVE_SKIPS = frozenset({"pytest.skip", "pytest.xfail"})  # importorskip は optional 依存の入口＝対象外
+# 子プロセスの出力を文字列で受け取りうる呼び出し（bytes のまま扱う形は対象外＝復号が起きない）。
+_SUBPROCESS_CALLS = frozenset(
+    {"subprocess.run", "subprocess.check_output", "subprocess.Popen", "subprocess.call", "subprocess.check_call"}
+)
+# 文字列モードに切り替える引数（どちらも同義。真のときだけロケール既定の復号が起きる）。
+_TEXT_MODE_KEYWORDS = ("text", "universal_newlines")
 
 
 def _target_files(root: Path) -> list[tuple[Path, bool]]:
@@ -128,8 +137,31 @@ def _imperative_skip_lines_without_iss(tree: ast.AST) -> list[int]:
     return sorted(lines)
 
 
+def _subprocess_text_without_encoding_lines(tree: ast.AST) -> list[int]:
+    """文字列モード（text／universal_newlines が真）なのに `encoding=` を渡さない subprocess 呼び出しの行番号。
+
+    `encoding` 省略時は `locale.getencoding()` で復号される。Windows の日本語環境では cp932 になり、
+    UTF-8 で書かれた子プロセスの出力（ハーネスの CLI は日本語）を読むと `UnicodeDecodeError` で落ちる。
+    `text=False` を明示した呼び出しは bytes のままなので対象外。
+    """
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and _dotted_name(node.func) in _SUBPROCESS_CALLS):
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+        if "encoding" in keywords:
+            continue
+        for name in _TEXT_MODE_KEYWORDS:
+            value = keywords.get(name)
+            if value is None or (isinstance(value, ast.Constant) and value.value is False):
+                continue  # 渡していない／明示的に False＝bytes のまま＝復号は起きない
+            lines.append(node.lineno)
+            break
+    return sorted(lines)
+
+
 def run_checks(root: Path) -> list[pm.Problem]:
-    """テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip＝error、構文解析できないファイル＝info。"""
+    """テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。"""
     problems: list[pm.Problem] = []
     for path, is_work_code in _target_files(root):
         rel = path.relative_to(root).as_posix()
@@ -151,6 +183,14 @@ def run_checks(root: Path) -> list[pm.Problem]:
                 pm.Problem(
                     "error",
                     f"{rel}:{lineno}: pytest.skip/xfail は理由に ISS 参照（ISS-xxxx）が必須（なぜ止め いつ戻すか）",
+                )
+            )
+        for lineno in _subprocess_text_without_encoding_lines(tree):
+            problems.append(
+                pm.Problem(
+                    "error",
+                    f'{rel}:{lineno}: subprocess の text=True には encoding="utf-8" が必須'
+                    "（省略するとロケール既定＝Windows では cp932 で復号し、UTF-8 の出力で UnicodeDecodeError）",
                 )
             )
         if is_work_code and _uses_argparse(tree) and not _has_test_flag(tree):

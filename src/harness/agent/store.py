@@ -104,7 +104,11 @@ def _git_provenance(root: Path) -> dict[str, Any] | None:
     """
 
     def _run(*args: str) -> str:
-        proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True, timeout=5)
+        # encoding を明示する：省略するとロケール既定（Windows では cp932）で復号し、
+        # 非 ASCII を含む git の出力（ブランチ名等）で UnicodeDecodeError になる。
+        proc = subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8", check=True, timeout=5
+        )
         return proc.stdout.strip()
 
     try:
@@ -112,8 +116,9 @@ def _git_provenance(root: Path) -> dict[str, Any] | None:
         branch = _run("rev-parse", "--abbrev-ref", "HEAD")
         # --untracked-files=normal を明示：未追跡ファイルも dirty と数える（dirty の意味を環境非依存にする）。
         dirty = bool(_run("status", "--porcelain", "--untracked-files=normal"))
-    except OSError, subprocess.SubprocessError:
+    except OSError, subprocess.SubprocessError, UnicodeDecodeError:
         # CalledProcessError（非 git リポ）・FileNotFoundError（git 不在）・TimeoutExpired を含む。
+        # UnicodeDecodeError：git の出力が UTF-8 でない場合（来歴が取れないだけで、保存は続ける）。
         return None
     return {"commit": commit, "branch": branch, "dirty": dirty}
 

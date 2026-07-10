@@ -31,6 +31,7 @@ def _run(tmp_path: Path, variant: str, *, config: Path | None = None) -> subproc
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",  # 子は PYTHONUTF8=1 で UTF-8 を出す。親もそれで復号する（既定はロケール）。
         env=env,
         cwd=str(_ROOT),
     )
