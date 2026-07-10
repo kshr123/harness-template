@@ -236,3 +236,23 @@ def promote_agent(
         directions=resolved,
         decided=_utcnow().strftime(VERSION_FORMAT),
     )
+
+
+def rollback_agent(root: Path, *, work: str, name: str, reason: str) -> AgentPromotion:
+    """現 champion を前の champion（切り戻し先の連鎖の 1 段前）へ戻す。判定は通さない（中核 promotion.rollback）。
+
+    `reason` は必須（なぜ戻すかを記録に残す）。戻り先が無い・実体が無いときは ValueError。
+    """
+    return promotion.rollback(
+        _agent_dir(root, work=work, name=name),
+        work=work,
+        name=name,
+        label=f"{work}/{name}",
+        reason=reason,
+        decided=_utcnow().strftime(VERSION_FORMAT),
+    )
+
+
+def promotions(root: Path, *, work: str, name: str) -> list[dict[str, object]]:
+    """昇格・却下・切り戻しの記録を古い順に返す（監査・履歴表示用。中核 promotion.history）。"""
+    return promotion.history(_agent_dir(root, work=work, name=name))
