@@ -215,9 +215,10 @@ T-0091 で `serve/runtime.py` から移設）。agent は serve を import し�
 
 - `save_agent(root, spec, work=, name=, metrics=)`：評価済み宣言を版（UTC タイムスタンプ・再利用しない）として
   `work/<work>/agents/<name>/<version>/manifest.yaml` に保存。保存は常に許す（負の結果も記録）。
-- `promote_agent(root, work=, name=, version=, thresholds=, primary=)`：**絶対条件**（`agent.eval.passes`＝
-  向きつき・NaN 不合格）かつ**相対条件**（現 champion に primary で勝つ・同点/負けは採用しない）を満たす
-  ときだけ `promotions/<decided>.yaml` を追記。primary の向きの正本は AGENT_METRICS（引数では受けない）。
+- `promote_agent(root, work=, name=, version=, thresholds=, primary=)`：`value_threshold`（宣言した閾値を
+  満たす。向きは AGENT_METRICS が決め、発散値は不合格）と `change_threshold`（現 champion より primary が
+  良い。同点・負けは採用しない）を両方満たすときだけ `promotions/<decided>.yaml` を追記。判定の一覧と
+  名前の出典は `uv run gates`。primary の向きの正本は AGENT_METRICS（引数では受けない）。
 - `champion(root, work=, name=)`：採用記録の最新が指す版（無ければ None）。`load_agent`/`list_agents` も対で用意。
 
 ```

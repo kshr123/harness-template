@@ -86,7 +86,7 @@ ds プロファイルを**理解したい・拡張したいエンジニア**（�
 | 何を学習するか（データ・特徴・モデル・閾値） | 実験フォルダの `config.yaml` | `templates/experiment/train.py`（雛形・触らない） |
 | 使える部品の在庫 | —（機械生成） | 各ファイルのレジストリ → `uv run data <一覧>` |
 | モデルの由来（provenance＝版・fingerprint〔中身から計算した識別子〕・指標・依存・保存形式） | —（保存時に自動） | `models.py` の manifest（`format` で load 分岐） |
-| 採用の合否ライン | `config.yaml` の `thresholds` | `eval.py` の `passes`（champion 昇格の絶対条件） |
+| 採用の合否ライン | `config.yaml` の `thresholds` | `eval.py` の `passes`（champion 昇格の `value_threshold`） |
 
 ## 拡張ポイント（新しい部品はレジストリに 1 行）
 

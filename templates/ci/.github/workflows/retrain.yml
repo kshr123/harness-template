@@ -38,7 +38,7 @@ jobs:
       - name: ドリフト確認（門番にしない）
         run: uv run data monitor --baseline train_table # ← 複製先が編集する箇所：学習基準テーブルの id
       # 昇格の判定は promote_model の 1 か所だけ：value_threshold（thresholds）かつ
-      # 相対（現 champion に primary で勝つ）を満たすときだけ champion を更新する。版は手書きしない＝
+      # change_threshold（現 champion より primary が良い）を満たすときだけ champion を更新する。版は手書きしない＝
       # 再学習 step の結果記録（results/metrics_<variant>.yaml の model.name/version）から結線する。
       # 判定で却下されたら PromotionError（ValueError）で step が落ちる＝昇格なし（意図した停止。赤で残したくなければ
       # continue-on-error: true をこの step に付ける）。

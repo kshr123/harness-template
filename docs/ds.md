@@ -23,8 +23,9 @@ config で差し替えるのは**モデルの種類**と**保存形式**だけ�
    手順は experiment スキル。
 5. **変種を比べて選ぶ** … 変種ごとの結果を集めた表（リーダーボード）は `uv run data experiments`。
    合否は config で宣言した閾値（合格ライン）で決める。
-6. **保存して champion に採用する** … champion＝現在採用している版。採用は 2 つの合否判定を両方満たしたときだけ：
-   絶対（宣言した閾値を満たす）と相対（今の champion に主要指標で勝つ）。保存済みの一覧は
+6. **保存して champion に採用する** … champion＝現在採用している版。採用は `value_threshold`（宣言した閾値を
+   満たす）と `change_threshold`（今の champion より主要指標が良い）を両方満たしたときだけ。判定の一覧と
+   名前の出典は `uv run gates`。保存済みの一覧は
    `uv run data saved`（champion に ★）。保存形式は既定が pickle、可搬な ONNX は `uv run data formats`。
 7. **配信する / まとめて予測する** … 実時間の予測 API は serve プロファイル（`docs/serve.md`）。
    保存済みテーブルへ一括で予測を出すバッチ推論は `uv run data predict`。

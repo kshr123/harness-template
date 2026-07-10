@@ -83,7 +83,7 @@ ML と同型のライフサイクルが左から右へ進む（`①宣言 → �
 | 評価例（期待する出力つき） | golden set の YAML | `experiment.py`・`eval.py`（採点・合否） |
 | 使える部品の在庫（プロバイダ・ツール・採点器） | —（機械生成） | `PROVIDERS`/`TOOLS`/`AGENT_METRICS` → `uv run agent <一覧>` |
 | 実行の記録（往復・停止理由・コスト） | —（実行時に自動） | `runtime.py` の `AGENT_LOG_FIELDS`・`monitor.py`（読み） |
-| 採用の合否ライン | goal / thresholds | `eval.py` の `passes`（champion 採用の絶対条件） |
+| 採用の合否ライン | goal / thresholds | `eval.py` の `passes`（champion 採用の `value_threshold`） |
 
 ## 拡張ポイント（新しい部品はレジストリに 1 行）
 

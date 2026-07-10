@@ -104,9 +104,9 @@ shadow deployment（新版を並走させ、応答は返さずログだけ残す
   band（安定/要注意/大変化 の 3 段階）で人が読み、exit 0（基準テーブルが
   読めないときだけ非 0）。ドリフトの解釈は文脈依存で、誤検知の自動停止は再学習ループ全体を止めてしまう
   ため。閉ループ（大変化での課題起票）は `--file-issue` を付けて接続する（下の「監視→課題起票の閉ループ」節）。
-- **採用**＝`harness.ds.models.promote_model` が唯一の合否判定：絶対
-  （thresholds＝`eval.passes` と同じ合否の辞書。「本番に出してよい最低ライン」を書く）かつ相対
-  （現 champion に primary で勝つ）を満たすときだけ champion を更新する。版は手書きしない＝再学習 step の
+- **採用**＝`harness.ds.models.promote_model` が唯一の合否判定：`value_threshold`
+  （thresholds＝`eval.passes` と同じ合否の辞書。「本番に出してよい最低ライン」を書く）かつ `change_threshold`
+  （現 champion より primary が良い）を満たすときだけ champion を更新する。版は手書きしない＝再学習 step の
   結果記録（`results/metrics_<variant>.yaml` の `model.name`/`model.version`）から結線する。合否判定で不合格なら
   step が落ちる＝採用なし（意図した停止）。
 
@@ -123,8 +123,8 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
 ### loops 語彙での位置づけ（time+goal 合成・T-0120）
 
 - **trigger = time**：`schedule.cron`（定期）＋`workflow_dispatch`（手動やり直し）。
-- **stop は 2 層**：(i) 1 周の停止＝`promote_model` 合否判定（絶対 thresholds＝ds `eval.passes` と同じ合否＋
-  相対＝champion 越え）。合格→champion 更新で退場・不合格→step が落ちて採用なしで退場、どちらでも 1 周は
+- **stop は 2 層**：(i) 1 周の停止＝`promote_model` の判定（`value_threshold`＝宣言した thresholds・
+  `change_threshold`＝現 champion より良いこと）。合格→champion 更新で退場・不合格→step が落ちて採用なしで退場、どちらでも 1 周は
   必ず終わる（monitor は処理を止めない＝stop に関与しない、を再掲）。(ii) ループ全体の停止＝workflow 無効化・
   cron 削除（停止規律の正本は `docs/agent.md` の time-based routine の停止節＝T-0097。重複記述しない）。
 - **policy**：`retrain.yml`（結線の正本・ci_lint が構造検査）×実験フォルダの `config.yaml`（何を再学習
@@ -133,7 +133,7 @@ verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を
   schedule→train→promote 合否判定。agent 版 proactive 閉ループ（`docs/agent.md` の proactive 節＝T-0098）と
   対称（重複記述しない）。
 - **同型性＋実装非共有**：agent の goal ゲート（`GoalGate`＝`AGENT_METRICS`＋agent `eval.passes`）と
-  promote 合否判定（`promote_model`＝ds `eval.passes`〔絶対〕＋champion 越え〔相対〕）は同じ形＝「宣言済みの
+  promote の判定（`promote_model`＝`value_threshold`＋`change_threshold`）は同じ形＝「宣言済みの
   成功基準を、作った側とは別の評価器が検査して合格したときだけ先へ進む」（AGENTS 第一原則の機械化）。
   差分（同型≠同一）：goal ゲートは同一プロセス内で未達なら続行注入して反復・promote 合否判定はステートレスな
   1 周で退場（続行は次周の schedule）。実装は共有しない（`eval.passes` の agent/ds 併存は意図

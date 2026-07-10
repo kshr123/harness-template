@@ -31,7 +31,7 @@ verify 経路は dummy/cassette（記録再生）のみ＝
 4. 変種比較：結果を `metrics_<variant>.yaml` に残し `uv run agent experiments --results <dir>` でリーダーボード
    （ML の実験と共通の形式＝比較の作法を二重化しない）。
 5. 採用：`uv run agent promote --work <ID> --name <名> --version <版> --primary <指標> --threshold 名=値`
-   （絶対条件＝閾値・相対条件＝現 champion に primary で勝つ。落ちたら非ゼロ終了）。現 champion の確認は
+   （判定の一覧と意味は `uv run gates`。落ちたら非ゼロ終了）。現 champion の確認は
    `uv run agent champion --work <ID> --name <名>`。
 6. 配信：`uv run agent serve --work <ID> --name <名>`（champion を FastAPI で配信。`POST /invoke`
    `{"input": "<発話>"}`＝会話×ツール往復 1 回。provider は宣言に従う・実行ログは `artifacts/agent/runs/**`
