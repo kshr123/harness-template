@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from harness import checks
-from harness.testing import markers_in_expr, unmarked
+from harness.testing import PYRAMID, markers_in_expr, unmarked
 
 pytestmark = pytest.mark.unit
 
@@ -72,3 +72,95 @@ def test_checks_toml_uses_only_registered_markers() -> None:
     assert used <= registered, f"checks.toml が未登録マーカーを使用: {sorted(used - registered)}"
     # 4 つの目印すべてが段階に接続されている（どれかが設定から抜け落ちていない）。
     assert used == {"unit", "integration", "e2e", "slow"}
+
+
+# ---- checks.toml の不変条件（起動時 precondition。T-0198 / EP-32） --------------------------------
+#
+# 番人が門の内側に住まないことの担保：ここで確かめる `_verify_checks_config` は pytest のテストではなく
+# `run_check` の冒頭で無条件に呼ばれる関数（マーカーで deselect され得ない）。下の各テストは、その関数を
+# 直接呼ぶ（マーカー選択に依存しない層）＋ `run_check` が pytest サブプロセスに到達する前に落ちること
+# （＝マーカー選択の上流で効くこと）を確かめる。tmp_path 上に checks.toml／pyproject.toml を組み立てるので、
+# 実リポジトリの値はハードコードしない（期待値は組み立てた入力から導ける）。
+
+
+def _write_repo(tmp_path: Path, *, fast: str, standard: str, full: str) -> Path:
+    """tmp_path に checks.toml と、テストの層＋slow を登録した pyproject.toml を置く。
+
+    登録マーカーは testing.PYRAMID（unit/integration/e2e）＋slow から機械的に作る（実 pyproject を仮定しない）。
+    """
+    (tmp_path / "checks.toml").write_text(
+        f"[fast]\ncommands = [{fast}]\n[standard]\ncommands = [{standard}]\n[full]\ncommands = [{full}]\n",
+        encoding="utf-8",
+    )
+    markers = ", ".join(f'"{name}: 層 {name}"' for name in (*PYRAMID, "slow"))
+    (tmp_path / "pyproject.toml").write_text(
+        f"[tool.pytest.ini_options]\nmarkers = [{markers}]\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+# 実リポジトリと同じ形の、正しい段階割り当て（各層が -m 式に一度ずつ現れ、ruff/mypy も揃う）。
+_GOOD_FAST = "['ruff','format','--check','.'],['ruff','check','.'],['pytest','-q','-m','unit and not slow']"
+_GOOD_STANDARD = "['mypy'],['pytest','-q','-m','integration and not slow']"
+_GOOD_FULL = "['pytest','-q','-m','e2e and not slow']"
+
+
+def test_checks_config_accepts_valid_config(tmp_path: Path) -> None:
+    # 実物と同じ形（ruff/mypy 揃い・3 層すべて被覆）は素通りする＝正しい設定を拒まない。
+    root = _write_repo(tmp_path, fast=_GOOD_FAST, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    checks._verify_checks_config(root)  # 例外を投げなければ合格
+
+
+def test_checks_config_rejects_marker_typo(tmp_path: Path) -> None:
+    # unit → unitt の綴り違い。unitt は pyproject の登録に無い（全 deselect で 0 件のまま緑になる経路）。
+    typo_fast = _GOOD_FAST.replace("unit and not slow", "unitt and not slow")
+    root = _write_repo(tmp_path, fast=typo_fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError, match="unitt"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_missing_pytest_layer(tmp_path: Path) -> None:
+    # pytest の行を丸ごと消す（ruff/mypy は残す）→ どの層も -m 式に現れず、層の被覆に失敗する。
+    root = _write_repo(
+        tmp_path,
+        fast="['ruff','format','--check','.'],['ruff','check','.']",
+        standard="['mypy']",
+        full="",
+    )
+    with pytest.raises(ValueError):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_missing_ruff(tmp_path: Path) -> None:
+    # ruff を消す（mypy・pytest は残す）→ 必須の言語検査を欠くので拒否。
+    root = _write_repo(
+        tmp_path,
+        fast="['pytest','-q','-m','unit and not slow']",
+        standard=_GOOD_STANDARD,
+        full=_GOOD_FULL,
+    )
+    with pytest.raises(ValueError, match="ruff"):
+        checks._verify_checks_config(root)
+
+
+def test_checks_config_rejects_missing_mypy(tmp_path: Path) -> None:
+    # mypy を消す（ruff・pytest は残す）→ 必須の言語検査を欠くので拒否。
+    root = _write_repo(
+        tmp_path,
+        fast=_GOOD_FAST,
+        standard="['pytest','-q','-m','integration and not slow']",
+        full=_GOOD_FULL,
+    )
+    with pytest.raises(ValueError, match="mypy"):
+        checks._verify_checks_config(root)
+
+
+def test_run_check_rejects_broken_config_before_pytest(tmp_path: Path) -> None:
+    # 番人が門の内側に住まない証拠：壊れた checks.toml を与えた run_check は、pytest サブプロセスに
+    # 到達する前（＝マーカー選択の上流・無条件の層）で ValueError を投げる。pytest が 1 件も走らなくても
+    # 起動が拒否されることを、run_check を直接呼んで確かめる。
+    typo_fast = _GOOD_FAST.replace("unit and not slow", "unitt and not slow")
+    root = _write_repo(tmp_path, fast=typo_fast, standard=_GOOD_STANDARD, full=_GOOD_FULL)
+    with pytest.raises(ValueError):
+        checks.run_check(root, "full")
