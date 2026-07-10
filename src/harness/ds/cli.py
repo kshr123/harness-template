@@ -507,6 +507,96 @@ def _data_experiments(
         typer.echo(str(df))
 
 
+def _parse_thresholds(pairs: list[str]) -> dict[str, float]:
+    """`--threshold 名=値` の繰り返しを dict にする。形式不正は候補つきで止める（agent CLI と同じ作法）。"""
+    out: dict[str, float] = {}
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        if not sep or not name:
+            raise typer.BadParameter(f"--threshold は 名=値 の形式（実際: {pair!r}。例: roc_auc=0.8）")
+        try:
+            out[name] = float(value)
+        except ValueError as exc:
+            raise typer.BadParameter(f"--threshold {name} の値が数値でない（実際: {value!r}）") from exc
+    return out
+
+
+@data_app.command("promote")
+def _data_promote(
+    work: Annotated[str, typer.Option(help="作業単位ID（保存先 work/<work>/models/…）")],
+    name: Annotated[str, typer.Option(help="モデル名")],
+    version: Annotated[str, typer.Option(help="昇格候補の版（UTC タイムスタンプ）")],
+    primary: Annotated[
+        str, typer.Option(help="change_threshold で比べる指標（METRICS の kind・向きはレジストリが正本）")
+    ],
+    threshold: Annotated[
+        list[str], typer.Option("--threshold", help="value_threshold の閾値 名=値（繰り返し可。例: roc_auc=0.8）")
+    ],
+) -> None:
+    """評価済みの版を champion へ昇格する（value_threshold＝閾値・change_threshold＝現 champion からの改善）。"""
+    from harness.ds import models as model_store
+
+    try:
+        promo = model_store.promote_model(
+            _root(), work=work, name=name, version=version, thresholds=_parse_thresholds(threshold), primary=primary
+        )
+    except ValueError as exc:  # 判定で却下（PromotionError）・未登録 primary → 昇格しない＝非ゼロ終了
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    shown = "  ".join(f"{k}={v:.4f}" for k, v in sorted(promo.metrics.items()))
+    typer.echo(f"昇格: {promo.work}/{promo.name}/{promo.version}（decided={promo.decided}）")
+    typer.echo(f"primary={promo.primary}（higher_is_better={promo.higher_is_better}）  {shown}")
+    typer.echo(f"前 champion: {promo.previous_version or 'なし（初回昇格）'}")
+
+
+@data_app.command("champion")
+def _data_champion(
+    work: Annotated[str, typer.Option(help="作業単位ID")],
+    name: Annotated[str, typer.Option(help="モデル名")],
+) -> None:
+    """現 champion の版と metrics を表示する（approved の記録の最新が指す版・無ければ「champion なし」）。"""
+    from harness.ds import models as model_store
+
+    champ = model_store.champion(_root(), work=work, name=name)
+    if champ is None:
+        typer.echo(f"{work}/{name}: champion なし（まだ昇格していない）")
+        return
+    shown = "  ".join(f"{k}={v:.4f}" for k, v in sorted(champ.metrics.items()))
+    typer.echo(f"★ {champ.work}\t{champ.name}\t{champ.version}\t{shown}")
+
+
+@data_app.command("rollback")
+def _data_rollback(
+    work: Annotated[str, typer.Option(help="作業単位ID")],
+    name: Annotated[str, typer.Option(help="モデル名")],
+    reason: Annotated[str, typer.Option(help="なぜ戻すか（記録に残す・必須）")],
+) -> None:
+    """現 champion を前の champion（切り戻し先の 1 段前）へ戻す。判定は通さない（劣る旧良版へ戻せる）。"""
+    from harness.ds import models as model_store
+
+    try:
+        rolled = model_store.rollback_model(_root(), work=work, name=name, reason=reason)
+    except ValueError as exc:  # 戻り先が無い・実体が無い・reason 空 → 戻せない＝非ゼロ終了
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"切り戻し: {rolled.work}/{rolled.name} の champion を {rolled.previous_version} → {rolled.version} へ")
+    typer.echo(f"理由: {rolled.reason}")
+
+
+@data_app.command("promotions")
+def _data_promotions(
+    work: Annotated[str, typer.Option(help="作業単位ID")],
+    name: Annotated[str, typer.Option(help="モデル名")],
+) -> None:
+    """昇格・却下・切り戻しの記録を古い順に一覧する（監査・履歴）。"""
+    from harness.ds import models as model_store
+
+    for rec in model_store.promotions(_root(), work=work, name=name):
+        kind = rec.get("kind", "promote")
+        status = rec.get("status", "approved")
+        typer.echo(f"{rec['decided']}\t{kind}\t{status}\t{rec['version']}\t前={rec.get('previous_version') or '-'}")
+
+
 def data_main() -> None:
     """`uv run data <サブコマンド>` の入口。"""
 

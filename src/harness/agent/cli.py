@@ -299,6 +299,38 @@ def _agent_champion(
     typer.echo(f"prompt_fingerprint={champ.prompt_fingerprint}")
 
 
+@agent_app.command("rollback")
+def _agent_rollback(
+    work: Annotated[str, typer.Option(help="作業単位ID")],
+    name: Annotated[str, typer.Option(help="エージェント名")],
+    reason: Annotated[str, typer.Option(help="なぜ戻すか（記録に残す・必須）")],
+) -> None:
+    """現 champion を前の champion（切り戻し先の 1 段前）へ戻す。判定は通さない（劣る旧良版へ戻せる）。"""
+    from harness.agent import store
+
+    try:
+        rolled = store.rollback_agent(_root(), work=work, name=name, reason=reason)
+    except ValueError as exc:  # 戻り先が無い・実体が無い・reason 空 → 戻せない＝非ゼロ終了
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"切り戻し: {rolled.work}/{rolled.name} の champion を {rolled.previous_version} → {rolled.version} へ")
+    typer.echo(f"理由: {rolled.reason}")
+
+
+@agent_app.command("promotions")
+def _agent_promotions(
+    work: Annotated[str, typer.Option(help="作業単位ID")],
+    name: Annotated[str, typer.Option(help="エージェント名")],
+) -> None:
+    """昇格・却下・切り戻しの記録を古い順に一覧する（監査・履歴）。"""
+    from harness.agent import store
+
+    for rec in store.promotions(_root(), work=work, name=name):
+        kind = rec.get("kind", "promote")
+        status = rec.get("status", "approved")
+        typer.echo(f"{rec['decided']}\t{kind}\t{status}\t{rec['version']}\t前={rec.get('previous_version') or '-'}")
+
+
 @agent_app.command("serve")
 def _agent_serve(
     work: Annotated[str, typer.Option(help="作業単位ID（保存時の work）")],

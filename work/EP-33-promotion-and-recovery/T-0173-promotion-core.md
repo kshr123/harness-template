@@ -1,11 +1,16 @@
 ---
 id: T-0173
 kind: task
-status: todo
+status: done
 title: 昇格の保存機構を中核（harness/promotion.py）へ 1 本化する（挙動は変えない）
 created: 2026-07-10
+closed: 2026-07-11
 depends_on: [T-0172]
-verified_by: []
+verified_by:
+  - tests/test_promotion_characterization.py::test_ds_only_a_strict_improvement_promotes
+  - tests/test_promotion_characterization.py::test_ds_promotion_record_has_the_expected_fields
+  - tests/test_promotion_characterization.py::test_agent_only_a_strict_improvement_promotes
+  - tests/test_promotion_characterization.py::test_agent_promotion_record_has_the_expected_fields
 ---
 # T-0173 昇格の保存機構を中核へ
 
@@ -45,4 +50,24 @@ verified_by: []
 ## やらないこと
 - alias（`aliases/champion.yaml`）の導入は T-0174。切り戻しは T-0175。ここでは `sorted(glob)[-1]` の
   欠陥をそのまま移送する（欠陥を直すのと構造を変えるのを同じコミットに混ぜない）。
-- `_git_provenance` / `_dependencies` / `_lock_fingerprint` / `_utcnow` の複製は別課題（ISS へ）。
+- `_git_provenance` / `_dependencies` / `_lock_fingerprint` / `_utcnow` の複製は別課題（ISS-0016 に起票）。
+
+## 実装の結果（このタスクで確定したこと）
+- 中核 `src/harness/promotion.py` を新設し、`Promotion` 型・定数（`MANIFEST_FILE`・`PROMOTIONS_DIR`・
+  `VERSION_FORMAT`）・`champion_version`・`promote` を集めた。依存は stdlib＋`harness.storage`＋`harness.gates`
+  だけ（ds/agent のレジストリは import しない）。`ds/models.py`・`agent/store.py` は方針だけを持つ薄い呼び手に
+  縮退（向きの正本レジストリの解決・higher_is_better の矛盾検査・保存の存在確認だけを残す）。
+- `AgentPromotion` は `promotion.Promotion` の別名として公開名を保った。
+- 記録 YAML の書式・キーの順序・却下メッセージ（`{work}/{name}/{version} は昇格を却下（rejected）: …`）は不変。
+  既存テストは 1 行も変更していない（`git status --porcelain tests/` に既存ファイルが現れない）ことが挙動不変の証拠。
+
+### 順序の決定（既知の軽微な差＝閾値名 typo と champion 読み込みの順序）
+**「向きの解決（`directions([*thresholds, primary])`）を、現 champion の読み込みより先に行う」** を選んだ。
+実装上は、呼び手（ds/models・agent/store）が `directions(...)` を解決してから中核 `promotion.promote` を呼び、
+champion の読み込みは中核の中で起きる＝引数評価が先なので必ず「向きの解決 → champion 読み込み」の順になる。
+
+理由：閾値名の typo は呼び手が書いた spec の誤りで、保存側の状態（champion が壊れているか）に依存しない。
+呼び手が制御できる誤りを先に、確定的なメッセージで返す方が直しやすい。二重故障（champion の昇格記録が
+壊れている＋閾値名が typo）でも、まず「その閾値名は未登録」を返す。これは抽出前の並びと同じで、例外型は
+どちらの順でも同じ `ValueError`。既存テストはこの二重故障を突かないので、どちらの順でも全成功する
+（＝意識して選ぶべき差であり、黙って変えてよい差ではない）。
