@@ -6,7 +6,7 @@ title: doclint＝正本ドキュメントが参照する DEC/ISS/パス/コマ�
 created: 2026-07-06
 depends_on: [T-0046]
 verified_by:
-  - tests/test_doclint.py::test_dec_like_string_is_not_checked_and_decisions_dir_absent_is_ok
+  - tests/test_doclint.py::test_reference_to_prefix_whose_home_dir_is_absent_is_error
   - tests/test_doclint.py::test_missing_iss_reference_is_error
   - tests/test_doclint.py::test_iss_check_skipped_on_github_backend
   - tests/test_doclint.py::test_missing_path_is_error

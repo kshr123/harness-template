@@ -70,7 +70,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: 秘密情報スキャン（ローカルと同じ入口＝pre-commit の gitleaks フック）
         run: uvx pre-commit run gitleaks --all-files
-      - name: workflow 雛形の構文検査（検査委譲の関門・DEC-0021＝pre-commit の actionlint フック）
+      - name: workflow 雛形の構文検査（検査委譲の関門＝pre-commit の actionlint フック）
         run: uvx pre-commit run actionlint --all-files
-      - name: workflow 雛形の schema 準拠検査（検査委譲の関門・DEC-0021＝pre-commit の check-jsonschema フック）
+      - name: workflow 雛形の schema 準拠検査（検査委譲の関門＝pre-commit の check-jsonschema フック）
         run: uvx pre-commit run check-jsonschema --all-files

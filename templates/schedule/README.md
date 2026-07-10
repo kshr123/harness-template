@@ -4,7 +4,7 @@
 定期実行するための GitHub Actions workflow 雛形。**実行しない資産**なので、構造（トリガ・停止宣言・
 参照する CLI サブコマンド）の整合は schedule_lint（`src/harness/agent/schedule_lint.py`）が
 `uv run verify` のたびに構造検査して腐りを止める。実行基盤（GitHub Actions・cron・Claude 側の
-`/loop`・`/schedule` スキル等）は利用者環境が持つ（ハーネスは再発明しない・DEC-0006/0008）。
+`/loop`・`/schedule` スキル等）は利用者環境が持つ（ハーネスは再発明しない）。
 
 ## コピー手順
 
