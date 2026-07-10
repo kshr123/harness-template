@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Any
 
 # ピラミッドの目印。各テストはこのいずれか 1 つを必ず持つ（slow は重いものに追加で貼るフラグ）。
 PYRAMID = ("unit", "integration", "e2e")
@@ -53,3 +54,42 @@ def markers_in_expr(expr: str) -> set[str]:
     綴り違い・改名で門番が空回り（全 deselect→テスト0件なのに合格）するのを検査で防ぐために使う。
     """
     return {t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expr) if t not in _MARKER_EXPR_KEYWORDS}
+
+
+def _marker_reason(mark: Any) -> str:
+    """skip 系マーカー（`pytest.Mark`）の理由文字列を集める（位置引数の文字列＋`reason=` キーワード。無ければ空）。"""
+    parts = [a for a in mark.args if isinstance(a, str)]
+    reason = mark.kwargs.get("reason")
+    if isinstance(reason, str):
+        parts.append(reason)
+    return " ".join(parts)
+
+
+def check_collected_items(items: Iterable[Any]) -> None:
+    """収集済みテスト（`pytest.Item` の並び）を検査し、規約違反があれば `pytest.UsageError` で collect を止める。
+
+    これが収集フックの論理の**正本**（`tests/conftest.py` の `pytest_collection_modifyitems` はこれを呼ぶだけ
+    の委譲）。抽出（マーカー名・reason）もここに閉じ、テスト側に同じ抽出を複製しない（2 つ目の正本を残さない
+    ＝T-0210。複製があると本体が退化してもテストが複製を守って緑を出し、保証が (b) を名乗れなくなる）。
+
+    2 つの規約を一括で見る：
+    - ピラミッドの目印（unit/integration/e2e）が 1 つも無い迷子テスト → `UsageError`（`unmarked`）。
+    - skip/skipif/xfail/slow の reason に課題参照（ISS-<番号>）が無いテスト → `UsageError`（`skips_without_iss`）。
+      マーカーが関数装飾か `pytestmark = pytest.mark.slow`（モジュール全体）かは `iter_markers()` が同じ形で
+      渡すので区別しない。
+
+    pytest への依存は関数内 import に閉じる（`testing` の module import が pytest を要求しないようにする）。
+    """
+    import pytest
+
+    collected = list(items)
+    bad = unmarked((item.nodeid, {m.name for m in item.iter_markers()}) for item in collected)
+    if bad:
+        raise pytest.UsageError("ピラミッドの目印(unit/integration/e2e)が無いテスト: " + ", ".join(bad))
+    bad_skips = skips_without_iss(
+        (item.nodeid, [(m.name, _marker_reason(m)) for m in item.iter_markers() if m.name in SKIP_MARKERS])
+        for item in collected
+    )
+    if bad_skips:
+        markers = "/".join(sorted(SKIP_MARKERS))
+        raise pytest.UsageError(f"{markers} の reason に課題参照(ISS-…)が無いテスト: " + ", ".join(bad_skips))

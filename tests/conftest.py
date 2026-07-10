@@ -15,43 +15,22 @@ import frontmatter
 import pytest
 import yaml
 
-from harness.testing import SKIP_MARKERS, skips_without_iss, unmarked
+from harness.testing import check_collected_items
 
 # T-0202: pytester フィクスチャ（自分の collect フックを実テストで確かめる pytest 標準ツール）を有効化する。
 # 既定は無効なので、root の conftest.py で明示的に opt-in する必要がある。
 pytest_plugins = ["pytester"]
 
 
-def _marker_reason(mark: pytest.Mark) -> str:
-    """skip 系マーカーの理由文字列を集める（位置引数の文字列＋reason= キーワード。無ければ空）。"""
-    parts = [a for a in mark.args if isinstance(a, str)]
-    reason = mark.kwargs.get("reason")
-    if isinstance(reason, str):
-        parts.append(reason)
-    return " ".join(parts)
-
-
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """ピラミッドの目印（unit/integration/e2e）が無いテストは collect でエラーにする（迷子テストを塞ぐ）。
+    """収集フック。論理の正本は harness.testing.check_collected_items（T-0210）＝ここは委譲だけ。
 
-    -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れを止める。
-    あわせて skip/skipif/xfail/slow の reason に課題参照（ISS-<番号>）が無いテストも collect でエラーにする
-    （理由の無い skip 禁止＝AGENTS・ISS-0002。slow は checks.toml の全段階が `not slow` で除外し続ける＝
-    ISS 無しだと「テストを永久に回さない」抜け道になるため skip/xfail と同格にする＝T-0202。
-    判定は harness.testing.skips_without_iss。マーカーが関数装飾か `pytestmark = pytest.mark.slow`
-    （モジュール全体）かは iter_markers() が同じ形で渡すので区別しない）。
+    -m の絞り込みより先に（tryfirst）全収集テストを見て、選ばれる段階に関わらず付け忘れ／理由の無い
+    skip・slow を止める。抽出や判定をここに書き足さない（複製すると本体が退化してもテストが複製を守って
+    緑になる＝T-0210）。中身の説明は check_collected_items の docstring を見る。
     """
-    bad = unmarked((item.nodeid, {m.name for m in item.iter_markers()}) for item in items)
-    if bad:
-        raise pytest.UsageError("ピラミッドの目印(unit/integration/e2e)が無いテスト: " + ", ".join(bad))
-    bad_skips = skips_without_iss(
-        (item.nodeid, [(m.name, _marker_reason(m)) for m in item.iter_markers() if m.name in SKIP_MARKERS])
-        for item in items
-    )
-    if bad_skips:
-        markers = "/".join(sorted(SKIP_MARKERS))
-        raise pytest.UsageError(f"{markers} の reason に課題参照(ISS-…)が無いテスト: " + ", ".join(bad_skips))
+    check_collected_items(items)
 
 
 # 既定の置き場設定（ローカルのみ）。config.py の既定と同じ形にしておく。
