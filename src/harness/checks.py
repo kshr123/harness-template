@@ -23,8 +23,10 @@ from harness import (
     issues,
     pm,
     profiles,
+    testing,
 )
 from harness.profiles import PmCheck
+from harness.testing import markers_in_expr
 
 # レベル：fast（フック相当）→ standard（pre-commit 相当）→ full（CI・done）。
 LEVELS = ("fast", "standard", "full")
@@ -59,6 +61,66 @@ def _load_commands(root: Path, level: str) -> list[list[str]]:
     return commands
 
 
+def _registered_markers(root: Path) -> set[str]:
+    """pyproject.toml に登録済みのマーカー名の集合（`name: 説明` の name 部分）。ファイル・キーが無ければ空。"""
+
+    path = root / "pyproject.toml"
+    if not path.is_file():
+        return set()
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    markers = data.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("markers", [])
+    return {str(m).split(":")[0].strip() for m in markers}
+
+
+def _verify_checks_config(root: Path) -> None:
+    """checks.toml の不変条件を検査し、満たさなければ ValueError で起動を拒否する（fail-open を塞ぐ）。
+
+    pytest は「選んだ目印に該当するテストが 0 件」を終了コード 5 で表し、run_check はこれを合格として扱う
+    （複製先が層を正当に空にできるようにする意図した寛容さ）。だがマーカーを綴り違え（unit→unitt）ると
+    全 deselect で 0 件になり、exit 5 経由で「テストが 1 件も無いのに緑」になる。pytest 行を丸ごと消す・
+    ruff/mypy を消す改変も同じく素通りする。これらを、走らせる前の不変条件で閉じる。対象集合はツール自身の
+    定数（LEVELS・testing.PYRAMID）と pyproject の登録から機械的に導ける（自己申告の台帳ではない）。
+
+    番人を pytest の中に置かない：この関数は run_check の冒頭で無条件に呼ぶ。全 pytest テストが deselect
+    されても検査は効く（門番が門の内側に住まない）。
+    """
+
+    path = root / "checks.toml"
+    if not path.is_file():
+        return  # 複製直後などファイルが無いときは _load_commands と同じく寛容（走らせるものが無いだけ）。
+    commands = _load_commands(root, LEVELS[-1])  # full まで＝全レベルのコマンドを累積。
+
+    # (1) full までに ruff と mypy が各 1 回以上現れる（言語検査がまるごと抜ける改変を拒否）。
+    first_tokens = {cmd[0] for cmd in commands if cmd}
+    missing_tools = [tool for tool in ("ruff", "mypy") if tool not in first_tokens]
+    if missing_tools:
+        raise ValueError(
+            f"checks.toml が必須の言語検査を欠く: {missing_tools}（full までに ruff と mypy が各 1 回以上必要）"
+        )
+
+    # pytest -m 式が参照するマーカー名の和集合を集める。
+    used: set[str] = set()
+    for cmd in commands:
+        if cmd[:1] == ["pytest"] and "-m" in cmd:
+            used |= markers_in_expr(cmd[cmd.index("-m") + 1])
+
+    # (2) すべてのマーカーが pyproject に登録済み（綴り違い・改名の typo を拒否＝全 deselect の経路を閉じる）。
+    unregistered = sorted(used - _registered_markers(root))
+    if unregistered:
+        raise ValueError(
+            f"checks.toml が未登録のマーカーを参照: {unregistered}"
+            "（pyproject.toml の markers に無い＝綴り違い・改名の疑い。放置すると全 deselect で 0 件のまま緑になる）"
+        )
+
+    # (3) テストの層（testing.PYRAMID）を -m 式が被覆する（pytest 行や層まるごとの取り外しを拒否）。
+    uncovered = sorted(set(testing.PYRAMID) - used)
+    if uncovered:
+        raise ValueError(
+            f"checks.toml の pytest -m 式がテストの層を被覆しない: 未接続の層 {uncovered}"
+            f"（各層 {list(testing.PYRAMID)} が段階のどれかに接続されている必要がある）"
+        )
+
+
 def _pm_checks(root: Path) -> bool:
     """プロジェクト管理の決まりごとを検査する。参照エラー・壊れた frontmatter・完了↔検証の欠落は失敗。
 
@@ -88,6 +150,10 @@ def run_check(root: Path, level: str = "full") -> int:
     if level not in LEVELS:
         print(f"不明なレベル: {level}（{', '.join(LEVELS)} のいずれか）")
         return 2
+
+    # 起動前の不変条件：checks.toml が壊れていれば、検査を 1 つも走らせずに起動を拒否する（fail-open を塞ぐ）。
+    # pytest の中でなくここ（無条件に走る層）に置く＝門番が門の内側に住まない。
+    _verify_checks_config(root)
 
     print(f"[check level={level}]")
     ok = _pm_checks(root)
