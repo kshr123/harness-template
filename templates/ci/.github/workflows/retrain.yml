@@ -27,8 +27,9 @@ jobs:
       # 再学習＝実験雛形の train.py を本規模で実行（config→学習→評価→保存→results/ を一気通貫）。
       # 学習スクリプトをここに書かない：実験フォルダの config.yaml が変種・モデル・データの正本（experiment スキル）。
       - name: 再学習（実験雛形の train.py）
-        # ← 複製先が編集する箇所：自分の実験フォルダの train.py と variant へ差し替える。
-        run: uv run python work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py --variant interaction
+        # ← 複製先が編集する箇所：自分の実験フォルダの train.py と variant へ差し替える
+        # （雛形のまま回すなら templates/experiment/train.py・variant は config.yaml の variants キーから選ぶ）。
+        run: uv run python templates/experiment/train.py --variant interaction
       # ドリフト確認＝data monitor は門番にしない（分布ずれで exit code を非 0 にしない・band は人が読む。
       # 基準テーブルが読めないときだけ非 0）。自動停止しない理由：ドリフトの解釈は文脈依存で、誤検知の
       # 自動停止は再学習ループ全体を止めてしまうため。閉ループ＝--file-issue を付けると PSI_ALERT 超で
@@ -50,15 +51,15 @@ jobs:
 
           from harness.ds.models import promote_model
 
-          exp = Path("work/EP-06-ds-experiment-loop/E-0001-interaction-feature")  # ← 複製先が編集する箇所：実験フォルダ
+          exp = Path("templates/experiment")  # ← 複製先が編集する箇所：自分の実験フォルダ（train.py と同じ場所）
           meta = yaml.safe_load((exp / "results" / "metrics_interaction.yaml").read_text())  # ← variant 名も合わせる
           promotion = promote_model(
               Path("."),
-              work="EP-06-ds-experiment-loop/E-0001-interaction-feature",  # ← 複製先が編集する箇所（exp と同じ）
+              work="E-0001",  # ← 複製先が編集する箇所：train.py の WORK_ID と一致させる
               name=meta["model"]["name"],  # 再学習 step が保存した名前（結果記録から結線）
               version=meta["model"]["version"],  # 再学習 step が保存した版（結果記録から結線）
-              thresholds={"auc": 0.85},  # ← 複製先が編集する箇所：合格ライン（eval.passes と同じ辞書）
-              primary="auc",  # ← 複製先が編集する箇所：現 champion と比べる主要指標
+              thresholds={"roc_auc": 0.85},  # ← 複製先が編集する箇所：合格ライン（eval.passes と同じ辞書。指標名は eval.METRICS に登録済みのものを使う）
+              primary="roc_auc",  # ← 複製先が編集する箇所：現 champion と比べる主要指標（同じく eval.METRICS に登録済みのものを使う）
           )
           print(promotion)
           PY

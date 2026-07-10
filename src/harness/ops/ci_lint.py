@@ -19,6 +19,10 @@ GitHub Actions は実行しない・ネットワークも使わない。テン�
 - `python-version` がリポの正（pyproject の requires-python）と食い違う・指定が無い＝error。
   リポの正を導出できない root（pyproject が無いコピー先）では版検査を行わない（誤検知しない）。
 - `uv sync` の step に `--all-extras` が無い＝error（開発・verify 環境は全部入り＝AGENTS の規約）。
+- `templates/ci/**/*.yml` の run が参照する「リポジトリ内の相対パスらしき .py」が実在しない＝error
+  （複製時に消えた・移設先がずれた雛形。表 _WORKFLOWS に載っていない yml も対象＝全ワークフロー共通の検査）。
+  抽出は保守的：トークン全体が英数字・`_`・`.`・`/`・`-` だけのものだけを見る（`$VAR`・`<...>` のような
+  プレースホルダはこの文字集合に収まらないので対象外＝誤検知しない）。
 
 `templates/ci/` が無いプロジェクト（テンプレートを同梱しないコピー先の案件）では何も指摘しない
 （誤検知しない）。依存は stdlib＋pyyaml のみ・yaml は関数内で遅延取り込み（deploy_lint と同じ規約。
@@ -103,6 +107,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
         _check_run_order(problems, spec, doc)
         _check_uv_sync_extras(problems, spec, doc)
         _check_python_version(problems, spec, doc, repo_python)
+    _check_script_refs(problems, root, base)
     return problems
 
 
@@ -208,6 +213,44 @@ def _check_python_version(problems: list[pm.Problem], spec: _WorkflowSpec, doc: 
                     "どちらかへ揃える）",
                 )
             )
+
+
+# --- スクリプト参照の実在（run が参照する .py がリポジトリ内に実在すること） ---
+
+# トークン全体がこの文字集合だけで .py 終わりのものだけを対象にする（保守的な抽出）。
+# $VAR・<...> のようなプレースホルダは `$`・`<`・`>` を含むため fullmatch に落ちて対象外になる。
+_SCRIPT_REF_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.py")
+
+
+def _script_refs(run: str) -> list[str]:
+    """run 文字列から「リポジトリ内の相対パスらしき .py 参照」を抽出する（トークン単位・保守的）。"""
+    return [token for token in run.split() if _SCRIPT_REF_RE.fullmatch(token)]
+
+
+def _check_script_refs(problems: list[pm.Problem], root: Path, base: Path) -> None:
+    """templates/ci/**/*.yml（_WORKFLOWS 表の対象外も含む全ファイル）の run が参照する .py の実在を検査する。
+
+    複製時に消えるフォルダ（例 work/…）を指したまま・移設先がずれたままの雛形は、実行して初めて
+    FileNotFoundError で気づくことが多い。ci_lint は実行しないので、参照の実在だけを静的に確かめる。
+    """
+    import yaml
+
+    for path in sorted(base.rglob("*.yml")):
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            continue  # YAML 妥当性は actionlint/check-jsonschema へ委譲（他の検査と同じ流儀）
+        rel = path.relative_to(base).as_posix()
+        for run in _run_commands(doc):
+            for ref in _script_refs(run):
+                if not (root / ref).is_file():
+                    problems.append(
+                        pm.Problem(
+                            "error",
+                            f"templates/ci/{rel}: run が参照する `{ref}` が実在しない（複製時に消えたフォルダ・"
+                            "移設先がずれた雛形の可能性。参照を実在するスクリプトへ直す）",
+                        )
+                    )
 
 
 def _repo_python_version(root: Path) -> str | None:
