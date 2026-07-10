@@ -49,6 +49,32 @@ PM_CHECKS: list[PmCheck] = [
 ]
 
 
+def _glob_to_path_regex(glob: str) -> str:
+    """tests/ 直下の glob（例 `test_ds_*.py`）を、mypy --exclude 用のパス正規表現へ変換する。
+
+    mypy は --exclude の正規表現を（相対）パスに re.search で当てる。`*` はディレクトリを跨がない任意列、
+    `.` はリテラルのドットにする。末尾を `$` で閉じ、tests/ 配下に限定する。
+    """
+    body = glob.replace(".", r"\.").replace("*", "[^/]*")
+    return rf"tests/{body}$"
+
+
+def _mypy_exclude_args(root: Path, enabled: list[str] | None = None) -> list[str]:
+    """無効なプロファイルのソース（`src/harness/<name>/`）と所有テストを mypy の対象から外す引数。
+
+    非 DS の案件（profiles=[]）では DS 等のソース・テストが optional 依存（polars・fastapi 等）を import するため、
+    mypy(strict) が「型スタブが無い」で落ちる。有効化されていない＝そのプロファイルを使わない＝依存も入れない
+    前提なので、有効なプロファイルだけを型検査する。全プロファイル有効な当リポでは無効集合が空＝除外なし＝
+    従来どおり src と tests 全体を検査する。除外集合の出どころは Profile.test_globs（収集除外と同じ 1 か所）。
+    """
+    args: list[str] = []
+    for profile in profiles.disabled_profiles(root, enabled=enabled):
+        args += ["--exclude", rf"src/harness/{profile.name}/"]
+        for glob in profile.test_globs:
+            args += ["--exclude", _glob_to_path_regex(glob)]
+    return args
+
+
 def _load_commands(root: Path, level: str) -> list[list[str]]:
     """checks.toml から、そのレベルまでに走らせる言語ツールのコマンドを集める。"""
 
@@ -162,6 +188,11 @@ def _verify_checks_config(root: Path) -> None:
     1 つずつ潰さない＝L-017）。対象集合はツール自身の定数（LEVELS・testing.PYRAMID・許可 argv 定数）と
     pyproject の登録から機械的に導ける（自己申告の台帳ではない＝保証の (b)）。
 
+    検査対象は checks.toml の**生の argv**（`_load_commands` が読んだもの）だけ。harness 自身が実行時に足す
+    引数（`run_check` が mypy に付ける `--exclude …`＝T-0192）は検査しない。ここで実行時の追加分まで禁じると、
+    非 DS 案件（profiles=[]）で mypy の除外が付けられず verify が起動しなくなる（allowlist は「人が書いた argv」
+    にだけ効く）。
+
     保証しないこと：これは「事故防止」であって「改竄防止」ではない。この関数を書き換える手は checks.toml を
     書き換える手と同じで、リポ内に不動点は無い（AGENTS「保証の 3 段階」）。後退を止めるのは差分の独立
     レビューと作業ツリー外の required checks。
@@ -259,6 +290,11 @@ def run_check(root: Path, level: str = "full") -> int:
     ok = _pm_checks(root)
 
     for cmd in _load_commands(root, level):
+        # 無効なプロファイルのソース・テストを mypy の対象から外す（非 DS 案件では optional 依存が無い＝
+        # そのままだと strict が「型スタブが無い」で落ちる）。checks.toml は `["mypy"]` のまま・除外は
+        # profiles から実行時に導く（有効なプロファイルの列挙と同じ入口）。当リポは全有効＝除外なし。
+        if cmd[:1] == ["mypy"]:
+            cmd = cmd + _mypy_exclude_args(root)
         # shlex.join：空白を含む引数（`-m "unit and not slow"`）を引用する＝表示をそのまま手で再実行できる。
         print(f"  → {shlex.join(cmd)}")
         result = subprocess.run(cmd, cwd=root)

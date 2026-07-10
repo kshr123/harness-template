@@ -15,11 +15,22 @@ import frontmatter
 import pytest
 import yaml
 
+from harness import profiles
 from harness.testing import check_collected_items
 
 # T-0202: pytester フィクスチャ（自分の collect フックを実テストで確かめる pytest 標準ツール）を有効化する。
 # 既定は無効なので、root の conftest.py で明示的に opt-in する必要がある。
 pytest_plugins = ["pytester"]
+
+# T-0192: テストをプロファイルの持ち物にする。無効なプロファイル（.harness/config.toml の profiles に
+# 載っていない＝そのプロファイルの optional 依存が入っていない）が所有するテストを収集から外す。
+# 非 DS の案件（profiles=[]）は polars・fastapi 等が無くても pytest 収集が通る（トップレベル import で 45 errors
+# にならない）。当リポは全プロファイル有効なので除外は空＝全テストが従来どおり収集される。ファイルは移動・改名
+# しない（work/ の verified_by 参照を壊さない）＝所有は Profile.test_globs の宣言だけで表す。
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+collect_ignore_glob = sorted(
+    {glob for profile in profiles.disabled_profiles(_REPO_ROOT) for glob in profile.test_globs}
+)
 
 
 @pytest.hookimpl(tryfirst=True)

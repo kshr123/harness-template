@@ -1,13 +1,33 @@
 ---
 id: T-0183
 kind: task
-status: todo
-title: 非 DS 案件で ds プロファイルを外せるようにする（テストの収集とテンプレート複製）
+status: done
+title: 非 DS 案件で ds プロファイルを外せるようにする（テストの収集・mypy 対象・テンプレート複製）
 created: 2026-07-10
-depends_on: []
-verified_by: []
+depends_on: [T-0192]
+verified_by:
+  - tests/test_verification_mechanism.py::test_mypy_excludes_disabled_profile_source_and_tests
+  - tests/test_verification_mechanism.py::test_mypy_excludes_empty_when_all_profiles_enabled
+  - tests/test_verification_mechanism.py::test_glob_to_path_regex_matches_tests_dir_files
 ---
 # T-0183 プロファイルを本当に外せるようにする
+
+## 状態：T-0191＋T-0192 に統合して完了（この 3 点はすべて実装済み）
+この既存タスクの 3 つの直し方は、EP-31 で分割した T-0191・T-0192 が丸ごと実現した。**別立てで残さず統合**した
+理由：3 点は同じ根（「プロファイルを足せるが外せない」）で、テストの収集・型検査・CI 条文を一体で直さないと
+`profiles = []` の複製が緑にならない（片方だけでは収集は通っても mypy が落ちる、の逆も然り）。分けると
+受け入れ（複製が緑）が宙に浮く。この `verified_by` は 3 点のうち本タスク固有の**mypy 対象の profile 連動**を
+指す（収集除外・ci_lint 条文の verified_by は T-0192 にある）。
+
+- テストの収集（`collect_ignore` を profiles 連動に）→ **T-0192** が実装。命名規約は採らず（`work/` の
+  `verified_by` を壊さない・弱い検査になる、の 2 点で不採用。理由は T-0192）。
+- mypy の対象を profile 連動に → **本タスク**（`checks.py` の `_mypy_exclude_args`）。無効なプロファイルの
+  `src/harness/<name>/` と所有テストを `--exclude` で外す。`checks.toml` は `["mypy"]` のまま・除外は実行時に
+  profiles から導く（有効なプロファイルの列挙と同じ入口＝2 つ目の仕組みを作らない）。
+- `ci_lint` の `--all-extras` 要求を「有効なプロファイルがある案件だけ」に → **T-0192** が実装（L-016 の
+  依存監査は別ジョブで全部入りのまま）。
+
+## 元の記述（参考）
 
 ## 何が問題か
 `.harness/config.toml` の `profiles` からプロファイルを外しても、この雛形を複製した非 DS 案件は

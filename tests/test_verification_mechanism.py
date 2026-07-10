@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from harness import checks
+from harness import checks, profiles
 from harness.testing import PYRAMID, markers_in_expr, unmarked
 
 pytestmark = pytest.mark.unit
@@ -257,3 +257,40 @@ def test_checks_config_accepts_stage_reassignment(tmp_path: Path) -> None:
         "['pytest','-q','-m','e2e and not slow']",
     )
     checks._verify_checks_config(root)  # 例外を投げなければ合格（正当な使い方を壊さない）
+
+
+# ---- mypy の対象をプロファイルに連動させる（非 DS 案件で profile ソース・テストを型検査から外す＝T-0192） ----
+#
+# 期待値は Profile.test_globs（プロファイルの持ち物の宣言）と無効集合から導出する（実 config を仮定しない）。
+
+_MECH_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_glob_to_path_regex_matches_tests_dir_files() -> None:
+    # glob → 正規表現：`*` はディレクトリを跨がず、`.` はリテラル、末尾は $。tests/ 配下だけに当たる。
+    import re
+
+    pat = checks._glob_to_path_regex("test_ds_*.py")
+    assert re.search(pat, "tests/test_ds_pipeline.py")
+    assert not re.search(pat, "tests/test_dsx.py")  # test_ds_ の下線が要る
+    assert not re.search(pat, "src/harness/ds/models.py")  # tests/ 配下限定
+
+
+def test_mypy_excludes_empty_when_all_profiles_enabled() -> None:
+    # 全プロファイル有効（当リポの verify と同じ状態）＝無効集合が空＝除外なし＝src と tests 全体を型検査。
+    shipped = [f"harness.{p.name}" for p in profiles.discover_profiles(_MECH_ROOT).values()]
+    assert checks._mypy_exclude_args(_MECH_ROOT, enabled=shipped) == []
+
+
+def test_mypy_excludes_disabled_profile_source_and_tests() -> None:
+    # profiles=[] なら、無効な各プロファイルの src/harness/<name>/ と所有テスト glob が --exclude に並ぶ。
+    args = checks._mypy_exclude_args(_MECH_ROOT, enabled=[])
+    # --exclude と値が交互（対で並ぶ）。
+    assert args[0::2] == ["--exclude"] * (len(args) // 2)
+    patterns = args[1::2]
+    for name in ("ds", "serve", "agent", "ops"):
+        assert rf"src/harness/{name}/" in patterns  # 無効プロファイルのソースを型検査から外す
+    # ds を有効にすると、その分だけ除外が減る（ds ソースは patterns から消える）。
+    with_ds = checks._mypy_exclude_args(_MECH_ROOT, enabled=["harness.ds"])[1::2]
+    assert r"src/harness/ds/" not in with_ds
+    assert r"src/harness/serve/" in with_ds
