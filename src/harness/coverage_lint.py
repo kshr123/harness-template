@@ -13,8 +13,11 @@ doclint（参照実在＝dead link）の逆向きを止める：**新しい能�
   （`data_app`→`data`・`issue_app`→`issue`・`serve_app`→`serve`）。`_app` で終わらない変数の `.command` は
   対象外（他オブジェクトのメソッド呼び出しと区別できないため保守的に拾わない）。
 - 到達可能の判定はトークン＝`f"{prefix} {name}"`（`name == prefix` のときは `prefix` 単体＝
-  `serve_app.command("serve")` → `"serve"`）が、探索コーパスの連結テキストに 1 回以上（部分文字列で）
-  現れること。現れない＝error（どの cli.py のどのコマンドが未到達かを名指しする）。
+  `serve_app.command("serve")` → `"serve"`）が、探索コーパスの連結テキストに **`uv run <トークン>` の形
+  （語境界つき正規表現）**で 1 回以上現れること。現れない＝error（どの cli.py のどのコマンドが未到達かを
+  名指しする）。単なる部分文字列一致（`serve` が `deserve` に当たる／`data blocks` という語が否定文中に
+  出るだけで合格になる、等）は誤検出のため使わない。「実際に `uv run` の後ろに置かれて案内されている」
+  ことだけを到達とみなす（意味を読む＝否定文の判定はしない。機械には無理なので語境界の照合に留める）。
 - 探索コーパス＝`.claude/skills/**/*.md`（再帰）＋ `AGENTS.md` ＋ `README.md` ＋ `docs/*.md`（非再帰＝
   正本の置き場だけ。docs/archive/ 等の下層は導線でなく記録なので数えない）。無いファイルは読み飛ばす。
 - 免除は `_EXEMPT`（トークン→理由）だけ。真に導線不要な内部コマンドを、**理由必須**で明示的に載せる
@@ -25,6 +28,7 @@ doclint（参照実在＝dead link）の逆向きを止める：**新しい能�
 from __future__ import annotations
 
 import ast
+import re
 import tomllib
 from pathlib import Path
 
@@ -107,6 +111,18 @@ def _script_tokens(root: Path) -> list[str]:
     return [key for key in scripts if isinstance(key, str)]
 
 
+def _reachable(token: str, corpus: str) -> bool:
+    """トークンが `uv run <token>` の形（語境界つき）でコーパスに現れるかを判定する。
+
+    `token in corpus` の部分文字列一致（`serve` が `deserve` に当たる／1 語のコマンドが本文にただ出現する
+    だけで合格になる）をやめ、「実際に `uv run` の後ろに置かれて案内されている」ことだけを到達とみなす。
+    前後は非単語文字（空白・バッククォート・句読点など）を要求する語境界（`\\w` でも `-` でもない）。
+    トークンにハイフンを含むコマンド（`task-lint` 等）もこの境界で正しく区切れる。
+    """
+    pattern = re.compile(r"(?<![\w-])uv run " + re.escape(token) + r"(?![\w-])")
+    return pattern.search(corpus) is not None
+
+
 def _corpus(root: Path) -> str:
     """導線の探索コーパス（スキル＋AGENTS＋README＋docs 直下）を連結して返す。無いファイルは読み飛ばす。"""
     parts: list[str] = []
@@ -129,7 +145,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
     for cli in _cli_files(root):
         rel = cli.relative_to(root).as_posix()
         for token in _command_tokens(cli):
-            if token in exempt or token in corpus:
+            if token in exempt or _reachable(token, corpus):
                 continue
             reported.add(token)
             problems.append(
@@ -141,7 +157,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
                 )
             )
     for token in _script_tokens(root):
-        if token in exempt or token in corpus or token in reported:
+        if token in exempt or _reachable(token, corpus) or token in reported:
             continue
         problems.append(
             pm.Problem(
