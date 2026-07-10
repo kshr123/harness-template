@@ -26,10 +26,16 @@ RETRAIN = ".github/workflows/retrain.yml"
 _PYPROJECT = '[project]\nname = "copy-dest"\nversion = "0.1.0"\nrequires-python = ">=3.14"\n'
 
 
-def _copy_templates(tmp_path: Path) -> Path:
-    """実テンプレート一式＋最小 pyproject を一時プロジェクトへ置き、その root を返す。"""
+def _copy_templates(tmp_path: Path, *, with_pyproject: bool = True) -> Path:
+    """実テンプレート一式＋最小 pyproject を一時プロジェクトへ置き、その root を返す。
+
+    templates/experiment/ も一緒に置く：retrain.yml は train.py をそこから参照する（スクリプト参照の
+    実在検査の対象）ので、置かないと他の観点のテストまで参照エラーで落ちてしまう。
+    """
     shutil.copytree(TEMPLATES, tmp_path / "templates" / "ci")
-    (tmp_path / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    shutil.copytree(REPO_ROOT / "templates" / "experiment", tmp_path / "templates" / "experiment")
+    if with_pyproject:
+        (tmp_path / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
     return tmp_path
 
 
@@ -109,7 +115,7 @@ def test_unpinned_python_version_flagged(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_without_pyproject_version_check_skipped(tmp_path: Path) -> None:
     # コピー先に pyproject が無い＝リポの正を導出できない→版検査は行わない（誤検知しない）。他は満たすので 0 件。
-    shutil.copytree(TEMPLATES, tmp_path / "templates" / "ci")
+    _copy_templates(tmp_path, with_pyproject=False)
     assert ci_lint.run_checks(tmp_path) == []
 
 
@@ -182,6 +188,35 @@ def test_repo_retrain_template_passes() -> None:
     assert RETRAIN in {spec.rel for spec in ci_lint._WORKFLOWS}
     assert (TEMPLATES / RETRAIN).is_file()
     assert ci_lint.run_checks(REPO_ROOT) == []
+
+
+# --- スクリプト参照の実在（run が参照する .py がリポジトリ内に実在すること） ---
+
+
+@pytest.mark.unit
+def test_missing_script_reference_flagged(tmp_path: Path) -> None:
+    # 実在しない .py への参照を run に追記する→参照エラーが名指しで error 1 件。
+    root = _copy_templates(tmp_path)
+    _mutate(root, "uv run verify", "uv run verify && uv run python scripts/does_not_exist.py")
+    errors = _errors(root)
+    assert len(errors) == 1
+    assert "scripts/does_not_exist.py" in errors[0] and WORKFLOW in errors[0]
+
+
+@pytest.mark.unit
+def test_existing_script_reference_not_flagged(tmp_path: Path) -> None:
+    # 実在するスクリプトへの参照は指摘しない（誤検知しない）。templates/experiment/train.py は fixture が置く。
+    root = _copy_templates(tmp_path)
+    _mutate(root, "uv run verify", "uv run verify && uv run python templates/experiment/train.py --test")
+    assert _errors(root) == []
+
+
+@pytest.mark.unit
+def test_placeholder_script_reference_not_flagged(tmp_path: Path) -> None:
+    # $VAR・<...> のようなプレースホルダは対象外（保守的な抽出。誤検知しない）。
+    root = _copy_templates(tmp_path)
+    _mutate(root, "uv run verify", "uv run verify && uv run python $SCRIPT_PATH.py <path/to/script>.py")
+    assert _errors(root) == []
 
 
 # --- 壊れた YAML（妥当性は actionlint/check-jsonschema へ委譲・自前では報告しない） ---

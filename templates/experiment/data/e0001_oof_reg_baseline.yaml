@@ -6,7 +6,7 @@ role: prediction
 primary_key: [id]
 lineage:
   inputs: [e0001_folds]
-  code: work/EP-06-ds-experiment-loop/E-0001-interaction-feature/code/train.py
+  code: templates/experiment/train.py
   work: E-0001
 columns:
   - { name: id, dtype: Int64, nullable: false, unique: true }
