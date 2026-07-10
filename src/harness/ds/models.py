@@ -25,13 +25,11 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from harness import gates, storage
+from harness import promotion, storage
 from harness.config import load_config
 from harness.ds.eval import METRICS, directions
+from harness.promotion import MANIFEST_FILE, VERSION_FORMAT, Promotion
 
-MANIFEST_FILE = "manifest.yaml"
-PROMOTIONS_DIR = "promotions"
-VERSION_FORMAT = "%Y%m%dT%H%M%S%fZ"  # 辞書順＝時刻順（最新＝降順1件）
 # 依存版を記録する配布物（入っていないものは飛ばす）。記録のみ・照合は既定でしない。
 TRACKED_DISTRIBUTIONS = ("scikit-learn", "numpy", "polars", "lightgbm", "statsmodels")
 
@@ -189,18 +187,8 @@ class ModelRecord:
     lock_fingerprint: str | None = None
 
 
-@dataclass(frozen=True)
-class Promotion:
-    """昇格記録 1 件（promotions/<decided>.yaml と同内容）。"""
-
-    work: str
-    name: str
-    version: str
-    decided: str
-    primary: str
-    higher_is_better: bool
-    metrics: dict[str, float]
-    previous_version: str | None
+# 昇格記録の型（Promotion）と保存機構は中核 harness.promotion に 1 本化した（policy-free）。
+# ここが持つのは方針だけ（向きの正本＝METRICS・higher_is_better の矛盾検査・保存の存在確認）。
 
 
 def _base(root: Path) -> Path:
@@ -434,18 +422,16 @@ def model_card(record: ModelRecord) -> str:
 
 
 def champion(root: Path, *, work: str, name: str) -> ModelRecord | None:
-    """昇格記録が指す現 champion の版（生成ビュー）。昇格が無ければ None。"""
-    promo_dir = _model_dir(root, work=work, name=name) / PROMOTIONS_DIR
-    if not promo_dir.is_dir():
+    """昇格記録が指す現 champion の版（生成ビュー）。昇格が無ければ None。
+
+    版の解決は中核 `harness.promotion.champion_version` に 1 本化（sorted(glob)[-1] の欠陥もそこに移送）。
+    ここは解決した版を ds の ModelRecord に写すだけ（方針＝どの Record 型で見せるか）。
+    """
+    entity_dir = _model_dir(root, work=work, name=name)
+    version = promotion.champion_version(entity_dir, label=f"{work}/{name}")
+    if version is None:
         return None
-    files = sorted(promo_dir.glob("*.yaml"))
-    if not files:
-        return None
-    latest = storage.read_manifest(files[-1])
-    version_dir = _model_dir(root, work=work, name=name) / latest["version"]
-    if not (version_dir / MANIFEST_FILE).is_file():
-        raise ValueError(f"{work}/{name}: 昇格記録が指す版 {latest['version']} の実体が無い")
-    return _record_from_manifest(version_dir)
+    return _record_from_manifest(entity_dir / version)
 
 
 def promote_model(
@@ -460,8 +446,9 @@ def promote_model(
 ) -> Promotion:
     """`value_threshold`（閾値）と `change_threshold`（現 champion からの改善）をすべて満たすときだけ昇格する。
 
-    判定の意味は中核の `harness.gates` が持つ。ここが持つのは「どのレジストリで向きを解決するか」と、
-    落ちたときに `gates.PromotionError`（`ValueError` の下位型）を投げること。
+    判定・記録・champion の解決は中核 `harness.promotion.promote` が持つ。ここが持つのは方針だけ：
+    どのレジストリで向きを解決するか（eval.METRICS）・higher_is_better の矛盾検査・保存の存在確認。
+    落ちたら `gates.PromotionError`（`ValueError` の下位型）が中核から上がる。
 
     primary の向き（大きいほど良いか）の正本は eval.METRICS。higher_is_better は省略が基本で、
     明示するならレジストリと一致していること（矛盾＝呼び手の思い違いなので ValueError で止める。
@@ -475,48 +462,24 @@ def promote_model(
             f"higher_is_better={higher_is_better} はレジストリの向き"
             f"（{primary}: higher_is_better={direction}）と矛盾する"
         )
-    version_dir = _model_dir(root, work=work, name=name) / version
+    entity_dir = _model_dir(root, work=work, name=name)
+    version_dir = entity_dir / version
     if not (version_dir / MANIFEST_FILE).is_file():
         raise FileNotFoundError(f"{work}/{name}/{version}: 保存が無い")
     record = _record_from_manifest(version_dir)
-
-    champ = champion(root, work=work, name=name)
-    previous = champ.version if champ is not None else None
-    context = gates.GateContext(
-        candidate=record.metrics,
-        baseline=champ.metrics if champ is not None else None,
-        directions=directions([*thresholds, primary]),
-        baseline_label=previous,
-    )
-    specs = [
-        *gates.value_threshold_specs(thresholds),
-        {"kind": "change_threshold", "metric": primary, "baseline": "champion"},
-    ]
-    decision = gates.evaluate(context, specs)
-    if not decision.approved:
-        raise gates.PromotionError(f"{work}/{name}/{version} は昇格を却下（rejected）: {decision.summary}", decision)
-
-    decided = _utcnow().strftime(VERSION_FORMAT)
-    promotion = {
-        "work": work,
-        "name": name,
-        "version": version,
-        "decided": decided,
-        "primary": primary,
-        "higher_is_better": direction,  # レジストリで解決した向きを記録する（呼び手の引数ではない）
-        "metrics": dict(record.metrics),
-        "previous_version": previous,
-    }
-    promo_dir = _model_dir(root, work=work, name=name) / PROMOTIONS_DIR
-    promo_dir.mkdir(parents=True, exist_ok=True)
-    storage.write_manifest(promo_dir / f"{decided}.yaml", promotion)
-    return Promotion(
+    # 向きの解決は champion の読み込みより先（呼び手の spec の誤り＝典型は threshold 名の typo を、
+    # 保存側の状態に依らず先に止める。この順は T-0173 で意識して選んだ・作業単位ファイルに理由あり）。
+    resolved = directions([*thresholds, primary])
+    return promotion.promote(
+        entity_dir,
         work=work,
         name=name,
         version=version,
-        decided=decided,
+        label=f"{work}/{name}",
+        candidate_metrics=record.metrics,
+        thresholds=thresholds,
         primary=primary,
-        higher_is_better=direction,
-        metrics=dict(record.metrics),
-        previous_version=previous,
+        direction=direction,
+        directions=resolved,
+        decided=_utcnow().strftime(VERSION_FORMAT),
     )
