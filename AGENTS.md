@@ -107,7 +107,8 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - **乱数は明示引数（`seed=`）で渡す**。`np.random.seed` などグローバルな種設定は禁止（呼ぶ場所で決めた種だけが効くようにする）。
 - **層をマーカーで示す**：`unit`（純粋・速い）／`integration`（部品の結線）／`e2e`（実験の一巡のスモーク）／`slow`（重い）。未登録のマーカーは失敗（`--strict-markers`）。
 - **done の実験は結果記録（`results/` の指標・設定・データの fingerprint〔中身から計算する短い識別子。中身が変われば必ず変わるので、どのデータで得た結果かを後から照合できる〕）が必須**（DS プロファイル）。フォルダ単位で再現一式を同居させる（検査が空の done を失敗にする）。
-- **開発・verify 環境は `uv sync --all-extras`（全部入り）**（DS プロファイル）。optional 依存（lightgbm 等）のテストを skip しないため。案件の実行環境だけ必要な extra に絞る。
+- **プロファイル（DS 等）を使う開発・verify 環境は `uv sync --all-extras`（全部入り）**。optional 依存（lightgbm 等）のテストを skip しないため。**プロファイルを使わない案件（`profiles = []`）は素の `uv sync` でよい**（optional 依存を飼わない）。案件の実行環境だけ必要な extra に絞る。**依存監査（pip-audit＝L-016）は案件の別ジョブで `--all-extras` のまま**（入れうる extra の脆弱性まで監査する。テストを回す環境を絞ることとは別の話）。
+- **テストはこのリポジトリの実状態（`.harness/config.toml` の値・`issues/` の実在 ID・`work/` の中身）を仮定しない**。期待値は tmp_path 上に組み立てた入力から導く（テンプレート自身の設定値をハードコードすると、`profiles = []` の複製で落ちる）。ソースの実在（`src/harness/<profile>/`）や生成物の構造の検査は可（可変領域でない）。
 - **`verified_by` に `::テスト名` を付けたら、その名前が指すファイルに実在すること**。ファイルは在るが指すテストが無い空振りは失敗。
 
 ## 型・スタイル
