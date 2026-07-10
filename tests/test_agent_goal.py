@@ -200,6 +200,21 @@ def test_goal_loop_composes_with_tool_round_trip_no_network(monkeypatch: pytest.
     assert run.final.turns == 1
 
 
+@pytest.mark.integration
+def test_goal_yaml_without_thresholds_is_rejected_before_any_output_can_pass(tmp_path: Path) -> None:
+    # 退行テスト（T-0197）：欠陥の再現条件（goal.yaml に thresholds を書き忘れる）そのものを固定する。
+    # 修正前は thresholds が黙って {} になり、eval.passes(scores, {}) が判定 0 件で True を返すため、
+    # でたらめな出力でも cycle 1 で GoalGate.check(...).stop=True, reason="goal_met" になっていた
+    # （AGENTS の看板保証「完了を自己申告できない」が書き忘れ 1 行で無音のまま消える）。
+    # 修正後は goal.yaml の読み込み時点（load_goal→goal_from_mapping）で ValueError になり、
+    # GoalGate はそもそも作られない＝でたらめな出力が goal_met になる経路が発生源で塞がれる。
+    goal_path = tmp_path / "goal.yaml"
+    goal_path.write_text(yaml.safe_dump({"expected": "正解"}, allow_unicode=True), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="thresholds"):
+        load_goal(goal_path)
+
+
 # --- llm_judge を束ねた GoalGate（T-0096） ---
 
 _JUDGE_SPEC = AgentSpec(name="judge", provider="dummy", model="dummy-model", system_prompt=JUDGE_SYSTEM_PROMPT)

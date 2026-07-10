@@ -201,6 +201,14 @@ def goal_from_mapping(raw: Mapping[str, Any], *, source: str = "<mapping>") -> t
     expected = str(data["expected"])
     metrics = tuple(str(m) for m in data.get("metrics", ("exact_match",)))
     thresholds = {str(k): float(v) for k, v in dict(data.get("thresholds", {})).items()}
+    if not thresholds:
+        # goal の存在意義は停止のゲート。thresholds を書き忘れる（キー無し・空辞書）と
+        # eval.passes(scores, {}) が判定 0 件で True を返し、でたらめな出力でも cycle 1 で
+        # goal_met になる（fail open）。検出器でなく発生源（宣言の読み込み）で止める。
+        raise ValueError(
+            f"{source}: goal に thresholds が無い（停止判定の根拠になる閾値を 1 つ以上書くこと。"
+            f"宣言できる指標名は {sorted(AGENT_METRICS)} のいずれか・一覧は `uv run agent metrics`）"
+        )
 
     entries = {name: AGENT_METRICS.resolve(name) for name in metrics}  # 未知名は候補一覧つき ValueError
     judge_names = [name for name in metrics if isinstance(entries[name], JudgeEntry)]
