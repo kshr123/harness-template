@@ -74,3 +74,33 @@ jobs:
         run: uvx pre-commit run actionlint --all-files
       - name: workflow 雛形の schema 準拠検査（検査委譲の関門＝pre-commit の check-jsonschema フック）
         run: uvx pre-commit run check-jsonschema --all-files
+
+  clone-simulation:
+    # 複製シミュレーション（EP-31 T-0195）。これは**検出器だと正直に申告する**（増やさない・唯一の 1 本）。
+    # 「fork した非 DS 案件が素の uv sync で verify 緑」は構成から導ける受け入れ基準（L-019 の模範例）だが、
+    # テストが実状態を仮定する型の結合（config の値・issues の実在 ID・work/ の中身への暗黙依存）は参照の
+    # grep では原理的に見えない。境界の実行可能な定義がこの 1 本しかないので、CI の別ジョブとして置く
+    # （verify の実行時間に影響させない。重いからと `slow` 相当にはしない＝slow は ISS 参照必須・手動実行で
+    # 常時は回らないため、fork の受け入れ基準の常在検査にならない）。
+    # 手順：現在のチェックアウトを clone → fork の設定（origin→upstream・origin 差し替え）→ init-project で
+    # 案件領域を白紙化＋profiles を空に → 素の uv sync（非 DS は全部入り不要）→ uv run verify が緑。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: uv をセットアップ
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: fork をシミュレートして verify が緑になることを確かめる
+        run: |
+          set -euo pipefail
+          git clone --no-hardlinks . /tmp/fork
+          cd /tmp/fork
+          # fork の設定（docs/template-copy.md 1 節）。init-project は upstream の有無で fork 済みを判定する。
+          git remote rename origin upstream
+          git remote add origin https://example.invalid/project.git
+          # 案件領域を白紙化・非 DS（profiles 空）。verify は下の素の uv sync 後に別で回す（--no-verify）。
+          uv run init-project --force --profiles "" --no-verify
+          # 非 DS 案件の実行環境＝素の uv sync（optional 依存を飼わない）。ここで verify が緑になるのが受け入れ基準。
+          uv sync
+          uv run verify

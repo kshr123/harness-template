@@ -49,6 +49,8 @@ verify = "harness.cli:verify_main"
 check = "harness.cli:check_main"
 status = "harness.cli:status_main"
 task-lint = "harness.cli:task_lint_main"
+# 複製後の初期化（案件領域を白紙化して verify 緑の出発点に戻す・fork 専用）。正本は docs/template-copy.md。
+init-project = "harness.cli:init_project_main"
 issue = "harness.cli:issue_main"
 # data は DS プロファイルの CLI（プロファイル境界。中核 CLI とはモジュールを分ける）。
 data = "harness.ds.cli:data_main"

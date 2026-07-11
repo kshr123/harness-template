@@ -80,6 +80,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `profiles.py` | config が指すプロファイルの `PROFILE` 宣言を読み込み、検査に繋ぐ |
 | `checks.py` | 検証の入口。`PM_CHECKS` と `checks.toml` の言語ツールを束ねて走らせ、合否を返す |
 | `cli.py` | 中核 CLI（typer）の入口。`uv run <コマンド>` はここから呼ばれる |
+| `init_project.py` | 複製後の初期化（`uv run init-project`）。fork した案件の案件領域を白紙化し verify 緑の出発点に戻す（本体領域には触れない・未 fork では拒否） |
 | `gates.py` | 昇格の判定（`value_threshold`・`change_threshold`）。champion を差し替えてよいかを決める |
 
 **検査**（上の自動生成の表の各行に対応する）

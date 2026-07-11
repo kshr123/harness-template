@@ -13,7 +13,7 @@ from typing import Annotated
 
 import typer
 
-from harness import checks, commit_lint, doc_sync, gates, issues, pm, registry
+from harness import checks, commit_lint, doc_sync, gates, init_project, issues, pm, registry
 
 # Windows コンソール（cp932）でも日本語・記号（✓✗✅）を出せるよう UTF-8 に固定。
 # クロスプラットフォームの前提（make 非依存と同じ理由）。
@@ -76,6 +76,43 @@ def verify_main() -> None:
     """完了判定＝check full と同じ。すべて成功したら done にできる。"""
 
     sys.exit(checks.run_check(_root(), "full"))
+
+
+def init_project_cmd(
+    profiles: Annotated[
+        str, typer.Option(help="有効化する profiles（コンマ区切り。非 DS 案件は空。例 'harness.ds,harness.serve'）")
+    ] = "",
+    force: Annotated[bool, typer.Option("--force", help="確認プロンプトを飛ばす（非対話・CI 用）")] = False,
+    run_verify: Annotated[
+        bool, typer.Option("--verify/--no-verify", help="初期化後に uv run verify を走らせて緑を確認する")
+    ] = True,
+) -> None:
+    """複製後の初期化＝案件領域を白紙化し、`uv run verify` が緑になる出発点に戻す（fork 専用）。
+
+    破壊的なので `--force` か確認プロンプトを必須にする。まだ fork していない（`upstream` リモートが
+    無い）状態では拒否する（本体の誤爆防止）。正本の手順は docs/template-copy.md。
+    """
+    root = _root()
+    reason = init_project.blocking_reason(forked=init_project.is_forked(init_project.list_remotes(root)))
+    if reason is not None:
+        typer.echo(f"✗ {reason}")
+        raise typer.Exit(1)
+    selected = [p.strip() for p in profiles.split(",") if p.strip()]
+    if not force:
+        typer.echo(
+            "案件領域（work/・issues/・docs/requirements/・docs/charter.md・docs/learnings.md・data/）を初期化します。"
+        )
+        typer.confirm("この操作は元に戻せません。続けますか？", abort=True)
+    result = init_project.scrub(root, selected)
+    typer.echo(f"消去 {len(result.removed)} 件・雛形化 {len(result.reset)} 件・profiles={result.profiles or '[]'}")
+    if run_verify:
+        raise typer.Exit(checks.run_check(root, "full"))
+
+
+def init_project_main() -> None:
+    """`uv run init-project` の入口（console_script）。判定・操作の芯は harness.init_project。"""
+
+    typer.run(init_project_cmd)
 
 
 def gates_main() -> None:

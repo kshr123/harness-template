@@ -1,53 +1,109 @@
-# テンプレート複製手順（この基盤を次の案件で使う）
+# テンプレートの fork と、資産の渡り方・戻り方（正本）
 
-この文書は、新しい案件（別の開発テーマ・プロジェクト。1 リポジトリ＝1 案件）を始めるときにこのリポジトリを複製して使うための How-to（手順書）。
-このリポジトリは「1 リポジトリ＝1 案件」の雛形で、複製すればこの基盤で作った仕組み
-（検証・決まりごと・部品・スキル）を再コーディングせずに引き継げる。
+この文書は、この開発基盤を次の案件で使うときの**複製の仕方**と、複製後の**両方向の資産の流れ**の正本
+（唯一の正とする置き場）。案件を重ねるほど強くなるための最上位の条件（AGENTS.md 目的 4）を、機構を増やさず
+git の標準操作で成り立たせる。
 
-手順は 4 歩：
-1. リポジトリを丸ごとコピーする。
-2. 「消す・作り直す」の一覧に従って前案件の中身を消し、新案件の内容（charter・REQ）を書く（「残す」の一覧は触らない）。
-3. 案件タイプ（DS / 非 DS）に合わせて設定する。
-4. 「複製後の確認」を行い、`uv run verify` にすべて成功させる。
+**案件 ＝ テンプレートの git clone（fork）。** 実体コピー（zip を展開して別リポにする等）は採らない。fork に
+すると、本体→案件の取り込みも、案件→本体の還流も、専用の仕組みを持たずに `git fetch`／`git merge`／
+`git cherry-pick`／PR だけで回る。
 
-## 残す（基盤そのもの・触らない）
-- `src/harness/` … 中核（pm・issues・checks・config・testing）と DS プロファイル（`src/harness/ds/`）。
-- `tests/` … 上記の検査。
-- `docs/method.md`（進め方の正本）・`docs/DoD.md`（完了の定義）・`docs/core.md`（中核の正本。自動生成節は
-  複製先でも `uv run doc-sync` が同じ内容を作る＝config に依らない）。
-- `.claude/skills/`（スキル）・`AGENTS.md`・`CLAUDE.md`・`pyproject.toml`・`checks.toml`・`.pre-commit-config.yaml`。
-- `docs/data/` のテーブル定義の仕組み（中身は案件のデータに合わせて入れ替える）。
-- `templates/experiment/`（実験の正本雛形＝`train.py`・`config*.yaml`・`data/*.yaml` のテーブル定義。以後の実験は
-  これを丸ごとコピーして使う＝experiment スキル参照。雛形は自己完結＝work/ を消しても壊れない）。
+## 1. fork する（案件を始める）
 
-## 消す・作り直す（前の案件の中身）
-- `work/` 配下の前案件エピック（`EP-*`・`T-*`・`E-*`）… 前案件の作業単位。**消す**（新案件のエピックを作り直す。
-  範囲は数えない＝エピックが増えても列挙し直さなくてよい）。
-- `docs/requirements/REQ-*.md` … 前案件の要件。**消す**（新案件の REQ を書く）。
-- `issues/ISS-*.md` … 前案件の課題。**消す**。ただし `promoted_to`（対応済みの作業単位）を持たない open の課題
-  （基盤側の未実装約束）だけは残してよい。`promoted_to` が付いた resolved 済みの課題は、その作業単位が
-  `work/` ごと消えると参照エラーになるので必ず消す（判定は各ファイルの frontmatter を見る。
-  該当する ID をここに書き並べない＝課題が増減するたびに古くなるため）。
-- `docs/charter.md` … 立ち上げ文書。**新案件の内容に書き直す**（外部設計文書があればここから参照する）。
-- `docs/learnings.md` … 気づき。**空にする**（ルール化済みで正本が AGENTS/検査に移ったものは消してよい）。
-- `docs/structure-review-*.md` … 基盤のレビュー記録。**消してよい**（履歴）。
-- `data/` の実体・保存済みモデル（`data/**/models/`）… コミットしない生成物。**消す**。
+```
+git clone <template-url> <案件名>
+cd <案件名>
+git remote rename origin upstream        # 派生元（本体）を upstream にする
+git remote add origin <案件リモート-url>  # 案件の置き場を origin にする
+uv run init-project                       # 案件領域を白紙化する（下記 3 節）
+```
 
-## 案件タイプに合わせる（DS / 非 DS）
-1. **非 DS の案件**：`.harness/config.toml` で `profiles = []` にする（または行ごと消す）。これだけで
-   DS の検査（テーブル定義 data_lint）が verify から外れる（`checks.py` の手動編集は不要）。
-   `pyproject.toml` の `[project.optional-dependencies].ds` は使わないなら残していてよい（入れなければ効かない）。
-   AGENTS・DoD の「（DS プロファイル）」印の項目は非 DS では外す。
-2. **DS の案件**：`uv sync --extra ds` を入れる。テーブル定義（`docs/data/*.yaml`）を新データに合わせて作り直す。
-   最初の実験は experiment スキルの手順で作る（`templates/experiment/` をコピー元にする）。
+- **派生元の版記録ファイルは作らない**。どの版から分かれたかは `git merge-base upstream/main HEAD` が発生源
+  として持つ。版記録ファイルは写し＝台帳であり、必ず古びる（作らない）。
+- `upstream` リモートの有無が「fork 済みか」の判定になる。`uv run init-project` はこれを見て、まだ fork して
+  いない状態（テンプレート本体そのもの・`upstream` 未設定）では**拒否**する（本体を誤って初期化しない）。
 
-## 複製後の確認
-- `uv run verify` にすべて成功する。
-- `uv run status` で新案件の作業単位ツリーが出る（前案件の残骸が無い）。
-- `uv run issue list` に前案件の課題が残っていない。
+## 2. 本体領域と案件領域（ファイルレベルで排他）
 
-## 将来
-profile（領域別の部品と検査の束）の登録の仕組みは導入済み（`.harness/config.toml` の
-`profiles`＋`src/harness/profiles.py`）。2 つ目のプロファイル（例：アプリ開発）は、`PROFILE` を公開する
-モジュールを書いて profiles に足すだけでよい。「（DS プロファイル）」タグの文書側の手動増減が残る
-（`docs/method.md` の進化の歯止め＝一度上げた基準を後戻りさせない仕組み）。
+merge を機械的にする前提が、**どのファイルを誰が所有するか**をファイルレベルで分けること。所有が重ならない
+限り、`git merge upstream/main` は案件のファイルに一切触れずに本体の改良だけを取り込める（競合が出ない）。
+
+**本体領域（upstream が所有。案件は編集しない）**
+
+- `src/harness/`・`tests/`・`.claude/skills/`・`templates/`
+- `docs/method.md`・`docs/DoD.md`・`docs/core.md`・`docs/ds.md`・`docs/serve.md`・`docs/agent.md`・
+  `docs/ops.md`・`docs/ds-code.md`・`docs/serve-code.md`・`docs/agent-code.md`（および本文書 `docs/template-copy.md`）
+- `AGENTS.md`・`CLAUDE.md`・`checks.toml`・`.pre-commit-config.yaml`・`.github/`
+
+**案件領域（案件が所有。merge で競合しない）**
+
+- `work/`・`issues/`・`docs/charter.md`・`docs/requirements/`・`docs/learnings.md`・`docs/data/*.yaml`・
+  `.harness/config.toml`・`data/`
+
+**両者が所有を分け合う 2 ファイル（正直に規定）**
+
+- `pyproject.toml`・`uv.lock`。案件は依存を足す（`uv add …`）ので、本体が依存を更新すると merge 時に競合し
+  うる。ここだけは `git merge upstream/main` の際に人が解決する（案件が足した extra を残しつつ本体の更新を取り込む）。
+
+## 3. 案件領域を白紙化する（`uv run init-project`）
+
+fork 直後は本体（demo 案件）の `work/`・`issues/`・要件・憲章・learnings が入っている。これを 1 コマンドで
+白紙化する。手作業の一覧（読み忘れ・やり忘れの発生源）を実行可能にしたもの。
+
+```
+uv run init-project                                   # 対話で確認してから初期化・profiles は空（非 DS）
+uv run init-project --force --profiles ""             # 非対話（CI・スクリプト用）・非 DS
+uv run init-project --force --profiles "harness.ds"   # DS 案件として初期化
+```
+
+`uv run init-project` がやること（案件領域だけ）:
+
+- `work/` の前案件の作業単位（`EP-*`・`T-*`・`E-*`）を消す。
+- `issues/` の前案件の課題（`ISS-*`）を消す。
+- `docs/requirements/` の前案件の要件（`REQ-*`）を消し、雛形 `REQ-001.md` を置く。
+- `docs/charter.md`・`docs/learnings.md` を雛形に戻す。
+- `docs/structure-review-*.md`（基盤のレビュー記録＝履歴）を消す。
+- `data/` の生成物（実データ・保存済みモデル）を消す。
+- `.harness/config.toml` の `profiles` を `--profiles` の値に設定する（非 DS 案件は空＝`[]`）。
+- 最後に `uv run verify` を走らせて緑を確認する（`--no-verify` で省ける）。
+
+安全装置：破壊的操作なので `--force` か確認プロンプトが必須。`upstream` リモートが無い（未 fork）状態では拒否する。
+
+### 案件タイプ（DS / 非 DS）
+
+- **非 DS 案件**：`--profiles ""`（空）。DS の検査（テーブル定義 data_lint）・optional 依存が verify から外れ、
+  素の `uv sync` で緑になる。AGENTS.md・DoD.md の**「（DS プロファイル）」印は残したまま読み飛ばす**
+  （`profiles = []` の案件には効かない項目、という意味）。案件が本体ファイル `AGENTS.md` を手で編集して印を
+  外す運用はしない（本体ファイルを編集すると merge 競合の発生源になる）。
+- **DS 案件**：`--profiles "harness.ds"`（配信・LLMOps を足すなら `"harness.ds,harness.serve,harness.agent,harness.ops"`）。
+  `uv sync --extra ds` を入れ、テーブル定義（`docs/data/*.yaml`）を新データに合わせて作り直す。最初の実験は
+  experiment スキルの手順で作る（`templates/experiment/` をコピー元にする）。
+
+## 4. 本体の改良を取り込む（本体 → 案件）
+
+```
+git fetch upstream
+git merge upstream/main
+```
+
+本体領域と案件領域はファイルレベルで排他なので、この merge は案件のファイルに触れない。競合が起きうるのは
+`pyproject.toml`・`uv.lock` の 2 つだけ（2 節）。取り込んだら `uv run verify` で緑を確認する。
+
+## 5. 案件の改良を本体へ戻す（案件 → 本体＝還流）
+
+案件で作った再利用できる改善（検査・抽象・スキル・規約・レジストリの住人）は、本体へ戻して初めて次の案件に
+効く。戻し方も差分単位で、専用の台帳・カウンタ・bot は作らない。
+
+- **還流の単位＝「本体領域だけに触る 1 コミット」**。案件内で部品・スキル・検査を作るときは、案件領域の変更
+  （`work/`・`docs/charter.md` など）と**同じコミットに混ぜない**。コミット境界＝資産境界にしておくと、その
+  コミットをそのまま `git cherry-pick` で本体へ運べる／PR にできる。
+- **還流するのは learnings そのものではなく、ルール化の結果**。気づき（`docs/learnings.md`＝案件領域）は
+  白紙化で消える一時的な観察の材料であって、本体に運ぶものではない。運ぶのは、その気づきから作った
+  **検査・抽象・スキル・規約・レジストリの住人**（＝正本が本体側へ移ったもの）。この「正本が移る」の流れは
+  `docs/method.md` C 節が正本。ルール化の手順（learnings に記録 → 落とし先を選ぶ → 検査を先に足す）は harvest スキル。
+- **一般性の判断者＝テンプレート側の独立レビュー**（既定はオーナー）。案件のエージェントは還流候補の PR を
+  **起こすところまで**（harness-template への PR、または本体領域だけのコミットの cherry-pick を提案する）。
+  採否は**テンプレート側の verify 緑＋別文脈のレビュー**が決める（作る側と確かめる側の分離を、案件とテンプレート
+  の間にも効かせる）。案件のエージェントが自分の改善を自分で本体に取り込んで完了、とはしない。
+- **回数で待たない**。「2 つ以上の案件で役立ったら還流する」という回数基準は使わない（AGENTS.md・method.md の
+  「回数で待たず、一般性で判断」に統一）。1 案件目で一般的だと見えたものは、その時点で還流候補にする。
