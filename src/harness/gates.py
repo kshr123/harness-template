@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import inspect
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from harness.registry import Entry, Registry
@@ -69,7 +70,14 @@ class GateResult:
     baseline: float | None
     detail: str  # 人が読む 1 行（実測値入り）
     # その判定に渡した引数（`kind` を除いた spec そのもの）。判定ごとに引数が違うので単一の欄で兼ねない。
-    params: Mapping[str, Any] = field(default_factory=dict)
+    # 昇格記録へ写して監査に使う欄なので、書き換えられない読み取り専用ビューにする（`__post_init__`）。
+    # ハッシュには含めない（compare=False）：dict は unhashable なので、含めると frozen の `__hash__` が
+    # `set` 投入で TypeError になる（GateResult を set に入れられなくなる。T-0185）。
+    params: Mapping[str, Any] = field(default_factory=dict, compare=False)
+
+    def __post_init__(self) -> None:
+        # frozen なので object.__setattr__ 経由で読み取り専用のビューに差し替える（`params["x"] = …` を封じる）。
+        object.__setattr__(self, "params", MappingProxyType(dict(self.params)))
 
 
 @dataclass(frozen=True)
@@ -185,8 +193,33 @@ def change_threshold(ctx: GateContext, *, metric: str, baseline: str, min_change
     return GateResult("change_threshold", metric, passed, reason, observed, before, detail, params)
 
 
+def _require_gate_context_first(kind: str, factory: Callable[..., Any]) -> None:
+    """判定の第 1 引数が `GateContext` を位置で受ける契約を、登録時に確かめる（T-0185・fail closed）。
+
+    `_run` は `factory(ctx, **params)` を位置引数で束ねるので、`def sneaky(metric, *, limit)` のように
+    第 1 引数が別物だと `ctx` が `metric` に黙って束縛され、エラーを出さず走ってしまう。実行時に黙って壊れる
+    より、登録時に `ValueError` で止める方が発生源に近い。
+    """
+    params = list(inspect.signature(factory).parameters.values())
+    if not params:
+        raise ValueError(f"判定 '{kind}' は引数を取らない（第 1 引数に GateContext を位置で受ける契約）")
+    first = params[0]
+    if first.kind not in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+        raise ValueError(
+            f"判定 '{kind}' の第 1 引数 '{first.name}' が位置引数でない（GateContext を位置で受ける契約に反する）"
+        )
+    # from __future__ import annotations のため注釈は文字列。型そのものでも文字列でも受ける。
+    if first.annotation not in (GateContext, "GateContext"):
+        raise ValueError(
+            f"判定 '{kind}' の第 1 引数 '{first.name}' の型注釈が GateContext でない（{first.annotation!r}）"
+        )
+
+
 # 判定の名前は「概念そのものの名前」なので、出典なしに登録できない（require_source）。
-GATES: Registry[Entry] = Registry("昇格の判定", catalog="gates", require_source=True)
+# 第 1 引数が GateContext である契約は factory_validator で登録時に強制する（T-0185）。
+GATES: Registry[Entry] = Registry(
+    "昇格の判定", catalog="gates", require_source=True, factory_validator=_require_gate_context_first
+)
 GATES.register(
     "value_threshold",
     value_threshold,

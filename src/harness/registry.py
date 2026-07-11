@@ -78,11 +78,15 @@ class Registry[E: Entry](Mapping[str, E]):
         catalog: str,
         extras_hint: Mapping[str, str] | None = None,
         require_source: bool = False,
+        factory_validator: Callable[[str, Callable[..., Any]], None] | None = None,
     ) -> None:
         self.name = name
         self.catalog = catalog
         self.extras_hint: dict[str, str] = dict(extras_hint or {})
         self.require_source = require_source
+        # 登録時に factory の契約を確かめるフック（レジストリ固有。例：GATES は「第 1 引数が GateContext」を
+        # 強制する）。契約違反は登録時に ValueError で止める＝実行時に黙って壊れるより発生源に近い。
+        self._factory_validator = factory_validator
         self._entries: dict[str, E] = {}
 
     def register(
@@ -116,6 +120,8 @@ class Registry[E: Entry](Mapping[str, E]):
                 f"{self.name} '{kind}' に用語の出典（source=）が無い。この名前は概念そのものの名前なので、"
                 "出典の無い語を作らない（標準用語を調べて、その由来を書く）"
             )
+        if self._factory_validator is not None:
+            self._factory_validator(kind, factory)  # レジストリ固有の契約検査（違反は ValueError）
         # 既定の Entry は E の下限（bound）。entry_cls 未指定のレジストリは Registry[Entry] として使う前提。
         cls = entry_cls if entry_cls is not None else cast("type[E]", Entry)
         self._entries[kind] = cls(

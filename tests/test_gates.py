@@ -11,6 +11,7 @@ import math
 import pytest
 
 from harness import gates, registry
+from harness.registry import Entry, Registry
 
 pytestmark = pytest.mark.unit
 
@@ -189,6 +190,36 @@ def test_evaluate_is_approved_only_when_every_gate_passes() -> None:
 def test_evaluate_rejects_an_unknown_gate_kind() -> None:
     with pytest.raises(ValueError, match="gates"):  # 未知 kind のエラーは Registry.resolve が出す（候補＋カタログ案内）
         gates.evaluate(_ctx({"score": 0.9}), [{"kind": "nope", "metric": "score", "limit": 0.1}])
+
+
+def test_gate_result_is_hashable_and_params_are_read_only() -> None:
+    # frozen だが params の実体が dict だと hash() が TypeError になり set に入れられない（T-0185）。
+    result = gates.value_threshold(_ctx({"score": 0.9}), metric="score", limit=0.8)
+    assert result in {result}  # hash() が通る＝set に入る
+    assert result.params["limit"] == 0.8
+    with pytest.raises(TypeError):  # 読み取り専用ビュー＝書き換えられない（監査の欄を守る）
+        result.params["limit"] = 999  # type: ignore[index]
+
+
+def test_registering_a_gate_without_a_context_first_argument_is_rejected() -> None:
+    # 第 1 引数が GateContext を位置で受けない判定は、登録時に ValueError で止まる（実行時に黙って壊れない）。
+    reg: Registry[Entry] = Registry(
+        "テスト用", catalog="gates", require_source=True, factory_validator=gates._require_gate_context_first
+    )
+
+    def sneaky(metric: str, *, limit: float) -> gates.GateResult:
+        """第 1 引数が GateContext でない不正な判定（説明文の検査を先に通すため docstring を持たせる）。"""
+        return gates.GateResult("sneaky", metric, True, "ok", None, None, "")
+
+    with pytest.raises(ValueError, match="GateContext"):
+        reg.register("sneaky", sneaky, source="テスト")
+
+    def no_args() -> gates.GateResult:
+        """位置引数を 1 つも取らない不正な判定。"""
+        return gates.GateResult("empty", "x", True, "ok", None, None, "")
+
+    with pytest.raises(ValueError, match="引数"):
+        reg.register("empty", no_args, source="テスト")
 
 
 def test_evaluate_zero_specs_is_approved_but_not_judged() -> None:

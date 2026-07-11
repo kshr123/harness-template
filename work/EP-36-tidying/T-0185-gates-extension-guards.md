@@ -1,11 +1,14 @@
 ---
 id: T-0185
 kind: task
-status: todo
+status: done
 title: 判定を足す人が黙って壊せる 2 か所を塞ぐ（params の不変化・判定の第 1 引数の検査）
 created: 2026-07-10
+closed: 2026-07-11
 depends_on: [T-0179]
-verified_by: []
+verified_by:
+  - tests/test_gates.py::test_gate_result_is_hashable_and_params_are_read_only
+  - tests/test_gates.py::test_registering_a_gate_without_a_context_first_argument_is_rejected
 ---
 # T-0185 GATES の拡張時に黙って壊れる 2 か所
 
