@@ -1,11 +1,15 @@
 ---
 id: T-0186
 kind: task
-status: todo
+status: done
 title: run_experiment に group_by を通し、GroupKFold を実験の正規経路から使えるようにする
 created: 2026-07-10
+closed: 2026-07-11
 depends_on: []
-verified_by: []
+verified_by:
+  - tests/test_ds_experiment.py::test_run_experiment_group_by_prevents_group_leak
+  - tests/test_ds_experiment.py::test_run_experiment_without_group_by_leaks_groups
+  - tests/test_ds_experiment.py::test_run_experiment_group_by_rejects_with_order_by
 ---
 # T-0186 GroupKFold が実験から到達できない
 

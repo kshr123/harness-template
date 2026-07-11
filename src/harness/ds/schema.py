@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,7 @@ class TableSchema(BaseModel):
     partition_by: list[str] = Field(default_factory=list)
     columns: list[Column]
     checks: list[str] = Field(default_factory=list)
+    target_column: str | None = None  # このテーブルが持つ目的変数の列名（宣言はラベルの出所側の 1 か所だけでする）
 
 
 def _project_dir(root: Path) -> Path:
@@ -133,6 +135,8 @@ def data_lint(root: Path) -> list[Problem]:
         for key in s.primary_key:
             if key not in col_names:
                 problems.append(Problem("error", f"{s.id}: primary_key の '{key}' が列に無い"))
+        if s.target_column is not None and s.target_column not in col_names:
+            problems.append(Problem("error", f"{s.id}: target_column '{s.target_column}' が列に無い"))
         if s.layer in (Layer.processed, Layer.split) and s.lineage is None:
             problems.append(Problem("error", f"{s.id}: {s.layer.value} だが lineage が無い"))
         if s.layer is Layer.raw and s.source is None:
@@ -174,12 +178,43 @@ def _eval_checks(df: Any, checks: list[str], *, where: str, errs: list[str]) -> 
             errs.append(f"{where}: check '{check}' に違反 {bad} 行")
 
 
-def validate(df: Any, schema: TableSchema) -> list[str]:  # noqa: ANN401  df は polars.DataFrame
-    """実データ（polars DataFrame）を定義に照らして確かめる。違反のメッセージを返す（空＝合格）。"""
+def forbidden_feature_columns(schemas: list[TableSchema], *, own_primary_key: Sequence[str] = ()) -> set[str]:
+    """特徴量テーブル（role="feature"）に同乗してはいけない列名の集合。
+
+    目的変数の同乗（リークの中でも最悪の形＝良い指標つきで出荷される）を発生源で塞ぐための集合作り。
+    集合は「テーブル定義 YAML に宣言された名前」から機械的に導く（書く人の自己申告に依存しない）：
+    - 目的変数の列名：どこかのテーブルが target_column として宣言した名前（ラベルの出所側の宣言 1 か所）。
+    - ID 列名：どこかのテーブルが primary_key として宣言した名前（結合キーとして意図的に持つ列の名前）。
+    own_primary_key（特徴量テーブル自身の primary_key）は除く：自分の結合キーとして持つのは正当な用途で、
+    「同乗」（意図せず紛れ込む）ではない。
+    """
+    names: set[str] = set()
+    for s in schemas:
+        if s.target_column is not None:
+            names.add(s.target_column)
+        names.update(s.primary_key)
+    return names - set(own_primary_key)
+
+
+def validate(df: Any, schema: TableSchema, *, all_schemas: list[TableSchema] | None = None) -> list[str]:  # noqa: ANN401  df は polars.DataFrame
+    """実データ（polars DataFrame）を定義に照らして確かめる。違反のメッセージを返す（空＝合格）。
+
+    all_schemas を渡し、かつ schema.role が "feature" のとき、目的変数・ID 列（forbidden_feature_columns）が
+    df に同乗していないかも確かめる（T-0205：発生源の封鎖。one-hot 等で動的に増える列があるため
+    「宣言外の列を一律 error」にはできない＝有限に列挙できる集合だけを狙い撃ちする）。
+    """
     import polars as pl
 
     errs: list[str] = []
     present = set(df.columns)
+    if all_schemas is not None and schema.role == "feature":
+        forbidden = forbidden_feature_columns(all_schemas, own_primary_key=schema.primary_key)
+        leaked = sorted(forbidden & present)
+        if leaked:
+            errs.append(
+                f"特徴量テーブルに禁止列 {leaked} が同乗している"
+                "（目的変数・ID 列は特徴量テーブルに含めない。宣言は他テーブルの target_column / primary_key）"
+            )
     for col in schema.columns:
         if col.name not in present:
             errs.append(f"列 {col.name} が無い")

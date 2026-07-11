@@ -4,6 +4,7 @@ layer: raw
 role: cleaned
 source: harness.ds.data.generate_synthetic（seed から再現できる）
 primary_key: [id]
+target_column: y  # 特徴量テーブル（role: feature）に y 列が同乗したら ValueError で止まる（T-0205）
 columns:
   - name: id
     dtype: Int64

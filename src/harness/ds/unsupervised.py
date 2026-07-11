@@ -178,14 +178,26 @@ def cluster_summary(
     columns: Sequence[str] | None = None,
     method: str = "kmeans",
     seed: int,
+    label_column: str = "cluster",
     **params: Any,
 ) -> ClusterReport:
     """クラスタリングして構造化レポートを返す（クラスタの大きさ・シルエット・クラスタ別の数表）。
 
-    columns 省略時は数値列すべて。全データに当てる探索用途（結論を学習に戻さないこと）。最良 k は自動選択しない
-    （k_scan は目安の表・選ぶのは実験側）。カテゴリ列の深掘りは eda.category_target_summary に labels を渡せばよい。
+    columns 省略時は数値列すべて。全データに当てる探索用途（結論を学習に戻さないこと）。**df に正解ラベル・ID・
+    目的変数など「特徴でない」数値列が入っていると、それも黙って距離計算に混ざる**（追加の実害。呼び手が
+    columns を明示して除くこと）。最良 k は自動選択しない（k_scan は目安の表・選ぶのは実験側）。
+    カテゴリ列の深掘りは eda.category_target_summary に labels を渡せばよい。
     silhouette は SILHOUETTE_MAX_ROWS 行を超えたら sample_size で近似（random_state=seed で決定的）。
+
+    出力列名は label_column（既定 "cluster"）。**df に既に同名の列があれば ValueError**（fail closed。
+    黙って上書き・改名しない）。正解ラベルを持つ df をそのまま渡すと、上書きにより正解の情報が
+    profile_by_cluster から消えるため（衝突を検査せず通すと起きた実際の破損）。
     """
+    if label_column in df.columns:
+        raise ValueError(
+            f"df に既に '{label_column}' 列がある（cluster_summary の出力列名と衝突する）。"
+            "label_column で別名にするか、呼ぶ前に df から列を落とすこと（黙って上書きしない）"
+        )
     factory = CLUSTERERS.resolve(method).factory  # 未知 method の ValueError は Registry.resolve の 1 か所
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
     x = df.select(cols).to_numpy()
@@ -193,8 +205,8 @@ def cluster_summary(
     labels = np.asarray(model.fit_predict(x))
 
     n = len(labels)
-    vc = pl.Series("cluster", labels).value_counts(sort=True).rename({"cluster": "cluster", "count": "count"})
-    sizes = vc.with_columns(ratio=pl.col("count") / n).sort("cluster")
+    vc = pl.Series(label_column, labels).value_counts(sort=True)
+    sizes = vc.with_columns(ratio=pl.col("count") / n).sort(label_column)
 
     transformed = model[:-1].transform(x)  # 前処理後の空間でシルエットを測る
     keep = labels != -1  # hdbscan の雑音 -1 はクラスタでないのでシルエット計算から外す（採点を歪めない）
@@ -205,16 +217,16 @@ def cluster_summary(
 
     profile = (
         df.select(cols)
-        .with_columns(cluster=pl.Series("cluster", labels))
-        .group_by("cluster")
+        .with_columns(**{label_column: pl.Series(label_column, labels)})
+        .group_by(label_column)
         .agg(
             [pl.col(c).mean().alias(f"{c}_mean") for c in cols]
             + [pl.col(c).median().alias(f"{c}_median") for c in cols]
         )
-        .sort("cluster")
+        .sort(label_column)
     )
     return ClusterReport(
-        labels=pl.Series("cluster", labels), sizes=sizes, silhouette=silhouette, profile_by_cluster=profile
+        labels=pl.Series(label_column, labels), sizes=sizes, silhouette=silhouette, profile_by_cluster=profile
     )
 
 
@@ -434,7 +446,18 @@ def anomaly_scores(
     return AnomalyReport(pl.Series("anomaly_score", scores), method, list(cols), quantiles)
 
 
-def anomaly_rows(df: pl.DataFrame, scores: pl.Series | Sequence[float], *, n: int = 20) -> pl.DataFrame:
-    """df の全列＋ anomaly_score をスコア降順で上位 n（analysis.worst_rows と同じ読み方＝「浮いている行」）。"""
-    col = scores if isinstance(scores, pl.Series) else pl.Series("anomaly_score", list(scores))
-    return df.with_columns(anomaly_score=col).sort("anomaly_score", descending=True).head(n)
+def anomaly_rows(
+    df: pl.DataFrame, scores: pl.Series | Sequence[float], *, n: int = 20, score_column: str = "anomaly_score"
+) -> pl.DataFrame:
+    """df の全列＋ score_column をスコア降順で上位 n（analysis.worst_rows と同じ読み方＝「浮いている行」）。
+
+    出力列名は score_column（既定 "anomaly_score"）。**df に既に同名の列があれば ValueError**（fail closed。
+    黙って置換しない）。
+    """
+    if score_column in df.columns:
+        raise ValueError(
+            f"df に既に '{score_column}' 列がある（anomaly_rows の出力列名と衝突する）。"
+            "score_column で別名にするか、呼ぶ前に df から列を落とすこと（黙って置換しない）"
+        )
+    col = scores if isinstance(scores, pl.Series) else pl.Series(score_column, list(scores))
+    return df.with_columns(**{score_column: col}).sort(score_column, descending=True).head(n)

@@ -76,7 +76,7 @@ class ExperimentSpec(BaseModel):
 
     train.py 雛形は yaml.safe_load の直後に `ExperimentSpec.model_validate(cfg)` で検証**してから spec を使う**
     ＝未知キー（typo）・型違い・空の variants を起動時に止める。optional キー
-    （metrics/stratify_by/order_by/id_column）は雛形が run_experiment へ流す（黙って無視されないのが要点）。
+    （metrics/stratify_by/order_by/group_by/id_column）は雛形が run_experiment へ流す（黙って無視されないのが要点）。
     `thresholds`（合否の辞書）は指標名→閾値。**決定境界の float は config キーでなく関数引数**
     `run_experiment(..., decision_threshold=...)`（既定 0.5）＝雛形は OOF から `select_threshold_max_f1` で選ぶので
     config に `decision_threshold` は書かない（書くと extra=forbid で起動時エラー＝混同を断つ）。
@@ -98,6 +98,7 @@ class ExperimentSpec(BaseModel):
     metrics: list[str] | None = None
     stratify_by: str | None = None
     order_by: str | None = None
+    group_by: str | None = None  # 同一実体が複数行にまたがる列名（GroupKFold。run_experiment へそのまま通る）
     id_column: str = "id"
 
     @field_validator("data", "model")
@@ -132,6 +133,7 @@ def run_experiment(
     id_column: str = "id",
     stratify_by: str | None = None,
     order_by: str | None = None,
+    group_by: str | None = None,
     task: Task = "classification",
     decision_threshold: float = 0.5,
     metrics: Sequence[str] | None = None,
@@ -146,9 +148,15 @@ def run_experiment(
     decision_threshold はスコアをラベルに変える決定境界（分類の label 系指標にだけ効く）＝thresholds（合否の辞書）
     とは別物。order_by を渡すと時間順分割（過去→未来の拡大窓）になる＝時間の順序があるデータで shuffle CV の
     誤用を防ぐ（stratify_by との同時指定はエラー）。fold 0 は学習専用で OOF に入らない。
+    group_by（同一実体が複数行にまたがるデータ。例：1 人が複数行）を渡すと make_folds が GroupKFold /
+    StratifiedGroupKFold（stratify_by との併用時）へ切り替わり、同じグループの行が train と valid に
+    跨がらない（グループ単位のリーク防止）。group_by は時間順分割（order_by）と同時に使えない
+    （make_time_folds は group_by を受け付けない＝時間順は時間だけで決まる分割のため）。
     """
     if order_by is not None and stratify_by is not None:
         raise ValueError("order_by（時間順）と stratify_by（層化）は同時に使えない")
+    if order_by is not None and group_by is not None:
+        raise ValueError("order_by（時間順）と group_by（グループ分割）は同時に使えない")
     if predict is None:
         predict = "value" if task == "regression" else "proba"
     metric_fn = metric_fn_for(task, threshold=decision_threshold, metrics=metrics)
@@ -156,7 +164,9 @@ def run_experiment(
         folds = make_time_folds(df, n_folds=n_folds, order_by=order_by, id_column=id_column)
         splits = fold_indices(df, folds, id_column=id_column, how="expanding")
     else:
-        folds = make_folds(df, n_folds=n_folds, seed=seed, id_column=id_column, stratify_by=stratify_by)
+        folds = make_folds(
+            df, n_folds=n_folds, seed=seed, id_column=id_column, stratify_by=stratify_by, group_by=group_by
+        )
         splits = fold_indices(df, folds, id_column=id_column)
     cv_result = run_cv(estimator, df, y, splits, predict=predict, metric_fn=metric_fn)
     return ExperimentResult(folds=folds, cv=cv_result, passed=passes(cv_result.oof_metrics, dict(thresholds)))

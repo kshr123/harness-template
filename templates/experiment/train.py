@@ -200,6 +200,7 @@ def main() -> int:
         task=task,
         stratify_by=stratify_by,
         order_by=spec.order_by,
+        group_by=spec.group_by,
         metrics=spec.metrics,
         id_column=spec.id_column,
     )
@@ -278,6 +279,7 @@ def main() -> int:
         "n": n,
         "n_folds": n_folds,
         "task": task,
+        "group_by": spec.group_by,  # どの列で group 分割したか（None＝未指定。後で「リークしていない」と示せる）
         "metrics": result.metrics,
         "passed": result.passed,
     }

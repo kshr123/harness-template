@@ -236,6 +236,117 @@ def test_save_rejects_invalid_data(tmp_path: Path) -> None:
         store.save(tmp_path, bad, "synthetic")
 
 
+def test_forbidden_feature_columns_from_declarations() -> None:
+    """禁止集合は「宣言された target_column・primary_key」から機械的に導く（申告に依存しない）。"""
+    src = schema.TableSchema.model_validate(
+        {
+            "id": "src",
+            "description": "生",
+            "layer": "raw",
+            "primary_key": ["uid"],
+            "target_column": "label",
+            "columns": [{"name": "uid", "dtype": "Int64"}, {"name": "label", "dtype": "Int64"}],
+        }
+    )
+    feat = schema.TableSchema.model_validate(
+        {
+            "id": "feat",
+            "description": "特徴",
+            "layer": "processed",
+            "role": "feature",
+            "primary_key": ["uid"],
+            "lineage": {"inputs": ["src"]},
+            "columns": [{"name": "uid", "dtype": "Int64"}, {"name": "f", "dtype": "Float64"}],
+        }
+    )
+    # target_column("label") と他テーブルの primary_key("uid") が禁止対象。自分の PK("uid") は除外される。
+    assert schema.forbidden_feature_columns([src, feat], own_primary_key=feat.primary_key) == {"label"}
+    # 自分の PK を除外しなければ uid も禁止に含まれる（除外ロジックが効いていることの対照）。
+    assert schema.forbidden_feature_columns([src, feat]) == {"label", "uid"}
+
+
+def test_validate_rejects_target_leak_into_feature_table(tmp_path: Path) -> None:
+    """目的変数が特徴量テーブル（role=feature）に同乗したら違反（発生源の封鎖）。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")  # y を目的変数として宣言
+    _write(
+        tmp_path,
+        "feat",
+        "id: feat\ndescription: 特徴\nlayer: processed\nrole: feature\nprimary_key: [id]\n"
+        "lineage: {inputs: [synthetic]}\ncolumns:\n"
+        "  - {name: id, dtype: Int64}\n  - {name: f1, dtype: Float64}\n  - {name: y, dtype: Int64}\n",
+    )
+    schemas = schema.load_schemas(tmp_path)
+    feat = {s.id: s for s in schemas}["feat"]
+    leaked = pl.DataFrame({"id": [1, 2], "f1": [0.1, 0.2], "y": [0, 1]})  # 目的変数 y が同乗
+    errs = schema.validate(leaked, feat, all_schemas=schemas)
+    assert any("禁止列" in e and "y" in e for e in errs)
+
+
+def test_validate_feature_table_allows_own_primary_key(tmp_path: Path) -> None:
+    """自分の結合キー（own primary_key）は同乗ではなく正当なので違反にしない。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")
+    _write(
+        tmp_path,
+        "feat",
+        "id: feat\ndescription: 特徴\nlayer: processed\nrole: feature\nprimary_key: [id]\n"
+        "lineage: {inputs: [synthetic]}\ncolumns:\n"
+        "  - {name: id, dtype: Int64}\n  - {name: f1, dtype: Float64}\n",
+    )
+    schemas = schema.load_schemas(tmp_path)
+    feat = {s.id: s for s in schemas}["feat"]
+    clean = pl.DataFrame({"id": [1, 2], "f1": [0.1, 0.2]})  # id（自分の PK）だけ・目的変数なし
+    assert schema.validate(clean, feat, all_schemas=schemas) == []
+
+
+def test_validate_leak_check_only_for_feature_role(tmp_path: Path) -> None:
+    """role が feature でないテーブル（目的変数の出所＝raw 等）は禁止列検査を発火させない。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")
+    schemas = schema.load_schemas(tmp_path)
+    syn = {s.id: s for s in schemas}["synthetic"]  # role=cleaned・y を正当に持つ
+    df = data.generate_synthetic(n=50, seed=0)  # id・x1・x2・y を含む
+    assert schema.validate(df, syn, all_schemas=schemas) == []  # 出所テーブルは y を持ってよい
+
+
+def test_validate_without_all_schemas_skips_leak_check(tmp_path: Path) -> None:
+    """all_schemas を渡さなければ従来どおり（禁止列検査は行わない＝後方互換）。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")
+    _write(
+        tmp_path,
+        "feat",
+        "id: feat\ndescription: 特徴\nlayer: processed\nrole: feature\nprimary_key: [id]\n"
+        "lineage: {inputs: [synthetic]}\ncolumns:\n"
+        "  - {name: id, dtype: Int64}\n  - {name: f1, dtype: Float64}\n  - {name: y, dtype: Int64}\n",
+    )
+    feat = {s.id: s for s in schema.load_schemas(tmp_path)}["feat"]
+    leaked = pl.DataFrame({"id": [1, 2], "f1": [0.1, 0.2], "y": [0, 1]})
+    assert schema.validate(leaked, feat) == []  # all_schemas 無し＝禁止列検査は動かない
+
+
+def test_save_rejects_target_leak_into_feature_table(tmp_path: Path) -> None:
+    """store.save は全テーブル定義を渡して検証する＝目的変数の同乗を保存前に止める。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")
+    _write(
+        tmp_path,
+        "feat",
+        "id: feat\ndescription: 特徴\nlayer: processed\nrole: feature\nprimary_key: [id]\n"
+        "lineage: {inputs: [synthetic]}\ncolumns:\n"
+        "  - {name: id, dtype: Int64}\n  - {name: f1, dtype: Float64}\n  - {name: y, dtype: Int64}\n",
+    )
+    leaked = pl.DataFrame({"id": [1, 2], "f1": [0.1, 0.2], "y": [0, 1]})
+    with pytest.raises(ValueError, match="禁止列"):
+        store.save(tmp_path, leaked, "feat")
+
+
+def test_data_lint_target_column_must_exist(tmp_path: Path) -> None:
+    """target_column が列に無ければ data_lint が error にする（宣言のタイポを止める）。"""
+    _write(
+        tmp_path,
+        "t",
+        "id: t\ndescription: x\nlayer: raw\ntarget_column: nope\ncolumns:\n  - {name: a, dtype: Int64}\n",
+    )
+    assert any("target_column" in p.message for p in schema.data_lint(tmp_path))
+
+
 def test_split_layer_refuses_rewrite(tmp_path: Path) -> None:
     _write(
         tmp_path,

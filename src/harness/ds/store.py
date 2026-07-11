@@ -32,9 +32,17 @@ def _schema_for(root: Path, table_id: str) -> sch.TableSchema:
 
 
 def save(root: Path, df: Any, table_id: str, *, code: str | None = None, work: str | None = None) -> str:  # noqa: ANN401
-    """検証してから保存する。定義を満たさないデータは保存できない。指紋を返す。"""
-    s = _schema_for(root, table_id)
-    errs = sch.validate(df, s)
+    """検証してから保存する。定義を満たさないデータは保存できない。指紋を返す。
+
+    全テーブル定義を渡して検証する（sch.validate の all_schemas）＝role="feature" のテーブルは、他テーブルが
+    宣言した目的変数・ID 列（target_column／primary_key）の同乗を ValueError で止める（T-0205）。
+    """
+    all_schemas = sch.load_schemas(root)
+    matches = [x for x in all_schemas if x.id == table_id]
+    if not matches:
+        raise ValueError(f"テーブル定義 {table_id} が見つからない（docs/data か work/*/data に置く）")
+    s = matches[0]
+    errs = sch.validate(df, s, all_schemas=all_schemas)
     if errs:
         raise ValueError(f"{table_id}: 検証に失敗: " + "；".join(errs))
     path = _resolve(root, s)

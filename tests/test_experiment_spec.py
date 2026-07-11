@@ -53,6 +53,15 @@ def test_current_config_shape_validates() -> None:
     assert spec.task == "classification"
     assert spec.id_column == "id"
     assert spec.metrics is None and spec.stratify_by is None and spec.order_by is None
+    assert spec.group_by is None  # 既定は未指定＝GroupKFold を使わない（既存 config の挙動を変えない）
+
+
+def test_group_by_is_read_from_config() -> None:
+    # group_by を書けば spec に読まれ、run_experiment（→make_folds）へ流れる（黙って無視されない）。
+    cfg = _valid_config()
+    cfg["group_by"] = "user_id"
+    spec = ExperimentSpec.model_validate(cfg)
+    assert spec.group_by == "user_id"
 
 
 def test_variant_level_model_and_select_are_allowed() -> None:

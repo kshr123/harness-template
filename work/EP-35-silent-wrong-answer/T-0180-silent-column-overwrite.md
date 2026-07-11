@@ -1,11 +1,16 @@
 ---
 id: T-0180
 kind: task
-status: todo
+status: done
 title: cluster・anomaly_score 列の黙った上書きを止める（データ破壊）
 created: 2026-07-10
+closed: 2026-07-11
 depends_on: []
-verified_by: []
+verified_by:
+  - tests/test_ds_unsupervised.py::test_cluster_summary_rejects_colliding_label_column
+  - tests/test_ds_unsupervised.py::test_cluster_summary_label_column_renames_output_and_keeps_truth
+  - tests/test_ds_unsupervised.py::test_anomaly_rows_rejects_colliding_score_column
+  - tests/test_ds_unsupervised.py::test_anomaly_rows_score_column_renames_output
 ---
 # T-0180 予約列名の衝突を黙って通さない
 
