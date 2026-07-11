@@ -25,6 +25,10 @@ GitHub Actions は実行しない・ネットワークも使わない。テン�
   （複製時に消えた・移設先がずれた雛形。表 _WORKFLOWS に載っていない yml も対象＝全ワークフロー共通の検査）。
   抽出は保守的：トークン全体が英数字・`_`・`.`・`/`・`-` だけのものだけを見る（`$VAR`・`<...>` のような
   プレースホルダはこの文字集合に収まらないので対象外＝誤検知しない）。
+- `on.schedule` を持つ workflow に `# stop:` の停止宣言が無い＝error（`.github/workflows/**` と `templates/ci/**`
+  の両方を見る＝schedule_lint（monitor.yml）との対称化。外から起動され自分では止まらないループ＝継続学習を
+  取り逃さない）。書式は `pm.has_stop_declaration`（`# stop:`）＝schedule_lint と同じ 1 か所を読む。この検査は
+  `templates/ci/` の有無に依らず走る（テンプレートを同梱しない案件でも自前の scheduled workflow を検査する）。
 
 `templates/ci/` が無いプロジェクト（テンプレートを同梱しないコピー先の案件）では何も指摘しない
 （誤検知しない）。依存は stdlib＋pyyaml のみ・yaml は関数内で遅延取り込み（deploy_lint と同じ規約。
@@ -80,11 +84,15 @@ def run_checks(root: Path) -> list[pm.Problem]:
     """templates/ci/ の構造を検査し、指摘（error/info）を返す。root は自リポ or コピー先。"""
     import yaml
 
+    problems: list[pm.Problem] = []
+    # on.schedule を持つ workflow の停止宣言（`# stop:`）検査は templates/ci の有無に依らず走る
+    # （フォーク先が .github/workflows に自前の scheduled workflow だけ持つ場合も継続学習ループを取り逃さない）。
+    _check_schedule_stop(problems, root)
+
     base = root / "templates" / "ci"
     if not base.exists():
-        return []  # テンプレートを同梱しないコピー先の案件＝検査対象外（誤検知しない）
+        return problems  # テンプレートを同梱しないコピー先の案件＝表由来の構造検査は対象外（誤検知しない）
 
-    problems: list[pm.Problem] = []
     repo_python = _repo_python_version(root)
     # プロファイルを使う案件だけ「uv sync は全部入り」を要求する（optional 依存のテストを skip しないため）。
     # 中核のみの案件（profiles=[]）は optional 依存が無い＝素の `uv sync` で十分＝--all-extras を強制しない。
@@ -263,6 +271,41 @@ def _check_script_refs(problems: list[pm.Problem], root: Path, base: Path) -> No
                             "移設先がずれた雛形の可能性。参照を実在するスクリプトへ直す）",
                         )
                     )
+
+
+# --- on.schedule を持つ workflow の停止宣言（`# stop:`）＝schedule_lint（monitor.yml）との対称化 ---
+
+
+def _check_schedule_stop(problems: list[pm.Problem], root: Path) -> None:
+    """`.github/workflows/**` と `templates/ci/**` の workflow のうち on.schedule を持つものに `# stop:` を要求する。
+
+    schedule_lint（monitor.yml）と同じ思想：外から起動され自分では止まらないループ（継続学習の retrain.yml 等）は、
+    止め方の宣言が無いと放置で回り続ける側なので危ない。宣言の書式は `pm.has_stop_declaration`（`# stop:`）＝
+    schedule_lint と同一の 1 か所を読む（2 つ目の書式を作らない）。停止宣言のマーカーは YAML コメントなので
+    生テキストで見る（safe_load はコメントを落とす）。on.schedule の有無は _trigger_names（True 鍵に対応）で判定。
+    """
+    import yaml
+
+    for base in (root / ".github" / "workflows", root / "templates" / "ci"):
+        if not base.exists():
+            continue  # その置き場が無い案件＝対象外（誤検知しない）
+        for path in sorted(p for p in base.rglob("*") if p.suffix in (".yml", ".yaml")):
+            text = path.read_text(encoding="utf-8")
+            try:
+                doc = yaml.safe_load(text)
+            except yaml.YAMLError:
+                continue  # YAML 妥当性は actionlint/check-jsonschema へ委譲（他の検査と同じ流儀）
+            if "schedule" not in _trigger_names(doc):
+                continue  # 定期実行でない workflow（ci.yaml 等）は要求しない
+            if not pm.has_stop_declaration(text):
+                rel = path.relative_to(root).as_posix()
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"{rel}: on.schedule を持つのに `# stop:` の停止宣言が無い（外から起動され自分では止まらない"
+                        "ループ。schedule_lint の monitor.yml と同じ書式で、止め方を宣言するコメント行を足す）",
+                    )
+                )
 
 
 def _repo_python_version(root: Path) -> str | None:

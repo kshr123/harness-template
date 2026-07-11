@@ -118,6 +118,62 @@ def test_unpinned_python_version_flagged(tmp_path: Path) -> None:
     assert any("python-version" in m for m in errors)
 
 
+# --- on.schedule の停止宣言（`# stop:`）＝schedule_lint との対称化（T-0184） ---
+
+
+@pytest.mark.unit
+def test_scheduled_workflow_without_stop_flagged(tmp_path: Path) -> None:
+    # retrain.yml（on.schedule あり）から `# stop:` マーカーだけを潰す→止め方の宣言が無い構成＝名指しの error。
+    root = _copy_templates(tmp_path)
+    _mutate(root, "# stop:", "# note:", rel=RETRAIN)
+    errors = _errors(root)
+    assert any(RETRAIN in m and "# stop:" in m for m in errors)
+
+
+@pytest.mark.unit
+def test_scheduled_workflow_with_stop_passes(tmp_path: Path) -> None:
+    # 出荷どおり（retrain.yml に `# stop:` あり）なら停止宣言の error は出ない（他観点も含め 0 件）。
+    root = _copy_templates(tmp_path)
+    assert _errors(root) == []
+
+
+@pytest.mark.unit
+def test_repo_github_workflow_scheduled_without_stop_flagged(tmp_path: Path) -> None:
+    # templates/ci を同梱しない案件でも、自前の .github/workflows に schedule だけあって # stop: が無ければ error。
+    # ＝この検査は templates/ci の有無に依らず走る（継続学習ループを取り逃さない）。
+    wf = tmp_path / ".github" / "workflows" / "nightly.yml"
+    wf.parent.mkdir(parents=True)
+    wf.write_text(
+        "name: nightly\non:\n  schedule:\n    - cron: '0 0 * * *'\njobs:\n  x:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: echo hi\n",
+        encoding="utf-8",
+    )
+    errors = _errors(tmp_path)
+    assert any("nightly.yml" in m and "# stop:" in m for m in errors)
+
+
+@pytest.mark.unit
+def test_non_scheduled_workflow_not_required_to_stop(tmp_path: Path) -> None:
+    # on.schedule を持たない workflow（push/PR トリガのみ）には停止宣言を要求しない（誤検知しない）。
+    wf = tmp_path / ".github" / "workflows" / "ci.yml"
+    wf.parent.mkdir(parents=True)
+    wf.write_text(
+        "name: ci\non:\n  pull_request:\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+        encoding="utf-8",
+    )
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_stop_marker_format_shared_with_schedule_lint() -> None:
+    # 書式の正本は 1 か所（pm.has_stop_declaration）＝schedule_lint と ci_lint が同じ判定を読む（2 つ目を作らない）。
+    from harness import pm
+
+    assert pm.has_stop_declaration("# stop: Disable workflow\n")
+    assert pm.has_stop_declaration("  #  STOP:  see README\n")  # 空白・大小無視
+    assert not pm.has_stop_declaration("# note: nothing here\n")
+
+
 @pytest.mark.unit
 def test_without_pyproject_version_check_skipped(tmp_path: Path) -> None:
     # コピー先に pyproject が無い＝リポの正を導出できない→版検査は行わない（誤検知しない）。他は満たすので 0 件。

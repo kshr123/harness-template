@@ -6,6 +6,9 @@
 # ci_lint（src/harness/ops/ci_lint.py）が uv run verify のたびに構造（定期トリガ・experiment→monitor→
 # promote の step 系列・Python 版・--all-extras）を静的検査し、雛形が腐るのを止める。verify.yml と違い
 # この雛形は任意＝置かない複製先を ci_lint は error にしない。使い方の正本は docs/ops.md の「継続学習（CT）雛形」。
+# stop: Actions 画面で Disable workflow（gh workflow disable でも可）、on.schedule の cron を消して手動起動
+# （workflow_dispatch）だけにする、または本ファイルを削除。手順の正本は docs/ops.md の「継続学習（CT）雛形」。
+# 外から起動され自分では止まらないループなので、止め方の宣言を必須にする（schedule_lint / ci_lint が検査）。
 name: retrain
 
 on:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -271,6 +272,151 @@ def _file_drift_issue(root: Path, *, baseline: str, log: str, psi_rows: list[dic
         "state": issues.IssueState.open.value,
         "created": date.today(),
         "found_in": "data monitor --file-issue",
+        "title": content.title,
+    }
+    path = directory / f"{iid}.md"
+    front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
+    path.write_text(f"---\n{front}---\n# {iid} {content.title}\n\n{content.body}", encoding="utf-8")
+    typer.echo(f"起票: {iid}（{path.relative_to(root)}）")
+
+
+@data_app.command("score")
+def _data_score(
+    model: Annotated[
+        str, typer.Option("--model", help="答え合わせするモデル 'work/name'（champion の版で突き合わせる）")
+    ],
+    actuals: Annotated[
+        str, typer.Option("--actuals", help="実績テーブル（.parquet か .csv・root 相対。鍵と正解の列を持つ）")
+    ],
+    actual_column: Annotated[str, typer.Option("--actual-column", help="実績テーブルの正解（ラベル/値）の列名")],
+    key_column: Annotated[
+        str, typer.Option("--key-column", help="突き合わせの鍵の列（既定 input_fingerprint）")
+    ] = "input_fingerprint",
+    log: Annotated[
+        str | None, typer.Option("--log", help="予測ログの glob（root 相対。省略時は該当モデルの既定置き場）")
+    ] = None,
+    metrics: Annotated[
+        str | None, typer.Option("--metrics", help="対象指標（カンマ区切り。省略時は課題の全登録指標）")
+    ] = None,
+    threshold: Annotated[float, typer.Option("--threshold", help="二値のラベル化の決定境界（既定 0.5）")] = 0.5,
+    since: Annotated[
+        str | None, typer.Option("--since", help="この日付（YYYY-MM-DD・境界日を含む）以降の予測だけ")
+    ] = None,
+    role: Annotated[
+        str, typer.Option("--role", help="集計する役割（primary | shadow | all）。既定 primary")
+    ] = "primary",
+    file_issue: Annotated[
+        bool,
+        typer.Option(
+            "--file-issue", help="大変化（相対劣化 >= DEGRADE_ALERT）の指標があれば issues に冪等起票（exit 0）"
+        ),
+    ] = False,
+) -> None:
+    """配信予測を後から届いた実績で答え合わせし、実測指標と昇格時の約束との差を YAML で出す。
+
+    分布監視（`data monitor`）は入力のずれの代理しか見ない。ここは現実の正解と突き合わせて実測指標を出す
+    ＝入力が安定でも正解率が崩れた champion をここで初めて捉える。門番にしない（実測と約束の差は band で
+    人が読む・exit 0。--file-issue の起票も副作用であって exit code に載せない）。champion が無い・実績テーブルが
+    読めないときだけ非 0。突き合わせの鍵は input_fingerprint（予測 1 行に必ず付く決定的な指紋）。serve は起動しない。
+    """
+    from datetime import date
+
+    import yaml
+
+    from harness.ds import models as model_store
+    from harness.ds import scoring
+
+    if role not in ("primary", "shadow", "all"):
+        raise typer.BadParameter(f"--role は primary / shadow / all のいずれか（受領: {role!r}）")
+    if "/" not in model:
+        raise typer.BadParameter(f"--model は 'work/name' 形式（受領: {model!r}）")
+    work, name = model.split("/", 1)
+
+    since_date: date | None = None
+    if since is not None:
+        try:
+            since_date = date.fromisoformat(since)
+        except ValueError as exc:
+            raise typer.BadParameter(f"--since は YYYY-MM-DD 形式（受領: {since!r}）") from exc
+
+    root = _root()
+    champ = model_store.champion(root, work=work, name=name)  # 無ければ None＝下で明示エラー（黙って空で測らない）
+    if champ is None:
+        typer.echo(f"✗ {model}: champion が無い（先に promote_model で昇格する）", err=True)
+        raise typer.Exit(1)
+
+    actuals_df = _load_actuals(root, actuals)  # 読めなければここで例外＝非 0
+    glob = log if log is not None else f"artifacts/serve/predictions/{name}/**/*.jsonl"
+    files = sorted(root.glob(glob))
+    scored = scoring.read_scored_predictions(files, since=since_date, role=role, version=champ.version)
+    metric_names = metrics.split(",") if metrics else None
+    report = scoring.answer_check(
+        scored,
+        actuals_df,
+        actual_column=actual_column,
+        key_column=key_column,
+        metrics=metric_names,
+        threshold=threshold,
+        promised=champ.metrics,
+    )
+    out: dict[str, object] = {
+        "model": model,
+        "version": champ.version,
+        "log": glob,
+        "actuals": actuals,
+        **report.to_dict(),
+    }
+    typer.echo(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+    if file_issue:
+        _file_score_issue(root, model=model, log=glob, actuals=actuals, comparisons=report.comparisons)
+
+
+def _load_actuals(root: Path, rel: str) -> Any:  # noqa: ANN401  polars.DataFrame
+    """実績テーブルを読む（.parquet / .csv を拡張子で分岐）。root 相対。読めない・未対応は例外＝非 0。"""
+    import polars as pl
+
+    path = root / rel
+    if not path.is_file():
+        raise FileNotFoundError(f"実績テーブルが無い: {path}")
+    if path.suffix == ".parquet":
+        return pl.read_parquet(path)
+    if path.suffix == ".csv":
+        return pl.read_csv(path)
+    raise ValueError(f"実績テーブルは .parquet か .csv（受領: {path.suffix}）")
+
+
+def _file_score_issue(root: Path, *, model: str, log: str, actuals: str, comparisons: Sequence[Any]) -> None:
+    """band=大変化（相対劣化 >= DEGRADE_ALERT）の指標があれば issues backend へ冪等に起票する（`--file-issue` の中身）。
+
+    drift の `_file_drift_issue` と同型：起票は副作用で exit code に載せない・冪等判定は答え合わせ指紋で行う。
+    """
+    from datetime import date
+
+    import yaml
+
+    from harness import issues
+    from harness.ds import scoring
+
+    degraded = [c for c in comparisons if c.band == "大変化" and c.promised is not None]
+    if not degraded:
+        return  # 大変化なし＝起票なし（1 行も出さない）
+    content = scoring.score_issue_content(model=model, log=log, actuals=actuals, degraded=degraded, today=date.today())
+    for li in issues.load_issues(root):
+        if li.issue.state in (issues.IssueState.open, issues.IssueState.in_progress) and content.fingerprint in li.body:
+            typer.echo(f"起票済み: {li.issue.id}（同じ劣化内容の課題が未解決＝重複起票しない）")
+            return
+    directory = issues.local_dir(root)
+    if directory is None:
+        typer.echo("起票先が github: backend（起票は GitHub 側で行う・答え合わせは継続）")
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    iid = issues.next_id(root)
+    meta: dict[str, Any] = {
+        "id": iid,
+        "kind": issues.IssueKind.risk.value,
+        "state": issues.IssueState.open.value,
+        "created": date.today(),
+        "found_in": "data score --file-issue",
         "title": content.title,
     }
     path = directory / f"{iid}.md"

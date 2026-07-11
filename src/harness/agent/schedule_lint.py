@@ -120,7 +120,8 @@ def _check_concurrency(problems: list[pm.Problem], doc: dict[str, Any]) -> None:
 def _check_stop_comment(problems: list[pm.Problem], monitor_text: str) -> None:
     # 言語非依存の構造マーカー（`# stop: ...`）で検出する（英語 README の複製先で日本語「停止」grep が
     # 即壊れる言語過剰適合を避ける。意味論＝「止め方の無い routine を作らない」は不変）。
-    if re.search(r"^\s*#\s*stop:", monitor_text, re.MULTILINE | re.IGNORECASE) is None:
+    # 書式の正本は pm.has_stop_declaration（ci_lint と同じ 1 か所を読む＝2 つ目の書式を作らない＝T-0184）。
+    if not pm.has_stop_declaration(monitor_text):
         problems.append(
             pm.Problem(
                 "error",

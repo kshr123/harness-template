@@ -36,7 +36,8 @@ ds プロファイルを**理解したい・拡張したいエンジニア**（�
 
   ②探索（主経路の枝）  : eda.py・analysis.py
   別経路（別レジストリ）: forecast.py（時系列）・unsupervised.py（教師なし）
-  配線                 : cli.py（uv run data の入口）・monitor.py（配信後の監視）・profile.py（verify 結線）
+  配線                 : cli.py（uv run data の入口）・monitor.py（配信後の分布監視）・
+                         scoring.py（配信後の答え合わせ）・profile.py（verify 結線）
 ```
 
 ## どのコードがどんな役割か
@@ -72,7 +73,11 @@ ds プロファイルを**理解したい・拡張したいエンジニア**（�
 - `unsupervised.py` … 教師なし学習（次元圧縮・クラスタリング・異常検知＝`DIMRED`/`CLUSTERERS`/`ANOMALY`）。
 
 **運用・配線**
-- `monitor.py` … 配信ログ×学習基準テーブルの分布監視（`data monitor` の中身。純関数）。
+- `monitor.py` … 配信ログ×学習基準テーブルの分布監視（`data monitor` の中身。純関数）。入力のずれ（psi/drift）＝
+  代理指標だけを見る（正解は使わない）。
+- `scoring.py` … 配信予測×後から届く実績の答え合わせ（`data score` の中身。純関数）。input_fingerprint で結合し、
+  実測指標（eval 委譲）と昇格時の約束との差を band で返す。入力が安定でも正解率が崩れた champion を捉える
+  ＝monitor の代理では見えない黙った劣化を塞ぐ経路。門番にしない（exit 0）。
 - `cli.py` … `uv run data <サブコマンド>` の入口（typer）。
 - `profile.py` … DS プロファイルの宣言（`data lint` を verify に載せる）。中核はこれを config 経由でだけ知る。
 

@@ -1,12 +1,23 @@
 ---
 id: T-0184
 kind: task
-status: todo
+status: done
 title: 定期実行する workflow に停止条件の宣言を必須にする（ci_lint と schedule_lint の非対称を消す）
 created: 2026-07-10
 depends_on: []
-verified_by: []
+verified_by:
+  - tests/test_ci_lint.py::test_scheduled_workflow_without_stop_flagged
+  - tests/test_ci_lint.py::test_repo_github_workflow_scheduled_without_stop_flagged
+  - tests/test_ci_lint.py::test_non_scheduled_workflow_not_required_to_stop
+  - tests/test_ci_lint.py::test_stop_marker_format_shared_with_schedule_lint
 ---
+## 実装（done）
+- 書式の正本を core に 1 か所置いた：`pm.STOP_DECLARATION_RE` / `pm.has_stop_declaration`（schedule_lint と
+  ci_lint が同じ判定を読む＝2 つ目の書式を作らない）。schedule_lint の `_check_stop_comment` もこれを読むよう置換。
+- `ci_lint._check_schedule_stop`：`.github/workflows/**` と `templates/ci/**` の workflow のうち on.schedule を
+  持つものに `# stop:` を要求（`templates/ci/` の有無に依らず走る＝自前の scheduled workflow も検査）。
+- `retrain.yml` に `# stop:` を追加して緑に戻した（実測で赤→緑を確認）。
+
 # T-0184 止め方を宣言していない外部ループを verify で止める
 
 ## 何が問題か

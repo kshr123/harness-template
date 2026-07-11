@@ -26,6 +26,17 @@ UNIT_FILE = re.compile(r"^(EP|T|INV|E)-\d+.*\.md$")
 # work/ 配下の .md は「正体不明」として work_tree_lint が error にする（黙認しない）。
 _ARTIFACT_FILES = {MARKER, "STATUS.md", "SPEC.md", "PLAN.md", "DESIGN.md", "notes.md", "README.md"}
 
+# 外部から起動され自分では止まらないループ（scheduled workflow 等）の「止め方」の宣言マーカー。
+# 同じ書式を agent の schedule_lint（monitor.yml）と ops の ci_lint（retrain.yml）が共有するための 1 か所
+# （2 つ目の書式を作らない＝T-0184）。中身の真偽までは機械には分からない＝「宣言が在るか」だけを見る
+# （Registry(require_source=True) と同じ fail closed の形。書き忘れを不可能にするが、正しさは人が確かめる）。
+STOP_DECLARATION_RE = re.compile(r"^\s*#\s*stop:", re.MULTILINE | re.IGNORECASE)
+
+
+def has_stop_declaration(text: str) -> bool:
+    """外部起動ループ（scheduled workflow）が `# stop:` コメントで停止手順を宣言しているか（書式の正本はここ）。"""
+    return STOP_DECLARATION_RE.search(text) is not None
+
 
 @dataclass
 class Node:
