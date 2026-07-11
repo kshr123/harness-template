@@ -19,15 +19,17 @@
 - 切り戻し（`rollback`）は昇格ではないので判定（`change_threshold`）を通さない。劣る旧良版へ戻せることは
   機能であって欠陥ではない。切り戻し先は `rollback_to`（記録ファイル名）の連鎖を 1 段ずつ辿る（スタックの pop）。
 
-champion の走査は今も `sorted(promotions/*.yaml)` に依存する（時刻名でない yaml が混じると壊れる欠陥が
-残る）。この欠陥を塞ぐ alias 化と異物 yaml の拒否は次段（champion を明示ポインタで指す）で行う。ここでは
-切り戻しを一級の操作にするのが目的で、champion の解決規則そのものは据え置く。
+champion の走査は `promotions/` の中で**版の刻み（`VERSION_FORMAT`）に一致するファイル名だけ**を見る
+（`_promotion_files`）。一致しない yaml が 1 枚でも居たら `ValueError`（無視でなく失敗＝fail closed）。
+これで「劣る版を指す手書き yaml を 1 枚置くだけで champion を奪う」経路を塞ぐ（時刻名は数字で始まり、英字で
+始まる名前は ASCII で後ろに並ぶので、従来は `sorted(glob)[-1]` が異物に乗っ取られた）。
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from harness import gates, storage
@@ -66,17 +68,37 @@ def _record_path(entity_dir: Path, filename: str) -> Path:
     return entity_dir / PROMOTIONS_DIR / filename
 
 
-def _approved_records(entity_dir: Path) -> list[tuple[str, dict[str, object]]]:
-    """`approved` の記録を（ファイル名, 記録）で古い順に返す。`rejected` は champion に効かないので除く。
+def _promotion_files(entity_dir: Path, *, label: str) -> list[Path]:
+    """`promotions/` の記録ファイルを古い順に返す。ファイル名は版の刻み（`VERSION_FORMAT`）に一致しなければ
+    ならず、一致しない yaml が 1 つでも居たら `ValueError`（無視でなく失敗＝fail closed）。
 
-    走査は `sorted(promotions/*.yaml)`（既知の欠陥をそのまま。alias 化・異物拒否は次段）。`status` の無い
-    古い記録は `approved` とみなす（後方互換）。
+    これで `sorted(glob)[-1]` を異物 yaml（例 `notes.yaml`）が乗っ取る経路を塞ぐ：時刻名は数字で始まり、
+    英字で始まる名前は ASCII で後ろに並ぶので、従来は劣る版を指す手書き yaml を 1 枚置くだけで champion を
+    奪えた。champion は「異物を無視して最新の approved」ではなく「異物があれば止まる」にする（黙って劣る版を
+    配るより、うるさく止まる方がよい）。
     """
     promo_dir = entity_dir / PROMOTIONS_DIR
     if not promo_dir.is_dir():
         return []
+    files = sorted(promo_dir.glob("*.yaml"))
+    for p in files:
+        try:
+            datetime.strptime(p.stem, VERSION_FORMAT)
+        except ValueError:
+            raise ValueError(
+                f"{label}: promotions/ に版の刻み（{VERSION_FORMAT}）でない yaml がある: {p.name}"
+            ) from None
+    return files
+
+
+def _approved_records(entity_dir: Path, *, label: str) -> list[tuple[str, dict[str, object]]]:
+    """`approved` の記録を（ファイル名, 記録）で古い順に返す。`rejected` は champion に効かないので除く。
+
+    走査は `_promotion_files`（版の刻みでない yaml は `ValueError`）。`status` の無い古い記録は `approved` と
+    みなす（後方互換）。
+    """
     out: list[tuple[str, dict[str, object]]] = []
-    for p in sorted(promo_dir.glob("*.yaml")):
+    for p in _promotion_files(entity_dir, label=label):
         rec = storage.read_manifest(p)
         if rec.get("status", STATUS_APPROVED) == STATUS_APPROVED:
             out.append((p.name, rec))
@@ -88,7 +110,7 @@ def champion_record(entity_dir: Path, *, label: str) -> tuple[str, dict[str, obj
 
     `label` は例外メッセージに出す識別子（呼び手が `f"{work}/{name}"` などを渡す）。
     """
-    records = _approved_records(entity_dir)
+    records = _approved_records(entity_dir, label=label)
     if not records:
         return None
     filename, rec = records[-1]
@@ -104,12 +126,13 @@ def champion_version(entity_dir: Path, *, label: str) -> str | None:
     return str(cr[1]["version"]) if cr is not None else None
 
 
-def history(entity_dir: Path) -> list[dict[str, object]]:
-    """`promotions/` の記録を古い順にすべて返す（昇格も却下も切り戻しも。監査・履歴表示用）。"""
-    promo_dir = entity_dir / PROMOTIONS_DIR
-    if not promo_dir.is_dir():
-        return []
-    return [storage.read_manifest(p) for p in sorted(promo_dir.glob("*.yaml"))]
+def history(entity_dir: Path, *, label: str) -> list[dict[str, object]]:
+    """`promotions/` の記録を古い順にすべて返す（昇格も却下も切り戻しも。監査・履歴表示用）。
+
+    走査は `_promotion_files`（版の刻みでない yaml は `ValueError`）。履歴表示でも異物 yaml があれば黙って
+    混ぜず止める（champion の解決と同じ規則を共有する）。
+    """
+    return [storage.read_manifest(p) for p in _promotion_files(entity_dir, label=label)]
 
 
 def _version_metrics(entity_dir: Path, version: str) -> dict[str, float]:

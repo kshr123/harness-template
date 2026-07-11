@@ -1,7 +1,7 @@
 ---
 id: EP-33
 kind: epic
-status: todo
+status: done
 plan: detailed
 requirements: [REQ-001]
 depends_on: []

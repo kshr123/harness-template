@@ -185,6 +185,26 @@ def test_ds_rollback_without_champion_is_rejected(
         model_store.rollback_model(proj.root, work="E-0001", name="m", reason="戻す")
 
 
+def test_ds_foreign_yaml_in_promotions_fails_closed(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # v1 を champion にした後、時刻名でない手書き yaml（notes.yaml）を promotions/ に置く。英字名は ASCII で
+    # 時刻名（数字始まり）の後ろに並ぶので、従来は sorted(glob)[-1] がこれを拾い劣る版を配れた。今は
+    # champion 解決も履歴も ValueError で止まる（黙って混ぜず、うるさく失敗する）。
+    _increasing(monkeypatch, model_store)
+    proj = make_project()
+    v1 = _save_ds(proj, roc_auc=0.85)
+    _promote_ds(proj, v1)
+    assert _champion_ds(proj).version == v1
+    (model_store._model_dir(proj.root, work="E-0001", name="m") / "promotions" / "notes.yaml").write_text(
+        f"version: {v1}\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError):
+        _champion_ds(proj)
+    with pytest.raises(ValueError):
+        model_store.promotions(proj.root, work="E-0001", name="m")
+
+
 # --- agent プロファイル（薄いラッパを独立に固定する） ---
 
 
@@ -230,3 +250,20 @@ def test_agent_second_rollback_has_no_target(make_project: Callable[..., Any], m
     agent_store.rollback_agent(proj.root, work="E-9001", name="helper", reason="1 回目")
     with pytest.raises(ValueError):
         agent_store.rollback_agent(proj.root, work="E-9001", name="helper", reason="2 回目")
+
+
+def test_agent_foreign_yaml_in_promotions_fails_closed(
+    make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ds と同じ穴を agent の薄いラッパでも塞げていることを固定する（中核 promotion を共有するが呼び手は別）。
+    _increasing(monkeypatch, agent_store)
+    proj = make_project()
+    v1 = _save_agent(proj, exact_match=0.60)
+    _promote_agent(proj, v1)
+    (agent_store._agent_dir(proj.root, work="E-9001", name="helper") / "promotions" / "notes.yaml").write_text(
+        f"version: {v1}\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError):
+        agent_store.champion(proj.root, work="E-9001", name="helper")
+    with pytest.raises(ValueError):
+        agent_store.promotions(proj.root, work="E-9001", name="helper")

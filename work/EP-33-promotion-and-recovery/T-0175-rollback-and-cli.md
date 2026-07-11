@@ -1,11 +1,17 @@
 ---
 id: T-0175
 kind: task
-status: todo
+status: done
 title: 切り戻し（rollback）と昇格 CLI を揃える（ds 側に promote/champion が無い非対称の解消）
 created: 2026-07-10
-depends_on: [T-0174]
-verified_by: []
+closed: 2026-07-11
+depends_on: [T-0173]
+verified_by:
+  - tests/test_promotion_rollback.py::test_ds_rollback_restores_worse_previous_champion_without_a_gate
+  - tests/test_promotion_rollback.py::test_ds_promote_after_rollback_still_obeys_the_gate
+  - tests/test_promotion_rollback.py::test_ds_second_rollback_has_no_target_and_does_not_ping_pong
+  - tests/test_promotion_rollback.py::test_ds_rejected_promotion_is_recorded_but_champion_does_not_move
+  - tests/test_promotion_rollback.py::test_agent_rollback_restores_worse_previous_champion_without_a_gate
 ---
 # T-0175 切り戻しと CLI
 

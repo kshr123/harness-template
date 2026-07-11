@@ -255,4 +255,4 @@ def rollback_agent(root: Path, *, work: str, name: str, reason: str) -> AgentPro
 
 def promotions(root: Path, *, work: str, name: str) -> list[dict[str, object]]:
     """昇格・却下・切り戻しの記録を古い順に返す（監査・履歴表示用。中核 promotion.history）。"""
-    return promotion.history(_agent_dir(root, work=work, name=name))
+    return promotion.history(_agent_dir(root, work=work, name=name), label=f"{work}/{name}")
