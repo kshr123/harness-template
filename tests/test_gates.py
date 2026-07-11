@@ -191,6 +191,29 @@ def test_evaluate_rejects_an_unknown_gate_kind() -> None:
         gates.evaluate(_ctx({"score": 0.9}), [{"kind": "nope", "metric": "score", "limit": 0.1}])
 
 
+def test_evaluate_zero_specs_is_approved_but_not_judged() -> None:
+    # 判定 0 件は all([])=True で approved に見えるが、judged=False で「判定していない」と区別できる（T-0199）。
+    decision = gates.evaluate(_ctx({"score": 0.9}), [])
+    assert decision.approved is True  # 後方互換（探索の passes(x, {}) は True のまま）
+    assert decision.judged is False  # だが 1 件も判定していない
+    assert decision.first_promotion is False  # 初回昇格の緩和も効いていない
+
+
+def test_evaluate_first_promotion_is_named_when_no_baseline() -> None:
+    # baseline（champion）が無い初回昇格では change_threshold が no_baseline を返す。その緩和を
+    # first_promotion で名指しできる（暗黙にしない・T-0199）。judged は True（1 件は下している）。
+    ctx = _ctx({"score": 0.9}, None)  # baseline なし＝初回
+    decision = gates.evaluate(ctx, [{"kind": "change_threshold", "metric": "score", "baseline": "champion"}])
+    assert decision.approved is True
+    assert decision.judged is True
+    assert decision.first_promotion is True
+    # champion がある通常昇格では first_promotion は False。
+    normal = gates.evaluate(
+        _ctx({"score": 0.9}, {"score": 0.8}), [{"kind": "change_threshold", "metric": "score", "baseline": "champion"}]
+    )
+    assert normal.first_promotion is False
+
+
 def test_evaluate_rejects_a_spec_without_a_kind() -> None:
     with pytest.raises(ValueError, match="kind"):
         gates.evaluate(_ctx({"score": 0.9}), [{"metric": "score", "limit": 0.1}])

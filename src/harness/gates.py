@@ -84,6 +84,22 @@ class PromotionDecision:
     results: tuple[GateResult, ...]
 
     @property
+    def judged(self) -> bool:
+        """判定を 1 件でも実際に下したか。`approved` は 0 件のとき `all([])=True`（合格に見える）ので、
+        「判定していない」を「合格」と区別したい呼び手はこれを見る（EP-32 T-0199）。promote 経路は必ず
+        `change_threshold` を含むので常に judged=True。空になりうるのは探索の `passes(x, {})` の側。
+        """
+        return len(self.results) > 0
+
+    @property
+    def first_promotion(self) -> bool:
+        """初回昇格（比較対象の champion が無い）だったか。改善量の判定を課さない緩和が効いた状態を、
+        監査で名指しできるようにする（緩和を暗黙にしない＝EP-32 T-0199）。`change_threshold` が
+        `no_baseline` を返したことから導く（別のフラグを二重に持たない）。
+        """
+        return any(r.reason == "no_baseline" for r in self.results)
+
+    @property
     def failures(self) -> tuple[GateResult, ...]:
         """落ちた判定だけ（全件。最初の 1 件で止めない）。"""
         return tuple(r for r in self.results if not r.passed)

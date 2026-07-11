@@ -33,7 +33,17 @@ def test_run_experiment_end_to_end() -> None:
     assert result.cv.oof_mask.all()  # OOF は全行埋まる
     # 学習可能な合成データなので AUC は 0.8 を超え、passed になる（構成から言える）。
     assert result.metrics["roc_auc"] > 0.8
-    assert result.passed
+    assert result.passed is True
+
+
+def test_run_experiment_without_thresholds_is_not_judged_not_passed() -> None:
+    # 閾値を 1 つも宣言しなければ「判定していない」＝passed は None（合格の True と区別する）。
+    # 指標だけ見る探索は正当なので ValueError にはしない（EP-32 T-0199）。
+    df = data.generate_synthetic(n=200, seed=0)
+    y = df["y"].to_numpy().astype(np.float64)
+    result = run_experiment(df, y, _estimator(), n_folds=5, seed=1, thresholds={}, stratify_by="y")
+    assert result.passed is None  # True でも False でもない＝未判定
+    assert result.metrics["roc_auc"] > 0.8  # 指標は出る（探索できる）
 
 
 def test_run_experiment_multiclass_task() -> None:

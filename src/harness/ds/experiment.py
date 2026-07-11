@@ -115,7 +115,7 @@ class ExperimentResult:
 
     folds: pl.DataFrame
     cv: CVResult
-    passed: bool
+    passed: bool | None  # True/False＝閾値で判定した結果。None＝閾値未宣言で判定していない（合格と区別する）。
 
     @property
     def metrics(self) -> dict[str, float]:
@@ -169,7 +169,10 @@ def run_experiment(
         )
         splits = fold_indices(df, folds, id_column=id_column)
     cv_result = run_cv(estimator, df, y, splits, predict=predict, metric_fn=metric_fn)
-    return ExperimentResult(folds=folds, cv=cv_result, passed=passes(cv_result.oof_metrics, dict(thresholds)))
+    # 閾値が 1 つも宣言されていなければ「判定していない」＝None（`passes({})` の True＝合格と区別する。
+    # final_eval_on_holdout と同じ流儀。指標だけ見る探索は正当なので ValueError にはしない＝EP-32 T-0199）。
+    judged = passes(cv_result.oof_metrics, dict(thresholds)) if thresholds else None
+    return ExperimentResult(folds=folds, cv=cv_result, passed=judged)
 
 
 def leaderboard(results_dir: Path, *, sort_by: str | None = None) -> pl.DataFrame:
