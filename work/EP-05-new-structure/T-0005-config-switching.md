@@ -4,7 +4,7 @@ kind: task
 status: done
 title: 置き場の切り替え設定（.harness/config.toml）
 requirements: [REQ-003]
-verified_by: [tests/test_config.py]
+verified_by: [tests/test_config.py::test_reads_file_and_layer_override]
 created: 2026-07-03
 closed: 2026-07-03
 owner: sakurada

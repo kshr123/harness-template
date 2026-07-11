@@ -5,7 +5,7 @@ status: done
 title: data monitor（配信ログ×学習基準の psi/drift 監視表・prediction monitoring の翻案）
 created: 2026-07-06
 closed: 2026-07-06
-verified_by: [tests/test_ds_monitor.py]
+verified_by: [tests/test_ds_monitor.py::test_monitor_shifted_distribution_is_alert]
 depends_on: [T-0048]
 ---
 # T-0087 data monitor

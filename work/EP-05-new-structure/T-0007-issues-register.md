@@ -4,7 +4,7 @@ kind: task
 status: done
 title: 課題の登録簿（issues/ ＋ uv run issue ＋ 整合検査）
 requirements: [REQ-003]
-verified_by: [tests/test_issues.py]
+verified_by: [tests/test_issues.py::test_open_issue_is_ok_and_appears_in_pending]
 depends_on: [T-0005, T-0006]
 created: 2026-07-03
 closed: 2026-07-03

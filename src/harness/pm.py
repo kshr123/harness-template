@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +22,9 @@ REQUIREMENTS_DIR = "docs/requirements"
 MARKER = "item.md"
 # 軽い単位のファイル名の印。EP- / T- / INV- / E- で始まる .md を単位とみなす（notes.md 等の付属ファイルと区別する）。
 UNIT_FILE = re.compile(r"^(EP|T|INV|E)-\d+.*\.md$")
-_ARTIFACT_FILES = {MARKER, "STATUS.md", "SPEC.md", "PLAN.md", "notes.md", "README.md"}
+# 単位ではない成果物（説明・SPEC・PLAN・設計メモ等）の許容ファイル名。ここにも UNIT_FILE にも一致しない
+# work/ 配下の .md は「正体不明」として work_tree_lint が error にする（黙認しない）。
+_ARTIFACT_FILES = {MARKER, "STATUS.md", "SPEC.md", "PLAN.md", "DESIGN.md", "notes.md", "README.md"}
 
 
 @dataclass
@@ -95,6 +98,123 @@ def _all_nodes(nodes: list[Node]) -> list[Node]:
     return out
 
 
+def _collectable_test_names(path: Path) -> set[str]:
+    """テストファイルを ast で解析し、pytest が nodeid で拾える名前の集合を返す。
+
+    数えるのは実際の定義だけ：(1) モジュール直下の関数定義名（`def test_x` → `"test_x"`）、
+    (2) クラス名（`"TestFoo"`）と、クラス内メソッドの `"TestFoo::test_y"` 形。
+    文字列・コメント・`# TODO: test_x を書く` のような下書きは**当たらない**（穴埋め(b) を本物にする＝
+    「実在するテスト定義」だけを実在とみなす）。パースできないファイルは空集合（別途 file 検査で拾う）。
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return set()
+    except ValueError:
+        return set()
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            names.add(node.name)
+        elif isinstance(node, ast.ClassDef):
+            names.add(node.name)
+            for sub in node.body:
+                if isinstance(sub, ast.FunctionDef | ast.AsyncFunctionDef):
+                    names.add(f"{node.name}::{sub.name}")
+    return names
+
+
+def _verified_by_problems(root: Path, item_id: str, value: str) -> list[Problem]:
+    """1 つの `verified_by` 値（例 `tests/test_x.py::test_y`）を検査する。
+
+    - `::テスト名` を必須にする。ファイル名だけの参照は「実在する無関係なファイル」でも通ってしまうため
+      error にする（申告し忘れの第 1 号を見逃さない）。
+    - 実在照合は ast（`_collectable_test_names`）で行う。`tests/test_x.py::TestClass::test_y`（クラス内
+      メソッド）にも対応する（chain を `::` で連結して照合する）。パラメータ化の `[...]` は各節から落とす。
+    """
+    problems: list[Problem] = []
+    parts = value.split("::")
+    test_file = parts[0]
+    names = parts[1:]
+    target = root / test_file
+    if not target.is_file():
+        problems.append(Problem("error", f"{item_id}: verified_by の '{test_file}' が見つからない"))
+        return problems
+    if not names:
+        problems.append(
+            Problem(
+                "error",
+                f"{item_id}: verified_by の '{value}' に ::テスト名 が無い"
+                f"（ファイル名だけでは実在照合できず、無関係なファイルでも通ってしまう）",
+            )
+        )
+        return problems
+    chain = [seg.split("[")[0].strip() for seg in names]  # パラメータ化 [..] を落として素の名前で照合
+    if any(not seg for seg in chain):
+        problems.append(Problem("error", f"{item_id}: verified_by の '{value}' のテスト名が空"))
+        return problems
+    ref = "::".join(chain)
+    if ref not in _collectable_test_names(target):
+        problems.append(
+            Problem("error", f"{item_id}: verified_by の '{value}' が {test_file} に（def として）実在しない")
+        )
+    return problems
+
+
+def _dir_is_visible(dir_path: Path, work: Path) -> bool:
+    """このディレクトリが作業単位の木に見えるか（＝item.md の鎖が work/ まで途切れずに続くか）。
+
+    `_load_dir` は work/ を起点に、item.md を持つ子ディレクトリだけを再帰する。よって work/ 自身か、
+    「item.md を持ち、かつ親も見える」ディレクトリだけが木に載る。祖先のどこかに item.md が欠けると、
+    その配下の単位は全 PM 検査から消える（不可視領域）。
+    """
+    if dir_path == work:
+        return True
+    if not (dir_path / MARKER).is_file():
+        return False
+    return _dir_is_visible(dir_path.parent, work)
+
+
+def work_tree_lint(root: Path) -> list[Problem]:
+    """`work/` 配下に「不可視領域」と「正体不明の .md」が無いか検査する（対象集合はファイルシステム）。
+
+    `pm.lint` の木は item.md を持つディレクトリしかたどらないため、item.md の無いディレクトリ配下の単位は
+    全検査から消える（verified_by の無い done も素通りする）。ここは木を使わず work/ 以下の全 .md を機械的に
+    走査し、対象集合を申告ではなくファイルシステムから導く（(b) の条件）。error は 2 種類：
+    (1) UNIT_FILE に一致する .md を含むのに item.md の鎖が途切れているディレクトリ（不可視の単位）、
+    (2) UNIT_FILE にも成果物のファイル名（`_ARTIFACT_FILES`）にも一致しない .md（正体不明を黙認しない）。
+    """
+    problems: list[Problem] = []
+    work = root / WORK_DIR
+    if not work.is_dir():
+        return problems
+    invisible_dirs: set[Path] = set()
+    for md in sorted(work.rglob("*.md")):
+        name = md.name
+        if UNIT_FILE.match(name):
+            if not _dir_is_visible(md.parent, work) and md.parent not in invisible_dirs:
+                invisible_dirs.add(md.parent)
+                rel = md.parent.relative_to(root).as_posix()
+                problems.append(
+                    Problem(
+                        "error",
+                        f"{rel}/: 作業単位（{name}）を含むのに item.md の鎖が work/ まで続かない"
+                        f"（このディレクトリの単位は全 PM 検査から不可視。祖先の各階層に item.md を置くこと）",
+                    )
+                )
+        elif name not in _ARTIFACT_FILES:
+            rel = md.relative_to(root).as_posix()
+            problems.append(
+                Problem(
+                    "error",
+                    f"{rel}: 正体不明の .md（作業単位の命名 {UNIT_FILE.pattern} にも成果物 "
+                    f"{sorted(_ARTIFACT_FILES)} にも一致しない）。単位なら正しい名前に、成果物なら "
+                    f"_ARTIFACT_FILES に加えること",
+                )
+            )
+    return problems
+
+
 def lint(root: Path) -> list[Problem]:
     """作業単位の検査。ID の重複・depends_on の指す先が無い・計画の詳しさの不整合を見る。"""
     top, problems = load_tree(root)
@@ -166,22 +286,7 @@ def lint(root: Path) -> list[Problem]:
             if not n.item.verified_by:
                 problems.append(Problem("error", f"{n.item.id}: done だが verified_by（対応するテスト）が無い"))
             for v in n.item.verified_by:
-                parts = v.split("::")
-                test_file = parts[0]
-                target = root / test_file
-                if not target.is_file():
-                    problems.append(Problem("error", f"{n.item.id}: verified_by の '{test_file}' が見つからない"))
-                    continue
-                # ::名 が付いていれば、そのテスト名がファイル本文に在ることまで確かめる（穴埋め(b)）。
-                # ファイルは在るが指すテストが無い「空振り」を防ぐ。名前だけの参照（::無し）は従来どおり許す。
-                text = target.read_text(encoding="utf-8")
-                for name in parts[1:]:
-                    base = name.split("[")[0].strip()  # パラメータ化の [..] を落として素の名前で照合
-                    # 単語境界で照合する（test_a が test_answer を含むファイルで空振りしないように）。
-                    if base and not re.search(rf"\b{re.escape(base)}\b", text):
-                        problems.append(
-                            Problem("error", f"{n.item.id}: verified_by の '{name}' が {test_file} に見つからない")
-                        )
+                problems += _verified_by_problems(root, n.item.id, v)
 
     # 調査は done のとき、本文に「結論」の節が必須（verified_by の代わり。②自動検証）。
     for n in everything:
@@ -210,6 +315,9 @@ def lint(root: Path) -> list[Problem]:
         if n.item.plan is PlanMaturity.detailed and n.item.kind is Kind.epic and not n.children:
             problems.append(Problem("info", f"{n.item.id}: plan=detailed だが子の単位が無い（分解し忘れの可能性）"))
         # outline で子が無い＝まだ分解していないだけ。何も言わない。
+
+    # work/ の不可視領域・正体不明の .md（木をたどらずファイルシステムから対象集合を導く）。
+    problems += work_tree_lint(root)
 
     return problems
 

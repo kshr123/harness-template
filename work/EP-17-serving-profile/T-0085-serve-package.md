@@ -5,7 +5,7 @@ status: done
 title: serving プロファイル（FastAPI app・serve CLI・予測 JSONL ログ・PROFILE・serve スキル）
 created: 2026-07-06
 closed: 2026-07-06
-verified_by: [tests/test_serve_app.py, tests/test_serve_cli.py]
+verified_by: [tests/test_serve_app.py::test_health_returns_status_and_model_version, tests/test_serve_cli.py::test_serve_cli_passes_app_and_host_port_to_uvicorn]
 depends_on: [T-0048]
 ---
 # T-0085 serving プロファイル（harness.serve）

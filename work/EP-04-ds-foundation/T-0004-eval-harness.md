@@ -4,7 +4,7 @@ kind: task
 status: done
 title: 評価の仕組み（指標の算出と設定の閾値による合否）
 requirements: [REQ-002]
-verified_by: [tests/test_ds_eval.py]
+verified_by: [tests/test_ds_eval.py::test_metrics_registry_covers_classification_and_regression]
 depends_on: [T-0003]
 owner: sakurada
 ---

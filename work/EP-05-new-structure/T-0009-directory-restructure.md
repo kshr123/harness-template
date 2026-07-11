@@ -4,7 +4,7 @@ kind: task
 status: done
 title: ディレクトリ再編（1リポジトリ＝1案件：projects/ を docs/ へ）＋決定記録
 requirements: [REQ-003]
-verified_by: [tests/test_structure.py]
+verified_by: [tests/test_structure.py::test_new_structure_layout]
 depends_on: [T-0005, T-0006, T-0007, T-0008]
 created: 2026-07-03
 closed: 2026-07-03

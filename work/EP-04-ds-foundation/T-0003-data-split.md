@@ -4,7 +4,7 @@ kind: task
 status: done
 title: 合成データの生成・固定分割・データ漏れ防止テスト
 requirements: [REQ-002]
-verified_by: [tests/test_ds_data.py]
+verified_by: [tests/test_ds_data.py::test_splits_do_not_overlap_and_cover_all]
 owner: sakurada
 ---
 # T-0003 合成データの生成・固定分割・データ漏れ防止

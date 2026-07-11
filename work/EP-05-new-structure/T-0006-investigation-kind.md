@@ -4,7 +4,7 @@ kind: task
 status: done
 title: 調査の種類・作成日/完了日・結論節の検査
 requirements: [REQ-003]
-verified_by: [tests/test_pm.py]
+verified_by: [tests/test_pm.py::test_investigation_done_requires_conclusion]
 created: 2026-07-03
 closed: 2026-07-03
 owner: sakurada

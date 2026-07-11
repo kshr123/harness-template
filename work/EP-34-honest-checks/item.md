@@ -1,7 +1,7 @@
 ---
 id: EP-34
 kind: epic
-status: in-progress
+status: done
 plan: detailed
 requirements: [REQ-001]
 depends_on: []

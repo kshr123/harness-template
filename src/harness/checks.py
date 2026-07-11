@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from harness import (
+    boundary_lint,
     code_doc_lint,
     conventions,
     coverage_lint,
@@ -44,6 +45,7 @@ PM_CHECKS: list[PmCheck] = [
     coverage_lint.run_checks,
     doc_source_lint.run_checks,
     code_doc_lint.run_checks,
+    boundary_lint.run_checks,
     conventions.run_checks,
     doc_sync.run_checks,
 ]

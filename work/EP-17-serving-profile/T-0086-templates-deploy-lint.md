@@ -5,7 +5,7 @@ status: done
 title: 配信テンプレート（Dockerfile/compose/k8s）＋deploy_lint を PROFILE に配線＋doclint templates/
 created: 2026-07-06
 closed: 2026-07-06
-verified_by: [tests/test_serve_deploy_lint.py]
+verified_by: [tests/test_serve_deploy_lint.py::test_real_repo_templates_pass_clean]
 depends_on: [T-0085]
 ---
 # T-0086 配信テンプレート＋deploy_lint

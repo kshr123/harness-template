@@ -109,12 +109,153 @@ def test_verified_by_present_named_test_is_ok(tmp_path: Path) -> None:
     assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0008" in p.message]
 
 
-def test_verified_by_file_only_still_ok(tmp_path: Path) -> None:
+def test_verified_by_file_only_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # ::名 を付けずファイル全体を指す従来の書き方は、ファイルが在れば通る（強化は ::名 のときだけ）。
+    # ::テスト名 を必須化した。ファイル名だけの参照は「実在する無関係なファイル」でも通ってしまうため error。
     d: dict[str, object] = {"id": "T-0011", "kind": "task", "status": "done", "verified_by": ["tests/test_a.py"]}
     _write(tmp_path / "work" / "EP-01-foundation" / "T-0011-i.md", d)
-    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0011" in p.message]
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0011" in p.message]
+    assert any("::テスト名" in p.message for p in errors)
+
+
+def test_verified_by_unrelated_real_file_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 実在するが無関係なファイルを :: 無しで指しても、実在照合されず通ってしまう欠陥を塞ぐ（::必須で error）。
+    (tmp_path / "tests" / "test_unrelated.py").write_text("def test_other():\n    pass\n", encoding="utf-8")
+    d: dict[str, object] = {
+        "id": "T-0012",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_unrelated.py"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0012-j.md", d)
+    assert [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0012" in p.message]
+
+
+def test_verified_by_comment_only_test_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 素朴な \b名前\b の本文照合だと、コメント行だけのファイルで done が通ってしまう（実測済みの欠陥）。
+    # ast 照合なら def 定義でない名前（コメント・文字列）は当たらない＝error。
+    (tmp_path / "tests" / "test_stub.py").write_text("# TODO: test_acceptance を書く予定\n", encoding="utf-8")
+    d: dict[str, object] = {
+        "id": "T-0013",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_stub.py::test_acceptance"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0013-k.md", d)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0013" in p.message]
+    assert any("test_acceptance" in p.message for p in errors)
+
+
+def test_verified_by_string_literal_named_test_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 文字列の中にテスト名が現れるだけ（def 定義ではない）＝ast では当たらない＝error。
+    (tmp_path / "tests" / "test_str.py").write_text(
+        'NAME = "test_acceptance"\n\ndef test_real():\n    assert True\n', encoding="utf-8"
+    )
+    d: dict[str, object] = {
+        "id": "T-0014",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_str.py::test_acceptance"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0014-l.md", d)
+    assert [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0014" in p.message]
+
+
+def test_verified_by_class_method_form_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # tests/test_x.py::TestClass::test_y（クラス内メソッド）の nodeid 形にも対応する。
+    (tmp_path / "tests" / "test_cls.py").write_text(
+        "class TestGroup:\n    def test_inside(self):\n        assert True\n", encoding="utf-8"
+    )
+    d: dict[str, object] = {
+        "id": "T-0015",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_cls.py::TestGroup::test_inside"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0015-m.md", d)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0015" in p.message]
+
+
+def test_verified_by_class_method_missing_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # クラスは在るが、そのメソッドが無い（別クラスの同名メソッドもない）＝error。
+    (tmp_path / "tests" / "test_cls2.py").write_text(
+        "class TestGroup:\n    def test_inside(self):\n        assert True\n", encoding="utf-8"
+    )
+    d: dict[str, object] = {
+        "id": "T-0016",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_cls2.py::TestGroup::test_absent"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0016-n.md", d)
+    assert [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0016" in p.message]
+
+
+def test_verified_by_parametrized_id_matches_base_name(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # パラメータ化の [..] は落として素の名前で照合する（test_a[case1] → test_a）。
+    d: dict[str, object] = {
+        "id": "T-0017",
+        "kind": "task",
+        "status": "done",
+        "verified_by": ["tests/test_a.py::test_a[case1]"],
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0017-o.md", d)
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error" and "T-0017" in p.message]
+
+
+def test_work_tree_orphan_dir_hides_unit_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # item.md の無いディレクトリ配下の単位は、木をたどる pm.lint からは不可視になる（verified_by 無しの
+    # done も素通りする）。work_tree_lint はファイルシステムを走査して、この不可視領域を error にする。
+    orphan: dict[str, object] = {"id": "T-0400", "kind": "task", "status": "done"}  # verified_by 無し
+    _write(tmp_path / "work" / "EP-01-foundation" / "sub" / "T-0400-x.md", orphan)
+    errors = [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
+    assert any("item.md" in p.message and "sub" in p.message for p in errors)
+    # 統合：pm.lint 経由でも同じ error が出る（PM_CHECKS に載る）。
+    assert any("sub" in p.message for p in pm.lint(tmp_path) if p.level == "error")
+
+
+def test_work_tree_unknown_md_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 作業単位の命名にも成果物のファイル名にも一致しない .md（例 T0001.md＝ハイフン無し）＝正体不明＝error。
+    (tmp_path / "work" / "EP-01-foundation" / "T0001.md").write_text("正体不明\n", encoding="utf-8")
+    errors = [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
+    assert any("T0001.md" in p.message and "正体不明" in p.message for p in errors)
+
+
+def test_work_tree_artifact_md_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 成果物（SPEC/PLAN/DESIGN/notes/README）は許容される（黙認ではなく既知の成果物）。
+    (tmp_path / "work" / "EP-01-foundation" / "DESIGN.md").write_text("# 設計メモ\n", encoding="utf-8")
+    (tmp_path / "work" / "EP-01-foundation" / "notes.md").write_text("メモ\n", encoding="utf-8")
+    assert not [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
+
+
+def test_work_tree_nested_unit_with_item_chain_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # item.md を持つ子ディレクトリ配下の単位は見える（鎖が work/ まで続く）＝error にしない。
+    _write(
+        tmp_path / "work" / "EP-01-foundation" / "E-0009-exp" / "item.md",
+        {"id": "E-0009", "kind": "experiment", "status": "todo"},
+    )
+    _write(
+        tmp_path / "work" / "EP-01-foundation" / "E-0009-exp" / "T-0401-a.md",
+        {"id": "T-0401", "kind": "task", "status": "todo"},
+    )
+    assert not [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
+
+
+def test_work_tree_lightweight_unit_directly_in_work_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # work/ 直下の軽い単位ファイルは、work/ が木の起点なので見える＝error にしない。
+    _write(tmp_path / "work" / "T-0402-loose.md", {"id": "T-0402", "kind": "task", "status": "todo"})
+    assert not [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
 
 
 def test_experiment_done_without_results_is_error(tmp_path: Path) -> None:

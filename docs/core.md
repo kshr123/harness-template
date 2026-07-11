@@ -45,6 +45,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `coverage_lint.run_checks` | CLI コマンドの導線カバレッジ検査。スキル/正本 docs から到達できないコマンド＝error。 |
 | `doc_source_lint.run_checks` | 複製後も残る資産が `work/` の作業単位・`issues/` の課題を設計の根拠に参照していないか検査する。参照＝error。 |
 | `code_doc_lint.run_checks` | 公開モジュールが正本ドキュメント（中核＝docs/core.md・プロファイル＝docs/<名>.md）に載っているか検査する。 |
+| `boundary_lint.run_checks` | 中核（src/harness/*.py）がプロファイル（ds・serve・agent・ops）を import していないか検査する。 |
 | `conventions.run_checks` | テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。 |
 | `doc_sync.run_checks` | 中核の正本ドキュメントの自動生成節が最新か検査する。古い・マーカー異常＝error。 |
 
@@ -72,7 +73,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 
 | モジュール | 役割 |
 | --- | --- |
-| `pm.py` | `work/` の木を読んで進捗を出し、ID の重複・依存の指す先・完了と検証の結びつけを検査する |
+| `pm.py` | `work/` の木を読んで進捗を出し、ID の重複・依存の指す先・完了と検証の結びつけ（`verified_by` の `::テスト名` を必須化し ast で実在照合）・`work/` の不可視領域と正体不明の `.md` を検査する |
 | `models.py` | 作業単位（エピック・タスク・実験）の frontmatter を表す型定義。`pm.py`・`issues.py` が使う |
 | `issues.py` | 課題（不具合・リスク・疑問）の登録簿の読み込みと、作業単位との整合の検査 |
 | `config.py` | `.harness/config.toml` を読む（有効なプロファイル・データや課題の置き場） |
@@ -89,6 +90,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `doc_source_lint.py` | 複製後も残る資産（docs・src・tests・templates・skills）が一時的な単位（`work/`・`issues/`）を設計の根拠に参照していないか |
 | `code_doc_lint.py` | 公開モジュールが、対応する正本ドキュメントで触れられているか |
 | `coverage_lint.py` | CLI コマンドの使い方が、スキルか正本ドキュメントから辿れるか |
+| `boundary_lint.py` | 中核（`src/harness/*.py`）がプロファイル（ds・serve・agent・ops）を import していないか（ast・遅延 import も検出。`PM_CHECKS` に登録され verify に載る） |
 | `doc_sync.py` | この文書の自動生成節が `PM_CHECKS`・`checks.toml` の現状と一致しているか |
 | `conventions.py` | テスト規約（乱数の種・`--test` の有無・skip の理由・`subprocess` の `encoding`）を静的に検査する |
 | `commit_lint.py` | コミットメッセージの冒頭に、`work/` に実在する作業単位の ID があるか |

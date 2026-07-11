@@ -5,7 +5,7 @@ status: done
 title: ONNX 保存形式（FORMATS 条件登録・sklearn 尾部のみ変換・data formats カタログ）
 created: 2026-07-06
 closed: 2026-07-06
-verified_by: [tests/test_ds_models_onnx.py, tests/test_catalog.py]
+verified_by: [tests/test_ds_models_onnx.py::test_binary_roundtrip_matches_sklearn, tests/test_catalog.py::test_formats_have_descriptions]
 depends_on: [T-0049]
 ---
 # T-0084 ONNX 保存形式

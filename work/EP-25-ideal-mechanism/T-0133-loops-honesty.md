@@ -6,7 +6,7 @@ title: loops の正直化（死んだ語彙の削除と実態への畳み込み�
 requirements: [REQ-001]
 depends_on: [EP-23]
 verified_by:
-  - tests/test_agent_goal.py
+  - tests/test_agent_goal.py::test_stop_condition_signature_stays_agent_shaped_until_dec
   - tests/test_doclint.py::test_real_repo_docs_have_no_dead_links
 ---
 # T-0133 loops の正直化（歩く骨組み）

@@ -4,7 +4,7 @@ kind: task
 status: done
 title: テーブル定義YAML＋検証（data-lint・保存＝検証済みだけ）
 requirements: [REQ-003]
-verified_by: [tests/test_ds_schema.py]
+verified_by: [tests/test_ds_schema.py::test_load_schemas_reads_template_scope]
 depends_on: [T-0005]
 created: 2026-07-03
 closed: 2026-07-03
