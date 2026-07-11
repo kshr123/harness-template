@@ -235,7 +235,7 @@ def leaderboard(results_dir: Path, *, sort_by: str | None = None) -> pl.DataFram
 
 @dataclass(frozen=True)
 class HoldoutResult:
-    """holdout（触っていない test）での最終評価。passed は thresholds を渡したときだけ判定（無指定は None）。"""
+    """holdout（触っていない test）での最終評価。passed は閾値を渡したときだけ判定（未指定・空 {} は None）。"""
 
     metrics: dict[str, float]
     passed: bool | None = None
@@ -291,5 +291,7 @@ def final_eval_on_holdout(
     fitted = clone(estimator)
     fitted.fit(df_fit, y_fit)
     holdout_metrics = metric_fn(y_holdout, _predict(fitted, df_holdout, predict))
-    passed = passes(holdout_metrics, dict(thresholds)) if thresholds is not None else None
+    # 空の閾値（None も {} も）は「判定していない」＝None（run_experiment と同じ真偽判定に揃える。
+    # `passes({})` の True＝合格と区別する・EP-32 T-0199）。
+    passed = passes(holdout_metrics, dict(thresholds)) if thresholds else None
     return HoldoutResult(metrics=holdout_metrics, passed=passed)

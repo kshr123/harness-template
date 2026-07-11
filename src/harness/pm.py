@@ -181,27 +181,39 @@ def work_tree_lint(root: Path) -> list[Problem]:
     `pm.lint` の木は item.md を持つディレクトリしかたどらないため、item.md の無いディレクトリ配下の単位は
     全検査から消える（verified_by の無い done も素通りする）。ここは木を使わず work/ 以下の全 .md を機械的に
     走査し、対象集合を申告ではなくファイルシステムから導く（(b) の条件）。error は 2 種類：
-    (1) UNIT_FILE に一致する .md を含むのに item.md の鎖が途切れているディレクトリ（不可視の単位）、
+    (1) 単位（UNIT_FILE の軽い単位、または item.md を持つディレクトリ単位）を含むのに item.md の鎖が
+        途切れているディレクトリ（不可視の単位）、
     (2) UNIT_FILE にも成果物のファイル名（`_ARTIFACT_FILES`）にも一致しない .md（正体不明を黙認しない）。
+
+    ディレクトリ単位（`item.md`）も検査する：`_load_dir` は item.md を持つ子だけを再帰するので、途中の階層に
+    item.md が欠けると、その奥の `item.md` を持つ単位ごと不可視になる（軽い単位の取りこぼしと同じ穴。
+    item.md 自身は成果物名なので、以前は両分岐から漏れていた）。
     """
     problems: list[Problem] = []
     work = root / WORK_DIR
     if not work.is_dir():
         return problems
     invisible_dirs: set[Path] = set()
+
+    def _flag_invisible(unit_dir: Path, unit_label: str) -> None:
+        # unit_dir（この単位のあるディレクトリ）が木に載らない＝鎖が work/ まで続かないなら error。
+        if not _dir_is_visible(unit_dir, work) and unit_dir not in invisible_dirs:
+            invisible_dirs.add(unit_dir)
+            rel = unit_dir.relative_to(root).as_posix()
+            problems.append(
+                Problem(
+                    "error",
+                    f"{rel}/: 作業単位（{unit_label}）を含むのに item.md の鎖が work/ まで続かない"
+                    f"（このディレクトリの単位は全 PM 検査から不可視。祖先の各階層に item.md を置くこと）",
+                )
+            )
+
     for md in sorted(work.rglob("*.md")):
         name = md.name
-        if UNIT_FILE.match(name):
-            if not _dir_is_visible(md.parent, work) and md.parent not in invisible_dirs:
-                invisible_dirs.add(md.parent)
-                rel = md.parent.relative_to(root).as_posix()
-                problems.append(
-                    Problem(
-                        "error",
-                        f"{rel}/: 作業単位（{name}）を含むのに item.md の鎖が work/ まで続かない"
-                        f"（このディレクトリの単位は全 PM 検査から不可視。祖先の各階層に item.md を置くこと）",
-                    )
-                )
+        if name == MARKER:  # ディレクトリ単位。この dir 自身が可視か（＝item.md の鎖が続くか）を問う。
+            _flag_invisible(md.parent, MARKER)
+        elif UNIT_FILE.match(name):  # 軽い単位。置かれている dir が可視か。
+            _flag_invisible(md.parent, name)
         elif name not in _ARTIFACT_FILES:
             rel = md.relative_to(root).as_posix()
             problems.append(

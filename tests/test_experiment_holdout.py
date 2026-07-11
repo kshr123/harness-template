@@ -60,6 +60,9 @@ def test_holdout_with_inverted_rule_scores_zero() -> None:
     assert result.metrics["accuracy"] == 0.0
     assert result.metrics["roc_auc"] == 0.0
     assert result.passed is None  # thresholds を渡さなければ合否判定はしない
+    # 空の辞書 {} も「判定していない」＝None（run_experiment と同じ真偽判定。passes({})=True と区別する）。
+    empty = final_eval_on_holdout(_estimator(), df_fit, y_fit, df_hold, y_hold, thresholds={})
+    assert empty.passed is None
     gated = final_eval_on_holdout(_estimator(), df_fit, y_fit, df_hold, y_hold, thresholds={"accuracy": 0.95})
     assert gated.passed is False
 

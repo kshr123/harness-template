@@ -251,6 +251,20 @@ def test_work_tree_nested_unit_with_item_chain_is_ok(tmp_path: Path) -> None:
     assert not [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
 
 
+def test_work_tree_orphan_dir_hides_directory_unit_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # ディレクトリ単位（item.md）も、途中の階層に item.md が欠けると不可視になる（軽い単位と同じ穴）。
+    # MIDDLE に item.md が無いので、その奥の E-0009-exp/item.md（と配下）は全 PM 検査から消える。
+    _write(
+        tmp_path / "work" / "EP-01-foundation" / "MIDDLE" / "E-0009-exp" / "item.md",
+        {"id": "E-0009", "kind": "experiment", "status": "done"},  # verified_by 無しの done も消える
+    )
+    errors = [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
+    assert any("item.md" in p.message and "E-0009-exp" in p.message for p in errors)
+    # 統合：pm.lint 経由でも同じ error が出る。
+    assert any("E-0009-exp" in p.message for p in pm.lint(tmp_path) if p.level == "error")
+
+
 def test_work_tree_lightweight_unit_directly_in_work_is_ok(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # work/ 直下の軽い単位ファイルは、work/ が木の起点なので見える＝error にしない。

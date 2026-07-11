@@ -101,9 +101,13 @@ class PromotionDecision:
 
     @property
     def first_promotion(self) -> bool:
-        """初回昇格（比較対象の champion が無い）だったか。改善量の判定を課さない緩和が効いた状態を、
-        監査で名指しできるようにする（緩和を暗黙にしない＝EP-32 T-0199）。`change_threshold` が
-        `no_baseline` を返したことから導く（別のフラグを二重に持たない）。
+        """初回昇格（比較対象の champion が無い）で、改善量の判定を課さない緩和が実際に効いたか。監査で
+        名指しできるようにする（緩和を暗黙にしない＝EP-32 T-0199）。`change_threshold` が `no_baseline` を
+        返したことから導く（別のフラグを二重に持たない）。
+
+        注意：`no_baseline` は候補の未測定・非有限（not_measured / not_finite）の検査を通った後に返る。
+        つまり初回でも primary が欠けている・発散している場合は not_measured/not_finite で却下され、
+        この property は False になる。承認された昇格では正しく、却下された初回の監査ラベルとしてだけ甘い。
         """
         return any(r.reason == "no_baseline" for r in self.results)
 
