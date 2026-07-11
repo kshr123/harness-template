@@ -1,12 +1,27 @@
 ---
 id: T-0187
 kind: task
-status: todo
+status: done
 title: 決まりごとを撤回する経路を作る（追加しかできない仕組みは、効かない規則を溜める）
 created: 2026-07-10
 depends_on: []
-verified_by: []
+verified_by:
+  - tests/test_retraction_lint.py::test_residue_in_asset_is_flagged
+  - tests/test_retraction_lint.py::test_empty_retracted_is_green
+  - tests/test_retraction_lint.py::test_word_boundary_avoids_substring_false_positive
+  - tests/test_retraction_lint.py::test_allowed_places_are_not_residue
+  - tests/test_retraction_lint.py::test_empty_reason_raises
 ---
+## 実装（done）
+- 条文：AGENTS.md の原則に「決まりごとは手段＝効かない決まりごとは撤回する」を追加（撤回の是非は人・
+  記録先は docs/learnings.md・残骸は機械が検査）。
+- 検査：`src/harness/retraction_lint.py`（core・PM_CHECKS）。撤回した名前の有限一覧 `RETRACTED`（理由必須）を
+  1 か所に置き、資産（src/docs/skills/templates）に語境界一致で残れば error。名前を挙げてよいのは撤回一覧と
+  docs/learnings.md の 2 か所だけ。空一覧＝正常（緑）。掃除が済めば項目を消してよい（増える一方でない）。
+- docs/core.md にモジュール行を追加＋doc-sync で自動生成表を更新。
+- 受け入れ基準を満たす：名前を仕込むと error（実測・test_residue_in_asset_is_flagged）／空でも緑
+  （test_empty_retracted_is_green）／理由必須（test_empty_reason_raises）／語境界で部分一致を除外。
+
 # T-0187 決まりごとの撤回の経路が無い
 
 ## 何が問題か

@@ -26,6 +26,7 @@ from harness import (
     issues,
     pm,
     profiles,
+    retraction_lint,
     testing,
 )
 from harness.profiles import PmCheck
@@ -47,6 +48,7 @@ PM_CHECKS: list[PmCheck] = [
     code_doc_lint.run_checks,
     boundary_lint.run_checks,
     conventions.run_checks,
+    retraction_lint.run_checks,
     doc_sync.run_checks,
 ]
 
