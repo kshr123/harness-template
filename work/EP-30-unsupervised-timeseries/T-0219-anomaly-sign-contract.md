@@ -1,11 +1,14 @@
 ---
 id: T-0219
 kind: task
-status: todo
+status: done
 title: ANOMALY の符号契約テスト（「大きいほど異常」を全住人に強制・集合はレジストリから導出）
 created: 2026-07-11
 depends_on: [T-0180]
-verified_by: []
+verified_by:
+  - tests/test_anomaly_sign_contract.py::test_planted_outlier_is_argmax_for_every_anomaly_kind
+  - tests/test_anomaly_sign_contract.py::test_contract_would_catch_a_reversed_sign_resident
+  - tests/test_anomaly_sign_contract.py::test_b_path_encoder_shares_the_same_direction
 ---
 # T-0219 符号の契約を挙動で固定する
 

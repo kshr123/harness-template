@@ -1,11 +1,16 @@
 ---
 id: T-0220
 kind: task
-status: todo
+status: done
 title: 帰納性（inductive）を Entry の属性にし、(B) 特徴経路に method 軸を通す（直書きの除去）
 created: 2026-07-11
 depends_on: [T-0180, T-0219]
-verified_by: []
+verified_by:
+  - tests/test_inductive_contract.py::test_inductive_clusterer_predicts_new_rows
+  - tests/test_inductive_contract.py::test_inductive_anomaly_scores_new_rows
+  - tests/test_inductive_contract.py::test_b_cluster_rejects_non_inductive_method
+  - tests/test_inductive_contract.py::test_b_anomaly_rejects_non_inductive_method
+  - tests/test_inductive_contract.py::test_b_cluster_default_is_kmeans_and_transforms_new_rows
 ---
 # T-0220 (B) 経路を既存の軸へ接続する
 

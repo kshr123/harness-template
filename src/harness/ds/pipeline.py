@@ -19,7 +19,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import polars as pl
@@ -54,6 +54,9 @@ from sklearn.preprocessing import (
 from harness.ds.cv import SklearnLike
 from harness.ds.features import BLOCKS, FeatureBlock, FeaturePipeline
 from harness.registry import Entry, Registry
+
+if TYPE_CHECKING:  # 型注釈だけで使う（実体は _cluster/_anomaly_score が関数内で遅延 import＝循環を避ける）
+    from harness.ds.unsupervised import UnsupervisedEntry
 
 
 def _onehot(seed: int, **params: Any) -> object:  # noqa: ANN401  sklearn へ素通し
@@ -120,47 +123,63 @@ def _svd(seed: int, *, n_components: int, **params: Any) -> object:  # noqa: ANN
     return TruncatedSVD(n_components=n_components, random_state=seed, **params)
 
 
-def _cluster(seed: int, *, n_clusters: int, output: str = "distance", **params: Any) -> object:  # noqa: ANN401
-    """KMeans をエンコーダに（(B) 特徴量）。中央値埋め＋標準化を前置（距離ベース＝尺度を揃える）。
+def _reject_non_inductive(registry: Registry[UnsupervisedEntry], method: str, *, encoder: str) -> UnsupervisedEntry:
+    """(B) 特徴経路のエンコーダが method を受けたとき、登録情報で inductive を確かめて Entry を返す。
 
-    output="distance"（既定）＝各中心への距離 n_clusters 列（KMeans.transform 素通し・情報量が多い）。
-    output="label"＝クラスタ番号 1 列（ClusterLabel の薄い包み）。fit-on-train は run_cv の clone-per-fold で担保。
-    n_clusters 必須（既定 8 を黙って使わせない）。決定的：random_state=seed。
+    inductive=False（新規行を変換・採点できない手法）を (B) に繋ぐと、run_cv が fold の train で fit した後に
+    valid の未知行を通す段で実行時に黙って壊れる。それを実行前に kind を名指しした `ValueError` で止める
+    （fail closed）。使える kind の一覧（inductive=True だけ）を案内に載せる。
     """
-    from sklearn.cluster import KMeans
+    entry = registry.resolve(method)  # 未知 method の ValueError は Registry.resolve の 1 か所
+    if not entry.inductive:
+        usable = sorted(k for k in registry if registry[k].inductive)
+        raise ValueError(
+            f"{encoder} エンコーダに method '{method}' は使えない（inductive=False＝学習後に新規行を"
+            f"変換・採点できない）。(B) 特徴経路は fold ごとに fit → 未知行を通すため。使えるのは {usable}"
+        )
+    return entry
 
-    from harness.ds.unsupervised import ClusterLabel
 
-    steps: list[tuple[str, object]] = [
-        ("impute", SimpleImputer(strategy="median")),
-        ("scale", StandardScaler()),
-    ]
-    km = KMeans(n_clusters=n_clusters, random_state=seed, **params)
+def _cluster(seed: int, *, method: str = "kmeans", output: str = "distance", **params: Any) -> object:  # noqa: ANN401
+    """クラスタリングをエンコーダに（(B) 特徴量）。method で CLUSTERERS から工場を引く（直書きしない）。
+
+    output="distance"（既定）＝各中心への距離を列に（method の推定器が transform を持つとき＝kmeans。距離が
+    定義できない手法は fail closed）。output="label"＝クラスタ番号 1 列（ClusterLabel の薄い包み・predict を使う）。
+    method 未指定は kmeans（既存 config 互換）。inductive=False の method（hdbscan 等）は実行前に ValueError。
+    クラスタ数の指定は method の工場に依る（kmeans=n_clusters・gmm=n_components を params で渡す）。
+    fit-on-train は run_cv の clone-per-fold で担保。決定的：seed は工場に配線される。
+    """
+    from harness.ds.unsupervised import CLUSTERERS, ClusterLabel
+
+    entry = _reject_non_inductive(CLUSTERERS, method, encoder="cluster")
+    estimator = entry.factory(seed, **params)  # 前処理前置＋seed 済みの Pipeline（unsupervised.py が正本）
+    if output == "label":
+        return ClusterLabel(estimator)  # transform=predict（新規行のクラスタ番号 1 列）
     if output == "distance":
-        steps.append(("cluster", km))
-    elif output == "label":
-        steps.append(("cluster", ClusterLabel(km)))
-    else:
-        raise ValueError(f"未知の cluster output '{output}'（distance か label）")
-    return Pipeline(steps)
+        if not hasattr(estimator, "transform"):  # 中心への距離は transform を持つ手法のみ（kmeans 系）
+            raise ValueError(
+                f"cluster output='distance' は method '{method}' で使えない（transform を持たない＝"
+                "中心への距離が定義できない）。output='label' にするか、距離を持つ method を使う"
+            )
+        return estimator
+    raise ValueError(f"未知の cluster output '{output}'（distance か label）")
 
 
-def _anomaly_score(seed: int, **params: Any) -> object:  # noqa: ANN401
-    """IsolationForest の異常スコアを 1 列出すエンコーダ（(B) 特徴量・大きいほど異常）。
+def _anomaly_score(seed: int, *, method: str = "iforest", **params: Any) -> object:  # noqa: ANN401
+    """異常スコアを 1 列出すエンコーダ（(B) 特徴量・大きいほど異常）。method で ANOMALY から工場を引く。
 
-    木なので標準化は不要・中央値埋めだけ前置（NaN で落ちない）。多変量の外れ（各列は普通でも組み合わせが変な行）
-    を拾う。1 列ずつの Tukey 柵（eda.profile の n_outliers）とは役割が違う。決定的：random_state=seed。
+    符号を「大きいほど異常」に揃えるのは工場ではなく採点する側：(A) は anomaly_scores・(B) はこの
+    AnomalyScore の包み（工場は sklearn の生の向きの推定器を返すだけ）。向きの契約は
+    test_anomaly_sign_contract が全 kind に強制する。多変量の外れ（各列は普通でも組み合わせが変な行）
+    を拾う。1 列ずつの
+    Tukey 柵（eda.profile の n_outliers）とは役割が違う。method 未指定は iforest（既存 config 互換）。
+    inductive=False の method（lof の novelty=False 等）は実行前に ValueError。決定的：seed は工場に配線される。
     """
-    from sklearn.ensemble import IsolationForest
+    from harness.ds.unsupervised import ANOMALY, AnomalyScore
 
-    from harness.ds.unsupervised import AnomalyScore
-
-    return Pipeline(
-        [
-            ("impute", SimpleImputer(strategy="median")),
-            ("anomaly", AnomalyScore(IsolationForest(random_state=seed, **params))),
-        ]
-    )
+    entry = _reject_non_inductive(ANOMALY, method, encoder="anomaly_score")
+    estimator = entry.factory(seed, **params)  # 前処理前置＋seed 済みの Pipeline（unsupervised.py が正本）
+    return AnomalyScore(estimator)  # transform=符号を揃えた score_samples（新規行の異常スコア 1 列）
 
 
 def _fill_text(s: pl.Series) -> pl.Series:  # モジュール関数（lambda は pickle 不可）

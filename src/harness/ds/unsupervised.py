@@ -4,8 +4,11 @@
 - モデルは sklearn を「使う」（自作ゼロ）。工場は seed 配線と前処理前置（中央値埋め＋標準化）だけ焼く。
 - 特徴量用途 (B)（クラスタ番号・異常スコア・圧縮成分を下流モデルの入力にする）は ENCODERS 側（fit-on-train は
   run_cv の clone-per-fold で担保）。ここ (A) は記述的で全データに当てる（結論を学習に戻さないこと）。
-- CLUSTERERS/DIMRED/ANOMALY は config の種ではなく関数の method 引数＋CLI（`data cluster/embed/anomaly`）で選ぶ。
-  transform 不可の手法（t-SNE・HDBSCAN）は ENCODERS に登録しない＝(B) に構造上載らない（(A) 専用）。
+- CLUSTERERS/DIMRED/ANOMALY は (A) 探索では関数の method 引数＋CLI（`data cluster/embed/anomaly`）で選ぶ。
+  (B) 特徴経路では encode 節の method で `pipeline._cluster`／`_anomaly_score` が同じレジストリから引く。
+- 新規行を変換・採点できるか（帰納的か）は `UnsupervisedEntry.inductive` に登録情報として持つ。非帰納の手法
+  （t-SNE・HDBSCAN・LOF の novelty=False）を (B) に指定すると、実行前に登録情報から `ValueError` で止める
+  （保証段階は (b)：構造で不可能にするのではなく、登録から導いた inductive を実行前に検査して落とす）。
 """
 
 from __future__ import annotations
@@ -21,6 +24,21 @@ from numpy.typing import NDArray
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from harness.registry import Entry, Registry
+
+
+@dataclass(frozen=True, kw_only=True)
+class UnsupervisedEntry(Entry):
+    """教師なしレジストリ（CLUSTERERS/DIMRED/ANOMALY）の 1 項目。`inductive` を登録情報として持つ。
+
+    inductive：学習後に「学習に使っていない新規行」を変換・採点できるか。(B) 特徴経路は cross-validation で
+    fold ごとに fit → 未知行を transform/predict/score するので、inductive=False の手法（hdbscan・sklearn の
+    tsne・lof の novelty=False）を (B) に繋ぐと実行時に黙って壊れる。この属性を持たせて接続を実行前に
+    `ValueError` で止める（fail closed）。**属性の真偽は挙動で検証する**（帰納性テストが登録から導いた全
+    inductive=True の kind に新規行を通す＝申告漏れも嘘の申告も住人が増えた瞬間に検査対象になる。L-021）。
+    """
+
+    inductive: bool
+
 
 # --- (B) 特徴量用途の薄い包み（sklearn に無い隙間だけの「作る」側） ---
 # 工場（_cluster/_anomaly_score）は他のエンコーダと同じく pipeline.py に置き、この 2 クラスだけを import する。
@@ -128,11 +146,12 @@ def _hdbscan(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受け�
     )
 
 
-# method 名 → クラスタリングの工場（前処理前置＋seed）。t-SNE/HDBSCAN は transform 不可＝ENCODERS に載せない。
-CLUSTERERS: Registry[Entry] = Registry("クラスタリング method", catalog="data unsupervised")
-CLUSTERERS.register("kmeans", _kmeans)
-CLUSTERERS.register("gmm", _gmm)
-CLUSTERERS.register("hdbscan", _hdbscan)
+# method 名 → クラスタリングの工場（前処理前置＋seed）。inductive は新規行に predict できるか（(B) に載るか）。
+# kmeans/gmm は predict を持つ＝帰納的。hdbscan は fit_predict のみ＝(A) 専用（(B) に繋ぐと黙って壊れる）。
+CLUSTERERS: Registry[UnsupervisedEntry] = Registry("クラスタリング method", catalog="data unsupervised")
+CLUSTERERS.register("kmeans", _kmeans, entry_cls=UnsupervisedEntry, inductive=True)
+CLUSTERERS.register("gmm", _gmm, entry_cls=UnsupervisedEntry, inductive=True)
+CLUSTERERS.register("hdbscan", _hdbscan, entry_cls=UnsupervisedEntry, inductive=False)
 
 # クラスタ数を指定する手法だけの「--k → sklearn の引数名」対応（hdbscan は k 不要＝載せない）。
 PARAM_FOR_K: dict[str, str] = {"kmeans": "n_clusters", "gmm": "n_components"}
@@ -299,10 +318,11 @@ def _tsne(seed: int, *, n_components: int = 2, **params: Any) -> Any:  # noqa: A
     )
 
 
-# method 名 → 2D 埋め込みの工場。tsne は transform 不可＝ENCODERS に載せない（(A) 専用）。
-DIMRED: Registry[Entry] = Registry("次元圧縮 method", catalog="data unsupervised")
-DIMRED.register("pca", _pca_embed)
-DIMRED.register("tsne", _tsne)
+# method 名 → 2D 埋め込みの工場。inductive は新規行を transform できるか。pca は帰納的・sklearn の tsne は
+# transform を持たない＝(A) 専用（新規行を埋め込めない）。帰納的な非線形埋め込みは openTSNE/umap（T-0222）。
+DIMRED: Registry[UnsupervisedEntry] = Registry("次元圧縮 method", catalog="data unsupervised")
+DIMRED.register("pca", _pca_embed, entry_cls=UnsupervisedEntry, inductive=True)
+DIMRED.register("tsne", _tsne, entry_cls=UnsupervisedEntry, inductive=False)
 
 
 @dataclass(frozen=True)
@@ -395,10 +415,11 @@ def _lof(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受けて捨
     )
 
 
-# method 名 → 異常検知の工場。lof は novelty=False＝新規行に score できず (A) 専用（ENCODERS には iforest だけ）。
-ANOMALY: Registry[Entry] = Registry("異常検知 method", catalog="data unsupervised")
-ANOMALY.register("iforest", _iforest)
-ANOMALY.register("lof", _lof)
+# method 名 → 異常検知の工場。inductive は新規行を score できるか。iforest は score_samples を持つ＝帰納的。
+# lof は novelty=False＝学習データの外れ度しか出せない＝(A) 専用（帰納的な LOF は lof_novelty・T-0221）。
+ANOMALY: Registry[UnsupervisedEntry] = Registry("異常検知 method", catalog="data unsupervised")
+ANOMALY.register("iforest", _iforest, entry_cls=UnsupervisedEntry, inductive=True)
+ANOMALY.register("lof", _lof, entry_cls=UnsupervisedEntry, inductive=False)
 
 
 @dataclass(frozen=True)
