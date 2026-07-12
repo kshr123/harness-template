@@ -50,6 +50,9 @@ PSIS-LOO では決められず、共通のホールドアウトで事後予測�
 - `store.py` … InferenceData の保存・読込（`save_inference`／`load_inference`）。正本は netCDF（点推定へ潰さない）。
   保存の 4 作法は `harness.storage` を使い、manifest の `format` で分岐（拡張ポイント・今は netcdf のみ）。
   load は sha256 指紋を照合してから読む（改変・破損は fail closed で拒否）。
+- `ppc.py` … 事前・事後予測検査のレジストリ `PPC_CHECKS`（coverage_90＝観測が事後予測の 90% 区間に入る割合）。
+  `sample_posterior_predictive`／`sample_prior_predictive` で予測を生成し、`assess_ppc` が既存の
+  `gates.value_threshold` で判定（新 gate kind なし・下限で自信過剰を止める）。
 
 ## 3.14 での依存（2026-07-13 実測）
 pymc 6.1.0・nutpie 0.16.11・arviz 1.2.0・pytensor 3.1.3 が 3.14 で動く（import・サンプリング・診断・netCDF

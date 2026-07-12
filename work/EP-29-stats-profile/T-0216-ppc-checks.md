@@ -1,11 +1,15 @@
 ---
 id: T-0216
 kind: task
-status: todo
+status: done
 title: 事前・事後予測検査（PPC_CHECKS）を足す（指標×閾値×向きの形に落とす）
 created: 2026-07-11
 depends_on: [T-0214]
-verified_by: []
+verified_by:
+  - tests/test_stats_ppc.py::test_ppc_directions_declared
+  - tests/test_stats_ppc.py::test_coverage_near_nominal_for_correct_model
+  - tests/test_stats_ppc.py::test_assess_ppc_fails_impossible_threshold
+  - tests/test_stats_ppc.py::test_compute_ppc_without_posterior_predictive_raises
 ---
 # T-0216 予測検査（prior / posterior predictive check）
 
