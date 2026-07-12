@@ -24,6 +24,9 @@ _DS_TEST_GLOBS = (
     "test_properties.py",
     "test_unsupervised.py",
     "test_storage.py",
+    "test_anomaly_sign_contract.py",  # EP-30：異常スコアの符号契約（polars/sklearn を import）
+    "test_inductive_contract.py",  # EP-30：帰納性契約（harness.ds を import）
+    "test_score_file_issue.py",  # EP-37：答え合わせの CLI 統合（ds/CliRunner を import）
     # data 依存（polars/numpy）を共有する配信・昇格のテスト（serve/agent とも共有・ds を外すと収集しない）。
     "test_serve_app.py",
     "test_serve_cli.py",

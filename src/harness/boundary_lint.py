@@ -30,7 +30,7 @@ from pathlib import Path
 from harness import pm
 
 # プロファイルのディレクトリ名（`src/harness/<name>/`）。中核がこれらを import してはいけない。
-_PROFILES = ("ds", "serve", "agent", "ops")
+_PROFILES = ("ds", "serve", "agent", "ops", "stats")
 
 # 免除リスト：(中核モジュールのファイル名, import 先の完全修飾モジュール) → なぜ許すかの理由（空は不可）。
 # 例：("cli.py", "harness.ds")。現状は空（中核 → プロファイルの越境は 0 件）。

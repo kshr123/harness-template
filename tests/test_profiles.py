@@ -102,6 +102,20 @@ def test_ds_profile_owns_its_optional_dependency_tests() -> None:
         assert any(fnmatch.fnmatch(name, glob) for glob in ds.test_globs), name
 
 
+def test_stats_profile_shipped_and_owns_its_tests() -> None:
+    # stats プロファイルが同梱され（ソースの実在）、test_stats_*.py を所有する。profiles=[] の複製では
+    # この glob が収集除外・mypy 除外に載る（pymc を import する stats テストを素の環境から外す）。
+    root = Path(__file__).resolve().parents[1]
+    discovered = profiles.discover_profiles(root)
+    assert "harness.stats" in discovered
+    stats = discovered["harness.stats"]
+    assert stats.name == "stats"
+    assert any(fnmatch.fnmatch("test_stats_stack.py", glob) for glob in stats.test_globs)
+    # profiles=[] なら stats は無効集合に入る＝そのテストが収集・型検査から外れる対象になる。
+    disabled = {f"harness.{p.name}" for p in profiles.disabled_profiles(root, enabled=[])}
+    assert "harness.stats" in disabled
+
+
 def test_profile_test_globs_match_only_existing_files() -> None:
     # 所有 glob は実在するテストにだけ当たる（陳腐化検知：消えた/改名したテストを指す glob を error 化する）。
     tests_dir = Path(__file__).resolve().parent

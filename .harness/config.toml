@@ -2,7 +2,7 @@
 # コードは置き場の違いを意識せず、この設定だけで手元と共有先を切り替える。
 
 # 有効にするプロファイル。非 DS の案件は [] にする（または行ごと消す）＝中核のみで動く。
-profiles = ["harness.ds", "harness.serve", "harness.agent", "harness.ops"]
+profiles = ["harness.ds", "harness.serve", "harness.agent", "harness.ops", "harness.stats"]
 
 [data]
 default_backend = "local"

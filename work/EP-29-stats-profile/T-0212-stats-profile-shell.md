@@ -1,12 +1,21 @@
 ---
 id: T-0212
 kind: task
-status: todo
+status: done
 title: harness/stats プロファイルの器を作る（profile.py・docs/stats.md・テスト glob・config 並記）
 created: 2026-07-11
 depends_on: [T-0211]
-verified_by: []
+verified_by:
+  - tests/test_profiles.py::test_stats_profile_shipped_and_owns_its_tests
 ---
+## 実装（done・2026-07-13）
+- `src/harness/stats/__init__.py`（PROFILE 再輸出・重い依存を top で import しない）・`profile.py`
+  （`PROFILE = Profile(name="stats", pm_checks=(), test_globs=("test_stats_*.py",))`）。
+- `.harness/config.toml` の profiles に `harness.stats` を並記・`boundary_lint._PROFILES` に "stats" を追加
+  （中核→stats の越境を検査）。`docs/stats.md`（境界の宣言：ds と共有する/しないもの・背骨・限界）。
+- code_doc_lint は profile.py・__init__.py を要求しない（他に公開モジュールが無い＝scaffold で緑）。
+  推論コード・CLI は T-0213 以降。
+
 # T-0212 stats プロファイルの器
 
 ## 何が問題か
