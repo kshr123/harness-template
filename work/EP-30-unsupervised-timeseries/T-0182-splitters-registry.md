@@ -1,12 +1,25 @@
 ---
 id: T-0182
-kind: task
-status: todo
+kind: investigation
+status: done
 title: 時系列の分割を足すときに SPLITTERS レジストリへ移す（消費者と同時に作る）
 created: 2026-07-10
 depends_on: []
 verified_by: []
 ---
+## 結論（2026-07-13）：今は作らない（消費者が居ない＝見送り）
+このタスクは「本物の消費者（purged/embargo つき時系列分割）が来て初めて分割器を選ぶ軸に意味が出る」と自ら
+条件づけている。その消費者が今の EP-30 には無い：
+- purged/embargo は実装しない（消費者無し・fold 割当の長表への移行を伴う別作業）。
+- パネル/多系列時系列は T-0225 で見送りと決定（statsforecast 3.14 不可・多系列は ForecastLike 拡張が要る）。
+- RepeatedStratifiedKFold は「1 行が複数の valid fold に入る」＝現行の OOF 構造（1 行 1 valid fold・oof_mask）
+  を壊すので、レジストリ登録だけでは載らない（run_cv の集約の設計変更が要る・消費者も無い）。
+- 現行 `make_folds` は stratify/group の**宣言から正しい分割器を導出**しており、標準 4 種（KFold/Stratified/
+  Group/StratifiedGroup）を**誤設定リークを構造的に防ぎつつ**既に賄っている。kind 文字列の軸を今足すと、
+  この安全性と引き換えに、使う当てのない選択肢を増やすだけ（＝消費者の居ない抽象）。
+したがって SPLITTERS は見送り、purged/embargo か repeated-CV の実需要が来たときに、その設計判断（長表への
+移行・OOF 集約の変更・誤設定リーク防止の保持）と一体で別タスクにする。EP-30 item.md にも同旨を記す。
+
 # T-0182 分割器を config から選べるようにする（time_series の実需要と同時に）
 
 ## 何が問題か

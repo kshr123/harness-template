@@ -1,12 +1,21 @@
 ---
 id: T-0225
-kind: task
-status: todo
+kind: investigation
+status: done
 title: statsforecast を要する時系列（パネル・conformal 区間）の扱いを T-0188 の結論で確定する
 created: 2026-07-11
 depends_on: [T-0188, T-0224]
 verified_by: []
 ---
+## 結論（2026-07-13・実測）
+T-0188 の「環境を分ける価値なし」を受け、**パネル予測・conformal 区間は見送り**（実装しない）と決定。
+根拠（再現手順つき）は EP-30 item.md「statsforecast（パネル予測・conformal 区間）の決定（T-0225）」に集約：
+- statsforecast は 3.14 で依然不可（scipy<1.16 固定・再測定）。
+- 代替 mlforecast 1.1.0／skforecast 0.23.0 は 3.14 で import 可だが、どちらもパネル（多系列）で
+  現行 `ForecastLike`（単系列）と契約が違う。
+- 消費者（多系列予測の実需要）が無く、載せると `ForecastLike` の多系列拡張という設計判断が要るため見送り。
+  単系列の次数自動選択は auto_arima（T-0224）で賄えており当面の穴は無い。実需要が来たら別タスクで一体判断。
+
 # T-0225 環境の軸の結論待ちの部分
 
 ## 何が問題か（実測 2026-07-11・PyPI JSON 直読）

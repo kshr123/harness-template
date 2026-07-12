@@ -1,13 +1,21 @@
 ---
 id: EP-30
 kind: epic
-status: todo
-plan: outline
+status: done
+plan: detailed
 requirements: [REQ-001]
 depends_on: [EP-27]
 created: 2026-07-10
 ---
 # EP-30 教師なし・時系列の拡充（レジストリの住人を増やす）
+
+## 完了状況（2026-07-13）
+- T-0219（符号契約）・T-0220（inductive 属性化＋(B) 経路の method 軸）・T-0221（lof_novelty）・
+  T-0222（openTSNE）・T-0223（kmedoids）・T-0224（auto_arima）＝**done**（各 verify 緑＋独立レビュー反映）。
+- T-0225（statsforecast/パネル予測）＝**done（見送りの決定を記録）**。T-0182（SPLITTERS）＝**done（見送りの
+  決定を記録）**。どちらも「消費者が居ない抽象を作らない」に従い、実需要が来たら別タスクで一体判断。
+- 着手時の再測定で範囲を確定（下記「着手時の再測定」）：umap・pyod・kmodes・statsforecast は 3.14／all-extras
+  の制約で見送り、それぞれ openTSNE・lof_novelty・（数値クラスタは kmedoids）・auto_arima で代替 or 当面不要。
 
 ## 何をするか
 **訂正（独立レビュー 2026-07-10）：`CLUSTERERS`・`ANOMALY`・`DIMRED`・`TS_MODELS` は 4 つとも既に存在する**
@@ -76,6 +84,20 @@ torch 2.13 / mlforecast / skforecast / utilsforecast / prophet / pmdarima / tsfr
 - **3.14 に載る範囲**（教師なしの住人・符号の契約テスト・(B) 経路の接続）は T-0188 に依存せず進められる。
 - **statsforecast を要する時系列**だけが T-0188 の結論待ち。T-0188 が「環境を分ける価値は無い」と
   結論したら、3.14 に載る範囲で代替するか、時系列のこの部分をやらない。
+
+### statsforecast（パネル予測・conformal 区間）の決定（T-0225・2026-07-13）
+T-0188 は「環境を分ける価値なし」と結論した（環境の軸を持たない単一 venv・all-extras 要件のまま）。
+その前提で、statsforecast を要する部分の扱いを実測して確定する：
+- **statsforecast は 3.14 で依然不可**（2.0.3 が scipy<1.16 を固定し、3.14 で scipy 1.15.3 のビルドが要る・
+  2026-07-13 再測定）。パネル予測・conformal 区間・`cross_validation` はこの上に立つ。
+- **3.14 に載る代替は import できる**：mlforecast 1.1.0・skforecast 0.23.0 は 3.14 で import 成功（2026-07-13）。
+  ただしどちらも**パネル（複数系列）予測**で、現行の `ForecastLike`（単変量 fit(y)→forecast(h)）とは契約が違う。
+- **決定：パネル予測・conformal 区間は今はやらない（見送り）**。理由は 2 つ。(1) 消費者が居ない（本テンプレの
+  時系列は単系列のバックテストが対象で、複数系列の実需要が無い＝「近い作業だけ詳しく」に反する）。(2) 載せると
+  `ForecastLike` を単系列→多系列へ拡張する設計判断が要る（消費者が来てから一体で決めるべき）。単系列の
+  次数自動選択は auto_arima（T-0224・pmdarima・3.14 可）で賄えており、当面の穴は無い。
+- **再開の起点**：複数系列予測の実需要が来たら、3.14 で import 済みの mlforecast/skforecast を候補に、
+  `ForecastLike` の多系列拡張と一体で別タスクにする（statsforecast が要るなら 3.13 環境を別途）。
 
 ## 前提
 `cluster` / `anomaly_score` 列の黙った上書き（T-0180）を先に直す。列名の衝突を放置したまま
