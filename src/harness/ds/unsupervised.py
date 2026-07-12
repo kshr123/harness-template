@@ -169,7 +169,7 @@ class _MedoidLabelAdapter(BaseEstimator, ClusterMixin):  # type: ignore[misc]
 
     def predict(self, x: Any) -> NDArray[Any]:  # noqa: ANN401
         raw = np.asarray(self.estimator.predict(x))  # 近傍メドイドの行番号
-        return self.labels_[raw]  # その行のクラスタ番号（0..k-1）へ写す
+        return np.asarray(self.labels_[raw])  # その行のクラスタ番号（0..k-1）へ写す
 
 
 def _kmedoids(seed: int, *, n_clusters: int, **params: Any) -> Any:  # noqa: ANN401  optional extra

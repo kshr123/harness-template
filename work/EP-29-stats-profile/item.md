@@ -46,6 +46,17 @@ arviz 1.2.0 は pure-python。`uv pip install --dry-run pymc nutpie arviz` は 3
 T-0188（環境の軸）に依存しない。ただし netCDF 保存ライブラリ（netcdf4／h5netcdf）の 3.14 可否は
 **未確認**（T-0211 で実測して確定する）。依存の可否は日付つきの事実なので、各タスク着手時に再測定する。
 
+### T-0211 の確定（2026-07-13・実測）
+- **stack は 3.14 で動く（import だけでなく実行）**：pymc 6.1.0 の既定サンプラーと nutpie 0.16.11 の両方で
+  最小モデルの `pm.sample` が走る（r_hat・ess・divergences を arviz 1.2.0 で取得できる）。
+- **netCDF 保存は h5netcdf＋h5py が要る**：arviz の to_netcdf/from_netcdf は h5netcdf バックエンドが h5py を要求
+  （h5py 3.16.0 は 3.14 可）。extra は `h5netcdf` と `h5py` の両方を明示。
+- **all-extras と共存する（重要）**：pymc 経由の numba 0.65.1（cp314 wheel あり）が numpy を 2.4 系に固定し、
+  `uv sync --all-extras` 全体が numpy 2.4.6 に揃う。既存の全テスト・mypy・ruff は 2.4.6 で緑（型スタブ差で出た
+  3 箇所を修正）。**環境を分ける必要はない**（pyod のように 3.14 不可の numba に落ちる問題は起きない）。
+- **arviz 1.2 の LOO API 変更に注意**（T-0217 で対応）：`az.loo()` の戻りは `.elpd_loo` 属性を持たない
+  （arviz 1.x で ELPDData の形が変わった）。PSIS-LOO 比較は着手時に 1.2 の API を実測して合わせる。
+
 ## 作らないもの
 **MCMC から `MODELS` へのブリッジ**。事後分布を点推定に潰すので、保存すべきものが壊れる。橋が要るなら
 データ層に架ける。

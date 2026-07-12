@@ -378,15 +378,15 @@ def _compute_metrics(
 ) -> dict[str, float]:
     """突き合わせた予測・実績から実測指標を計算する（eval の evaluate 系へ委譲・task で分岐）。"""
     if task == "regression":
-        y_true = np.asarray(actuals, dtype=np.float64)
+        y_true_f = np.asarray(actuals, dtype=np.float64)
         y_pred = np.asarray(predictions, dtype=np.float64)
-        return ds_eval.evaluate_regression(y_true, y_pred, metrics=metrics)
-    y_true = np.asarray(actuals).astype(np.int_)
+        return ds_eval.evaluate_regression(y_true_f, y_pred, metrics=metrics)
+    y_true_i = np.asarray(actuals).astype(np.int64)  # 分類ラベルは int（回帰の float とは別変数＝型を混ぜない）
     if task == "multiclass":
         y_proba = np.asarray(predictions, dtype=np.float64)  # 各行 list[float]＝(n, n_classes)
-        return ds_eval.evaluate_multiclass(y_true, y_proba, metrics=metrics)
+        return ds_eval.evaluate_multiclass(y_true_i, y_proba, metrics=metrics)
     y_score = np.asarray(predictions, dtype=np.float64)
-    return ds_eval.evaluate(y_true, y_score, threshold=threshold, metrics=metrics)
+    return ds_eval.evaluate(y_true_i, y_score, threshold=threshold, metrics=metrics)
 
 
 # ---- 答え合わせ→課題起票（`data score --file-issue`）の内容組み立て（純関数。書き込みは CLI 側） ----

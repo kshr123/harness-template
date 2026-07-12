@@ -1,12 +1,25 @@
 ---
 id: T-0211
 kind: task
-status: todo
+status: done
 title: stats extra（pymc・nutpie・arviz）を pyproject に足し、3.14 で入ることを日付つきで確定する
 created: 2026-07-11
 depends_on: []
-verified_by: []
+verified_by:
+  - tests/test_stats_stack.py::test_stats_stack_imports
+  - tests/test_stats_stack.py::test_inference_data_netcdf_roundtrip
 ---
+## 実装（done・2026-07-13）
+- pyproject に extra `stats = [pymc>=6.0, nutpie>=0.16, arviz>=1.2, h5netcdf>=1.0, h5py>=3.0]`。netCDF 保存は
+  h5netcdf バックエンドが h5py を要求するため両方を明示（実測：h5py が無いと to_netcdf が ImportError）。
+- **all-extras 共存を確認**：pymc 経由の numba 0.65.1（cp314 wheel あり）が numpy を 2.4.6 に固定し、
+  `uv sync --all-extras` 全体が 2.4.6 に揃う。既存の全 verify（ruff・mypy・pytest）は 2.4.6 で緑（numpy 型
+  スタブ差で出た 3 箇所を修正：unsupervised.py の adapter・scoring.py の y_true 型）。環境分割は不要。
+- 実行の実測：pymc 既定サンプラー・nutpie の両方で最小モデルの pm.sample が走り、r_hat/ess/divergences を
+  arviz 1.2 で取得できる。netCDF の保存→読込一往復が値まで一致（test_stats_stack）。
+- **arviz 1.2 の API 差を記録**（T-0217 で使う）：from_dict は `{group: {var: arr}}` の入れ子・az.loo の戻りは
+  `.elpd_loo` 属性を持たない（1.x で ELPDData の形が変わった）。
+
 # T-0211 stats プロファイルの依存を optional extra にする
 
 ## 何が問題か

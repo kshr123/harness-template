@@ -51,6 +51,10 @@ serve = ["fastapi>=0.139", "uvicorn>=0.50"]
 # LLMOps プロファイル（harness.agent）。実プロバイダ（Anthropic SDK）＋配信（fastapi/uvicorn＝agent serve）。
 # verify 経路は dummy/cassette で無ネットワークのまま。導入例: uv sync --extra agent
 agent = ["anthropic>=0.40", "fastapi>=0.139", "uvicorn>=0.50"]
+# 統計モデリング（ベイズ・harness.stats プロファイル）。pymc/nutpie/arviz＋InferenceData の netCDF 保存
+# （h5netcdf＋h5py）。pymc 経由の numba 0.65（cp314 wheel あり）が numpy を 2.4 系に固定する＝all-extras 全体が
+# numpy 2.4 に揃う（2026-07-13 実測。他 extra は 2.4 で問題なし）。導入例: uv sync --extra stats
+stats = ["pymc>=6.0", "nutpie>=0.16", "arviz>=1.2", "h5netcdf>=1.0", "h5py>=3.0"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -115,7 +119,7 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 # 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
-module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*", "kmedoids.*", "openTSNE.*", "pmdarima.*"]
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*", "kmedoids.*", "openTSNE.*", "pmdarima.*", "pymc.*", "nutpie.*", "arviz.*", "pytensor.*", "h5py.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
