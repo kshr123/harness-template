@@ -38,6 +38,13 @@ PSIS-LOO が比べられるのはベイズモデル同士だけ。**ds の champ
 PSIS-LOO では決められず、共通のホールドアウトで事後予測の点要約を採点するしかない。MCMC から `MODELS` への
 ブリッジは作らない（事後分布を点推定に潰すため）。跨ぐ比較が実際に要ると分かった時点でこの判断を見直す。
 
+## コードの役割（src/harness/stats/）
+- `models.py` … ベイズモデルのレジストリ `BAYES_MODELS`（kind →「データから pm.Model を組む工場」）。
+  sklearn の MODELS と違い構築時に観測データを抱く（`(data, **params) → pm.Model`）。住人は normal_mean・linear。
+  `build_bayes_model(spec, data)` が config の model 節から 1 つ組む。
+- `sampling.py` … サンプラーのレジストリ `SAMPLERS`（nutpie＝既定・pymc）と推論の一巡 `run_inference`。
+  離散潜在があれば nutpie→pymc へ自動フォールバック（`resolve_sampler`・警告つき・fail closed）。決定性は seed。
+
 ## 3.14 での依存（2026-07-13 実測）
 pymc 6.1.0・nutpie 0.16.11・arviz 1.2.0・pytensor 3.1.3 が 3.14 で動く（import・サンプリング・診断・netCDF
 往復まで確認）。pymc 経由の numba 0.65（cp314 wheel あり）が numpy を 2.4 系に固定し、`uv sync --all-extras`

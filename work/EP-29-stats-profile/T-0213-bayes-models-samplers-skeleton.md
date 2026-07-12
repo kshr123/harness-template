@@ -1,12 +1,22 @@
 ---
 id: T-0213
 kind: task
-status: todo
+status: done
 title: BAYES_MODELS と SAMPLERS（nutpie 既定・PyMC フォールバック）で推論を一巡させる（walking skeleton）
 created: 2026-07-11
 depends_on: [T-0212]
-verified_by: []
+verified_by:
+  - tests/test_stats_inference.py::test_linear_recovers_known_coefficients
+  - tests/test_stats_inference.py::test_inference_is_deterministic
+  - tests/test_stats_inference.py::test_nutpie_falls_back_to_pymc_for_discrete_latents
+  - tests/test_stats_inference.py::test_registries_are_populated
 ---
+## 実装（done・2026-07-13）
+- models.py（BAYES_MODELS：normal_mean・linear／build_bayes_model・data→pm.Model 契約）と sampling.py
+  （SAMPLERS：nutpie 既定・pymc／run_inference／離散潜在で nutpie→pymc 自動フォールバック・警告つき）。
+- 少 draw の smoke（draws/tune=150・chains=2・~5s）で既知係数の回復・決定性・フォールバックを verify に接続。
+- docs/stats.md にコードの役割を追記（code_doc_lint）。
+
 # T-0213 宣言 → 推論 → InferenceData の最小の一巡
 
 ## 何が問題か
