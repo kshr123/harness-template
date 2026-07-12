@@ -44,6 +44,9 @@ PSIS-LOO では決められず、共通のホールドアウトで事後予測�
   `build_bayes_model(spec, data)` が config の model 節から 1 つ組む。
 - `sampling.py` … サンプラーのレジストリ `SAMPLERS`（nutpie＝既定・pymc）と推論の一巡 `run_inference`。
   離散潜在があれば nutpie→pymc へ自動フォールバック（`resolve_sampler`・警告つき・fail closed）。決定性は seed。
+- `diagnostics.py` … 収束診断のレジストリ `BAYES_DIAGNOSTICS`（r_hat・ess_bulk・divergences）と向きの表。
+  `assess_convergence(idata, thresholds)` が既存の `gates.value_threshold` で合否を出す（新 gate kind なし・
+  fail closed＝発散して非有限なら不合格）。
 
 ## 3.14 での依存（2026-07-13 実測）
 pymc 6.1.0・nutpie 0.16.11・arviz 1.2.0・pytensor 3.1.3 が 3.14 で動く（import・サンプリング・診断・netCDF

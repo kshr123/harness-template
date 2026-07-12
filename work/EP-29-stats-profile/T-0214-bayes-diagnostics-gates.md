@@ -1,12 +1,24 @@
 ---
 id: T-0214
 kind: task
-status: todo
+status: done
 title: BAYES_DIAGNOSTICS（r_hat・ess・divergences）を既存の value_threshold で判定する（新 gate kind なし）
 created: 2026-07-11
 depends_on: [T-0213]
-verified_by: []
+verified_by:
+  - tests/test_stats_diagnostics.py::test_diagnostic_directions_are_declared
+  - tests/test_stats_diagnostics.py::test_converged_model_passes_reasonable_thresholds
+  - tests/test_stats_diagnostics.py::test_impossible_ess_threshold_fails_threshold_not_met
+  - tests/test_stats_diagnostics.py::test_nonfinite_diagnostic_is_rejected_fail_closed
 ---
+## 実装（done・2026-07-13）
+- diagnostics.py：BAYES_DIAGNOSTICS（r_hat＝全変数の max・ess_bulk＝全変数の min・divergences＝総数）と
+  DiagnosticEntry.higher_is_better（r_hat/divergences=False・ess_bulk=True）。arviz 1.2 の rhat/ess は DataTree
+  なので data_vars を畳んで max/min を取る（実測で API 差を確認）。
+- assess_convergence(idata, thresholds)：診断を計算し diagnostic_directions を解決して GateContext に渡し、
+  既存 gates.value_threshold の並びで合否（**新 gate kind なし**）。fail closed＝非有限（発散）は not_finite で不合格。
+
+
 # T-0214 収束の判定を既存 gates に載せる
 
 ## 何が問題か
