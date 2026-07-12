@@ -1,11 +1,15 @@
 ---
 id: T-0215
 kind: task
-status: todo
+status: done
 title: InferenceData を manifest つきで保存・読込する（正本は netCDF・format 文字列で分岐）
 created: 2026-07-11
 depends_on: [T-0213]
-verified_by: []
+verified_by:
+  - tests/test_stats_store.py::test_save_load_roundtrip_preserves_posterior
+  - tests/test_stats_store.py::test_tampered_file_is_rejected_on_load
+  - tests/test_stats_store.py::test_version_is_not_reused
+  - tests/test_stats_store.py::test_unsupported_format_is_rejected
 ---
 # T-0215 保存の正本を InferenceData にする
 

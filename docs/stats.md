@@ -47,6 +47,9 @@ PSIS-LOO では決められず、共通のホールドアウトで事後予測�
 - `diagnostics.py` … 収束診断のレジストリ `BAYES_DIAGNOSTICS`（r_hat・ess_bulk・divergences）と向きの表。
   `assess_convergence(idata, thresholds)` が既存の `gates.value_threshold` で合否を出す（新 gate kind なし・
   fail closed＝発散して非有限なら不合格）。
+- `store.py` … InferenceData の保存・読込（`save_inference`／`load_inference`）。正本は netCDF（点推定へ潰さない）。
+  保存の 4 作法は `harness.storage` を使い、manifest の `format` で分岐（拡張ポイント・今は netcdf のみ）。
+  load は sha256 指紋を照合してから読む（改変・破損は fail closed で拒否）。
 
 ## 3.14 での依存（2026-07-13 実測）
 pymc 6.1.0・nutpie 0.16.11・arviz 1.2.0・pytensor 3.1.3 が 3.14 で動く（import・サンプリング・診断・netCDF
