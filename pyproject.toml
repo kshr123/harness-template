@@ -30,6 +30,15 @@ ds = [
 lightgbm = ["lightgbm>=4.5"]
 # 古典時系列（ARIMA/SARIMA/ETS）の別経路（forecast.py）。入れれば `data models` に [timeseries] が増える。
 statsmodels = ["statsmodels>=0.14"]
+# 次数の自動選択（auto_arima）。forecast.py の TS_MODELS に条件登録で増える。導入例: uv sync --extra ds --extra pmdarima
+pmdarima = ["pmdarima>=2.0"]
+# 帰納的な非線形埋め込み（新規行を transform できる）。DIMRED に条件登録で増える。
+# umap-learn は 3.14 で不可（pynndescent→numba/llvmlite が 3.14 の wheel を持たず、llvmlite が <3.10 に落ちる。
+# 2026-07-13 実測）。帰納的な非線形埋め込みは openTSNE で賄う。umap が要る案件は 3.13 環境で足す。
+opentsne = ["openTSNE>=1.0"]
+# クラスタリングの住人（代表点＝実データ点でクラスタを表し外れ値に頑健な kmedoids）。CLUSTERERS に条件登録で増える。
+# kmodes（カテゴリ専用）は数値中心の unsupervised.py に載らないため見送り（2026-07-13・item.md 参照）。
+kmedoids = ["kmedoids>=0.5"]
 # モデルの安全な保存形式（pickle の代替）。入れれば FORMATS に "skops" が増える（条件登録）。
 # 導入例: uv sync --extra ds --extra skops
 skops = ["skops>=0.11"]
@@ -106,7 +115,7 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 # 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
-module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*"]
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*", "kmedoids.*", "openTSNE.*", "pmdarima.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -37,17 +37,30 @@ def _one_planted_outlier(n_normal: int, seed: int) -> pl.DataFrame:
     return pl.DataFrame({"x1": x[:, 0], "x2": x[:, 1]})
 
 
-@pytest.mark.parametrize("method", sorted(unsupervised.ANOMALY))
-def test_planted_outlier_is_argmax_for_every_anomaly_kind(method: str) -> None:
-    """(A) 経路：登録済みの全 kind で、仕込んだ外れ行が最大スコアになる（符号が「大きいほど異常」に揃う）。
+# (A) 記述経路で採点できる kind＝ANOMALY から (B) 専用（novelty=True）を除いたもの（レジストリから導出）。
+_A_PATH_ANOMALY = sorted(k for k in unsupervised.ANOMALY if k not in unsupervised._ANOMALY_B_ONLY)
 
-    対象は `sorted(ANOMALY)` から導出（parametrize が住人を足すたび自動で増える）。逆符号の住人を
+
+@pytest.mark.parametrize("method", _A_PATH_ANOMALY)
+def test_planted_outlier_is_argmax_for_every_anomaly_kind(method: str) -> None:
+    """(A) 経路：採点できる全 kind で、仕込んだ外れ行が最大スコアになる（符号が「大きいほど異常」に揃う）。
+
+    対象は `sorted(ANOMALY)` から (B) 専用を引いて導出（住人を足すたび自動で増える）。逆符号の住人を
     仮登録すると、その kind でここが argmin を返して落ちる＝別の立場を挙動で検出できる。
     """
     df = _one_planted_outlier(n_normal=60, seed=0)
     report = unsupervised.anomaly_scores(df, method=method, seed=0)
     scores = report.scores.to_numpy()
     assert int(np.argmax(scores)) == _OUTLIER_ROW  # 大きいほど異常＝外れ行が最大（構成から導出）
+
+
+@pytest.mark.parametrize("method", sorted(unsupervised._ANOMALY_B_ONLY))
+def test_a_path_rejects_b_only_novelty_methods(method: str) -> None:
+    """(A) の anomaly_scores は (B) 専用（novelty=True）の kind を fail closed で拒否する（黙って学習データを
+    採点しない＝sklearn 非推奨の使い方を止める）。対象は _ANOMALY_B_ONLY から導出。"""
+    df = _one_planted_outlier(n_normal=60, seed=0)
+    with pytest.raises(ValueError, match="B.*専用|novelty"):
+        unsupervised.anomaly_scores(df, method=method, seed=0)
 
 
 def test_contract_would_catch_a_reversed_sign_resident() -> None:
@@ -70,14 +83,15 @@ _INDUCTIVE_ANOMALY = sorted(k for k in unsupervised.ANOMALY if unsupervised.ANOM
 def test_b_path_encoder_shares_the_same_direction(method: str) -> None:
     """(B) 特徴経路の `anomaly_score` エンコーダも「大きいほど異常」（(A) と (B) で意味が割れない）。
 
-    (B) に載るのは inductive=True の kind だけ（非帰納は _anomaly_score が拒否する）。対象は
-    ANOMALY の inductive 住人から導出＝新住人も自動で対象になる。fit-on-train は run_cv の
-    clone-per-fold が担保する構造なので、ここでは向きだけを見る：全データに fit → transform し、
-    仕込んだ外れ行が最大スコアの 1 列になることを確かめる。
+    (B) に載るのは inductive=True の kind だけ（非帰納は _anomaly_score が拒否する）。対象は ANOMALY の
+    inductive 住人から導出＝新住人も自動で対象になる。**faithful に novelty の使い方を再現**：正常行だけで
+    fit → **学習に使っていない** held-out（先頭が外れ）を採点し、外れ行が最大スコアになる向きを確かめる
+    （lof_novelty で学習データ自身を採点しない＝(B) の実経路と同じ fit-on-train → 未知行の採点）。
     """
-    df = _one_planted_outlier(n_normal=60, seed=0)
-    x = df.to_numpy()
+    rng = np.random.default_rng(0)
+    train = rng.normal(loc=[0.0, 0.0], scale=0.3, size=(60, 2))  # 正常行だけで fit
+    held = np.vstack([[100.0, 100.0], rng.normal(loc=[0.0, 0.0], scale=0.3, size=(5, 2))])  # 先頭が未知の外れ
     encoder: Any = pipeline._anomaly_score(seed=0, method=method)
-    scores = np.asarray(encoder.fit(x).transform(x)).ravel()
-    assert scores.shape == (df.height,)  # スコア 1 列・n 行
-    assert int(np.argmax(scores)) == _OUTLIER_ROW  # (A) と同じ向き（大きいほど異常）
+    scores = np.asarray(encoder.fit(train).transform(held)).ravel()
+    assert scores.shape == (held.shape[0],)  # スコア 1 列・held の行数
+    assert int(np.argmax(scores)) == 0  # 未知の外れ行が最大（(A) と同じ向き＝大きいほど異常）

@@ -1,12 +1,25 @@
 ---
 id: T-0221
 kind: task
-status: todo
-title: ANOMALY に住人を増やす（PyOD の条件登録・LOF の novelty=True 版・符号は包みで揃える）
+status: done
+title: ANOMALY に住人を増やす（LOF の novelty=True 版を追加・PyOD は 3.14 で見送り）
 created: 2026-07-11
 depends_on: [T-0220]
-verified_by: []
+verified_by:
+  - tests/test_ds_residents.py::test_lof_novelty_is_registered_inductive
+  - tests/test_anomaly_sign_contract.py::test_planted_outlier_is_argmax_for_every_anomaly_kind
+  - tests/test_inductive_contract.py::test_inductive_anomaly_scores_new_rows
 ---
+## 実装（done・2026-07-13）
+- `lof_novelty`（LocalOutlierFactor novelty=True・inductive=True・**(B) 専用**）を ANOMALY に追加。依存追加なし。
+  novelty=True は学習データ自身の採点が sklearn 非推奨（自己が最近傍になり密度が歪む）なので、(A) の
+  anomaly_scores は `_ANOMALY_B_ONLY` で fail closed に拒否（黙って歪んだスコアを返さない・独立レビュー H1）。
+  (A) 記述用途は既存の `lof`（novelty=False）を使う。符号は採点側 AnomalyScore が揃える（大きいほど異常）。
+- **PyOD は 3.14 で見送り**：pyod→numba が numpy<2.5 を強い、`uv sync --all-extras`（verify の要件）を壊す
+  （2026-07-13 実測。isolation では入るが all-extras で numba が 3.14 不可の 0.53.1 に落ちる）。実需要が
+  来たら 3.13 環境か numpy 固定で別途。ecod/knn の帰納的な代替は当面 lof_novelty と iforest で賄う。
+- 新住人はレジストリ駆動の符号契約（T-0219）・帰納性契約（T-0220）にテスト側変更なしで合格。
+
 # T-0221 異常検知の住人
 
 ## 何が問題か

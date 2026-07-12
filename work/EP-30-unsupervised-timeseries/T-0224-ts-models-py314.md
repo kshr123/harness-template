@@ -1,12 +1,22 @@
 ---
 id: T-0224
 kind: task
-status: todo
-title: TS_MODELS に 3.14 で入る住人を増やす（pmdarima の auto_arima 等・ForecastLike 契約のまま）
+status: done
+title: TS_MODELS に 3.14 で入る住人を増やす（pmdarima の auto_arima・ForecastLike 契約のまま）
 created: 2026-07-11
 depends_on: []
-verified_by: []
+verified_by:
+  - tests/test_forecast.py::test_auto_arima_backtest_recovers_trend
+  - tests/test_forecast.py::test_auto_arima_is_deterministic
+  - tests/test_forecast.py::test_auto_arima_hint_when_absent
 ---
+## 実装（done・2026-07-13）
+- `auto_arima`（pmdarima 2.1.1・cp314 で実ビルド＋import 成功・AIC 探索＝決定的）を TS_MODELS に条件登録。
+  ForecastLike（fit(y)→forecast(h)）に薄い包み `_PmdarimaForecaster` で載せる（`_StatsmodelsForecaster` と同型）。
+  run_forecast／make_backtest_folds／evaluate_regression にそのまま載る（評価・分割・保存を二重化しない）。
+- 未導入ヒントの正本を `_TS_EXTRA_HINT`（kind→extra）に集約し、build_ts_model と Registry.extras_hint が共用。
+- 既知の線形トレンドのバックテストで予測がトレンド近傍（許容幅つき・写経でない）・決定性・未導入ヒントを検査。
+
 # T-0224 時系列の住人（環境の軸に依存しない範囲）
 
 ## 何が問題か

@@ -37,9 +37,28 @@ created: 2026-07-10
 以上から、`DIMRED` と `ANOMALY` は「帰納的に使えるか」を `Entry` の属性として持たせ、
 使えない kind を推論経路に接続できないようにする（実行時に黙って壊れない）。
 
-### Python 3.14 で入るもの（実測）
+### Python 3.14 で入るもの（計画時の調査。**着手時の再測定で一部が崩れた**＝下記）
 umap-learn 0.5.12 / openTSNE 1.0.4 / pacmap / phate / pyod 3.6.1 / kmodes / kmedoids /
 torch 2.13 / mlforecast / skforecast / utilsforecast / prophet / pmdarima / tsfresh / chronos。
+
+### 着手時の再測定（2026-07-13・`uv sync --all-extras` を要件として）と、その結果の決定
+計画の「入る」は解決（resolve）だけの確認で、**実ビルド＋import＋all-extras 共存**は別だった（L-020）。
+- **openTSNE 1.0.4：入る**。`openTSNE.sklearn.TSNE` が sklearn 互換・`n_jobs=1`＋`random_state` で決定的・
+  新規行を transform できる（帰納的）。→ DIMRED に住人 `opentsne`（inductive=True）を追加。
+- **kmedoids 0.5.5：入る**が `predict` は**近傍メドイドの行番号**を返す（labels_ の 0..k-1 と別体系）。
+  `metric="euclidean"` で特徴データを直接扱える。→ CLUSTERERS に `kmedoids` を追加、包み
+  `_MedoidLabelAdapter` で predict を labels_ 体系へ写す（計画の主張どおり体系差が実在した）。
+- **pmdarima 2.1.1：入る**（cp314 で実ビルド＋import 成功）。auto_arima は AIC 探索＝決定的。
+  → TS_MODELS に `auto_arima` を追加（ForecastLike に薄い包み `_PmdarimaForecaster`）。
+- **umap-learn：3.14 で入らない**（計画の「入る」は誤り）。pynndescent→numba/llvmlite が 3.14 の wheel を
+  持たず、llvmlite が <3.10 専用に落ちてビルド不能。→ umap は見送り、帰納的な非線形埋め込みは openTSNE で賄う。
+- **pyod：入るが all-extras を壊す**。pyod→numba が numpy<2.5 を強い、他 extra が要する numpy 2.5 と衝突して
+  古い numba（3.14 不可）に落ちる＝`uv sync --all-extras`（verify の要件）が失敗する。→ 異常検知の帰納的な
+  住人は sklearn LOF の `lof_novelty`（novelty=True・依存追加なし）で入れ、pyod は見送り（実需要が来たら
+  3.13 環境か numpy 固定で別途）。
+- **kmodes：入るがカテゴリ専用**で、数値中心の本モジュール（数値列選択・中央値埋め＋標準化・数値の
+  レジストリ駆動テスト）に載らない。→ 見送り（カテゴリ列の配線という別の消費者が要る）。
+これらの決定は「実需要が来た分だけ住人を足す」と「着手時に実測して計画を鵜呑みにしない（L-020）」に従う。
 
 ### Python 3.14 で入らないもの（実測）
 - **statsforecast**：cp314 の wheel が無く、`scipy<1.16` を固定している（3.14 では scipy 1.15.3 に落ち、

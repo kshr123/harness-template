@@ -1,12 +1,24 @@
 ---
 id: T-0223
 kind: task
-status: todo
-title: CLUSTERERS に住人を増やす（kmedoids・kmodes の条件登録・predict の体系差を包みで吸収）
+status: done
+title: CLUSTERERS に住人を増やす（kmedoids を追加・predict の体系差を包みで吸収・kmodes は見送り）
 created: 2026-07-11
 depends_on: [T-0220]
-verified_by: []
+verified_by:
+  - tests/test_ds_residents.py::test_kmedoids_recovers_two_blobs
+  - tests/test_ds_residents.py::test_kmedoids_predict_is_remapped_to_label_system
+  - tests/test_inductive_contract.py::test_inductive_clusterer_predicts_new_rows
 ---
+## 実装（done・2026-07-13）
+- `kmedoids`（`metric="euclidean"`で特徴データを直接・inductive=True）を CLUSTERERS に条件登録。
+  **実測で計画の主張を確認**（L-020）：`predict` は近傍メドイドの**行番号**を返す（labels_ の 0..k-1 と
+  別体系）。包み `_MedoidLabelAdapter` が `labels_[生 predict]` で labels_ 体系へ写す（fit_predict/labels_ は
+  素で 0..k-1 なのでそのまま）。
+- **kmodes は見送り**：カテゴリ専用で、数値中心の本モジュール（数値列選択・中央値埋め＋標準化・数値の
+  レジストリ駆動テスト）に載らない。カテゴリ列の配線という別の消費者が要るため実需要が来てから（2026-07-13）。
+- 新住人はレジストリ駆動の帰納性契約（T-0220）にテスト側変更なしで合格。
+
 # T-0223 クラスタリングの住人
 
 ## 何が問題か

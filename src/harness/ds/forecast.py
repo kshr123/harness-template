@@ -91,16 +91,51 @@ def _ets(seed: int, **params: Any) -> ForecastLike:  # noqa: ANN401
     return _StatsmodelsForecaster(lambda y: ExponentialSmoothing(y, **params))
 
 
-# 条件登録：statsmodels が入っている環境でだけ TS_MODELS に足す（`data models` は使える語彙だけを見せる）。
-TS_MODELS: Registry[Entry] = Registry(
-    "時系列モデル",
-    catalog="data models",
-    extras_hint={"arima": "statsmodels", "sarima": "statsmodels", "ets": "statsmodels"},
-)
+@dataclass
+class _PmdarimaForecaster:
+    """pmdarima の auto_arima の薄い包み（ForecastLike）。auto_arima は探索＋最尤推定まで済ませて返すので、
+    fit(y) で auto_arima を呼び、forecast(h) で predict(h) を返す（_StatsmodelsForecaster と同型・別ライブラリ）。"""
+
+    build: Callable[[NDArray[np.float64]], Any]
+    _result: Any = field(default=None, init=False, repr=False)
+
+    def fit(self, y: NDArray[np.float64]) -> _PmdarimaForecaster:
+        self._result = self.build(np.asarray(y, dtype=np.float64))
+        return self
+
+    def forecast(self, h: int) -> NDArray[np.float64]:
+        return np.asarray(self._result.predict(h), dtype=np.float64)
+
+
+def _auto_arima(seed: int, **params: Any) -> ForecastLike:  # noqa: ANN401  seed は受けて捨てる（AIC 探索＝決定的）
+    """auto_arima（AIC で ARIMA の次数 p,d,q を自動選択）。単変量・非季節が既定。task: timeseries。
+
+    次数を人が決めなくてよいのが arima との違い。ForecastLike（fit(y)→forecast(h)）に薄く載せる（評価・分割・
+    保存は流用）。季節性は seasonal=True＋m=周期を params で。決定的（次数探索は AIC・乱数なし・2026-07-13 実測）。
+    pmdarima 未導入の環境では登録されない（条件登録）。
+    """
+    import pmdarima as pm
+
+    defaults: dict[str, Any] = {"seasonal": False, "suppress_warnings": True, "error_action": "ignore"}
+    return _PmdarimaForecaster(lambda y: pm.auto_arima(y, **{**defaults, **params}))
+
+
+# 時系列モデルの kind → 導入すべき extra（未導入で使われたときのヒント・build_ts_model と Registry の共通の正本）。
+_TS_EXTRA_HINT: dict[str, str] = {
+    "arima": "statsmodels",
+    "sarima": "statsmodels",
+    "ets": "statsmodels",
+    "auto_arima": "pmdarima",
+}
+
+# 条件登録：ライブラリが入っている環境でだけ TS_MODELS に足す（`data models` は使える語彙だけを見せる）。
+TS_MODELS: Registry[Entry] = Registry("時系列モデル", catalog="data models", extras_hint=_TS_EXTRA_HINT)
 if importlib.util.find_spec("statsmodels") is not None:
     TS_MODELS.register("arima", _arima, task="timeseries")
     TS_MODELS.register("sarima", _sarima, task="timeseries")
     TS_MODELS.register("ets", _ets, task="timeseries")
+if importlib.util.find_spec("pmdarima") is not None:
+    TS_MODELS.register("auto_arima", _auto_arima, task="timeseries")
 
 
 def build_ts_model(spec: Mapping[str, Any], *, seed: int) -> ForecastLike:
@@ -112,8 +147,9 @@ def build_ts_model(spec: Mapping[str, Any], *, seed: int) -> ForecastLike:
     # TS_MODELS は Mapping としてだけ読む（テストが未導入再現のため plain dict に monkeypatch で差し替える）。
     kind = spec.get("kind")
     if not isinstance(kind, str) or kind not in TS_MODELS:
-        absent = importlib.util.find_spec("statsmodels") is None
-        hint = "。時系列モデルは `uv sync --extra statsmodels` で使えるようになる" if absent else ""
+        extra = _TS_EXTRA_HINT.get(kind) if isinstance(kind, str) else None
+        absent = extra is not None and importlib.util.find_spec(extra) is None
+        hint = f"。'{kind}' は `uv sync --extra {extra}` で使えるようになる" if absent else ""
         raise ValueError(f"未知の時系列モデル '{kind}'（{sorted(TS_MODELS)} のいずれか）{hint}")
     params = {k: v for k, v in spec.items() if k != "kind"}
     model: ForecastLike = TS_MODELS[kind].factory(seed, **params)

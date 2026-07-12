@@ -69,7 +69,7 @@ ds プロファイルを**理解したい・拡張したいエンジニア**（�
 - `onnx_format.py` … 可搬な ONNX 保存形式（`FORMATS` の "onnx"。核 `models.py` を肥らせないため別ファイル）。
 
 **別バックボーン経路**
-- `forecast.py` … 古典時系列（ARIMA/SARIMA/ETS＝statsmodels。sklearn 経路とは別・レジストリ `TS_MODELS`）。
+- `forecast.py` … 古典時系列（ARIMA/SARIMA/ETS＝statsmodels・auto_arima＝pmdarima。sklearn 経路とは別・レジストリ `TS_MODELS`）。
 - `unsupervised.py` … 教師なし学習（次元圧縮・クラスタリング・異常検知＝`DIMRED`/`CLUSTERERS`/`ANOMALY`）。
 
 **運用・配線**

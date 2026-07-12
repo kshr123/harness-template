@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -21,7 +22,7 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 from numpy.typing import NDArray
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
 
 from harness.registry import Entry, Registry
 
@@ -146,12 +147,65 @@ def _hdbscan(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受け�
     )
 
 
+class _MedoidLabelAdapter(BaseEstimator, ClusterMixin):  # type: ignore[misc]
+    """kmedoids.KMedoids を「labels_ 体系（0..k-1）」に揃える薄い包み（predict の体系差を吸収）。
+
+    実測（2026-07-13）：kmedoids の `predict` は**近傍メドイドの行番号**を返す（labels_ の 0..k-1 とは別体系）。
+    そのまま (B) の ClusterLabel に繋ぐとクラスタ番号の意味が壊れる。fit_predict／labels_ は素で 0..k-1 なので
+    そのまま使い、predict だけ `labels_[生 predict]`（メドイドの行 → その行のクラスタ番号）で写す。
+    """
+
+    def __init__(self, estimator: Any) -> None:  # noqa: ANN401  kmedoids.KMedoids
+        self.estimator = estimator
+
+    def fit(self, x: Any, y: object = None) -> _MedoidLabelAdapter:  # noqa: ANN401
+        self.estimator.fit(x)
+        self.labels_ = np.asarray(self.estimator.labels_)  # 学習行のクラスタ番号（0..k-1）
+        self.fitted_ = True
+        return self
+
+    def fit_predict(self, x: Any, y: object = None) -> NDArray[Any]:  # noqa: ANN401
+        return self.fit(x).labels_
+
+    def predict(self, x: Any) -> NDArray[Any]:  # noqa: ANN401
+        raw = np.asarray(self.estimator.predict(x))  # 近傍メドイドの行番号
+        return self.labels_[raw]  # その行のクラスタ番号（0..k-1）へ写す
+
+
+def _kmedoids(seed: int, *, n_clusters: int, **params: Any) -> Any:  # noqa: ANN401  optional extra
+    """k-medoids（代表点＝実データ点でクラスタを表す・外れ値に頑健・(A)(B) 両用）。n_clusters 必須。
+
+    euclidean 距離で特徴データを直接扱う（metric="euclidean"）。中央値埋め＋標準化を前置。predict の体系差は
+    _MedoidLabelAdapter が labels_ 体系へ揃える。決定的：random_state=seed。kmedoids 未導入の環境では登録されない。
+    """
+    from kmedoids import KMedoids
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    km = KMedoids(n_clusters=n_clusters, metric="euclidean", random_state=seed, **params)
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("cluster", _MedoidLabelAdapter(km)),
+        ]
+    )
+
+
 # method 名 → クラスタリングの工場（前処理前置＋seed）。inductive は新規行に predict できるか（(B) に載るか）。
-# kmeans/gmm は predict を持つ＝帰納的。hdbscan は fit_predict のみ＝(A) 専用（(B) に繋ぐと黙って壊れる）。
-CLUSTERERS: Registry[UnsupervisedEntry] = Registry("クラスタリング method", catalog="data unsupervised")
+# kmeans/gmm/kmedoids は predict を持つ＝帰納的。hdbscan は fit_predict のみ＝(A) 専用（(B) に繋ぐと黙って壊れる）。
+# kmodes（カテゴリ変数向け）は数値中心の本モジュール（数値列選択・中央値埋め＋標準化）に載らないため見送り
+# （カテゴリ列の配線という別の消費者が要る・2026-07-13）。
+CLUSTERERS: Registry[UnsupervisedEntry] = Registry(
+    "クラスタリング method", catalog="data unsupervised", extras_hint={"kmedoids": "kmedoids"}
+)
 CLUSTERERS.register("kmeans", _kmeans, entry_cls=UnsupervisedEntry, inductive=True)
 CLUSTERERS.register("gmm", _gmm, entry_cls=UnsupervisedEntry, inductive=True)
 CLUSTERERS.register("hdbscan", _hdbscan, entry_cls=UnsupervisedEntry, inductive=False)
+# 条件登録：kmedoids が入っている環境でだけ CLUSTERERS に足す（カタログは使える語彙だけを見せる）。
+if importlib.util.find_spec("kmedoids") is not None:
+    CLUSTERERS.register("kmedoids", _kmedoids, entry_cls=UnsupervisedEntry, inductive=True)
 
 # クラスタ数を指定する手法だけの「--k → sklearn の引数名」対応（hdbscan は k 不要＝載せない）。
 PARAM_FOR_K: dict[str, str] = {"kmeans": "n_clusters", "gmm": "n_components"}
@@ -318,11 +372,39 @@ def _tsne(seed: int, *, n_components: int = 2, **params: Any) -> Any:  # noqa: A
     )
 
 
+def _opentsne(seed: int, *, n_components: int = 2, **params: Any) -> Any:  # noqa: ANN401  optional extra
+    """openTSNE の 2D 地図（非線形・**新規行を transform できる帰納版**・(A)(B) 両用）。中央値埋め＋標準化を前置。
+
+    sklearn の tsne（transform 無し・(A) 専用）と別 kind。決定性は random_state=seed＋n_jobs=1（並列を切る）で
+    担保（着手時に実測：n_jobs=1・同 seed で 2 回の座標が一致）。**n_jobs は 1 に固定**（params で上書きさせない＝
+    黙って非決定にしない。並列で速さが要る案件は別 kind で扱う）。openTSNE 未導入の環境では登録されない（条件登録）。
+    """
+    from openTSNE.sklearn import TSNE
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    # n_jobs=1 は params の後に置いて上書きを禁じる（決定性の要件＝黙って崩さない）。
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("embed", TSNE(n_components=n_components, random_state=seed, **{**params, "n_jobs": 1})),
+        ]
+    )
+
+
 # method 名 → 2D 埋め込みの工場。inductive は新規行を transform できるか。pca は帰納的・sklearn の tsne は
-# transform を持たない＝(A) 専用（新規行を埋め込めない）。帰納的な非線形埋め込みは openTSNE/umap（T-0222）。
-DIMRED: Registry[UnsupervisedEntry] = Registry("次元圧縮 method", catalog="data unsupervised")
+# transform を持たない＝(A) 専用。帰納的な非線形埋め込みは openTSNE（条件登録・下）。umap は 3.14 で見送り
+# （pynndescent→numba/llvmlite が 3.14 の wheel を持たない・2026-07-13 実測）。
+DIMRED: Registry[UnsupervisedEntry] = Registry(
+    "次元圧縮 method", catalog="data unsupervised", extras_hint={"opentsne": "opentsne"}
+)
 DIMRED.register("pca", _pca_embed, entry_cls=UnsupervisedEntry, inductive=True)
 DIMRED.register("tsne", _tsne, entry_cls=UnsupervisedEntry, inductive=False)
+# 条件登録：openTSNE が入っている環境でだけ DIMRED に足す（カタログは使える語彙だけを見せる）。
+if importlib.util.find_spec("openTSNE") is not None:
+    DIMRED.register("opentsne", _opentsne, entry_cls=UnsupervisedEntry, inductive=True)
 
 
 @dataclass(frozen=True)
@@ -415,11 +497,40 @@ def _lof(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受けて捨
     )
 
 
-# method 名 → 異常検知の工場。inductive は新規行を score できるか。iforest は score_samples を持つ＝帰納的。
-# lof は novelty=False＝学習データの外れ度しか出せない＝(A) 専用（帰納的な LOF は lof_novelty・T-0221）。
+def _lof_novelty(seed: int, **params: Any) -> Any:  # noqa: ANN401  seed は受けて捨てる（近傍ベース＝乱数なし）
+    """LocalOutlierFactor の帰納版（novelty=True＝学習後に**新規行**を score_samples で採点・**(B) 専用**）。
+
+    中央値埋め＋標準化を前置。novelty=True は「学習に使っていない行」を採点する用途で、**学習データ自身の
+    採点は sklearn が非推奨**（自分自身が最近傍になり密度が歪む）。だから (A) 記述用途（全データを fit して
+    その場で採点）には使わず、(A) は lof（novelty=False・negative_outlier_factor_）を使う。この kind は (B)
+    特徴経路（fold の train で fit → valid の未知行を採点）専用。符号を揃える正本は AnomalyScore（採点側で反転）。
+    """
+    from sklearn.impute import SimpleImputer
+    from sklearn.neighbors import LocalOutlierFactor
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("anomaly", LocalOutlierFactor(novelty=True, **params)),
+        ]
+    )
+
+
+# method 名 → 異常検知の工場。inductive は新規行を score できるか。iforest／lof_novelty は score_samples を持つ
+# ＝帰納的。lof は novelty=False＝学習データの外れ度しか出せない＝(A) 専用。PyOD の住人（ecod/knn 等）は 3.14 で
+# 見送り：pyod→numba が numpy<2.5 を強い、`uv sync --all-extras`（verify の要件）を壊す（2026-07-13 実測）。
 ANOMALY: Registry[UnsupervisedEntry] = Registry("異常検知 method", catalog="data unsupervised")
 ANOMALY.register("iforest", _iforest, entry_cls=UnsupervisedEntry, inductive=True)
 ANOMALY.register("lof", _lof, entry_cls=UnsupervisedEntry, inductive=False)
+ANOMALY.register("lof_novelty", _lof_novelty, entry_cls=UnsupervisedEntry, inductive=True)
+
+# (B) 専用の kind（novelty=True＝学習データ自身の採点が不正）。(A) の anomaly_scores（全データを fit して
+# その場で採点）に渡すと sklearn 非推奨の使い方になる＝黙って歪んだスコアを返すので、(A) では fail closed で拒否。
+# PARAM_FOR_K と同じ流儀（手法の既知の性質を明示列挙する有限集合。未来の不良を当てにいく無限集合ではない）。
+_ANOMALY_B_ONLY: frozenset[str] = frozenset({"lof_novelty"})
 
 
 @dataclass(frozen=True)
@@ -447,7 +558,14 @@ def anomaly_scores(
 
     sklearn の score は「大きいほど正常」なので符号反転するだけ（閾値・等級化はしない＝事実の報告）。iforest は
     score_samples、lof（novelty=False）は negative_outlier_factor_ から取る。全データに当てる探索用途。
+    novelty=True の (B) 専用 kind（lof_novelty 等）は、学習データ自身の採点が sklearn 非推奨のため fail closed で拒否
+    （黙って歪んだスコアを返さない）。それらは (B) 特徴経路（fold の train で fit → 未知行を採点）で使う。
     """
+    if method in _ANOMALY_B_ONLY:  # (B) 専用を (A) に渡した＝学習データ自身の採点になる（fail closed）
+        raise ValueError(
+            f"method '{method}' は (B) 特徴経路専用（novelty=True＝学習データ自身の採点は sklearn 非推奨）。"
+            "(A) の記述用途には lof（novelty=False）か iforest を使う"
+        )
     factory = ANOMALY.resolve(method).factory  # 未知 method の ValueError は Registry.resolve の 1 か所
     cols = list(columns) if columns is not None else df.select(cs.numeric()).columns
     x = df.select(cols).to_numpy()

@@ -1,12 +1,22 @@
 ---
 id: T-0222
 kind: task
-status: todo
-title: DIMRED に帰納的な住人を増やす（umap・openTSNE の条件登録）
+status: done
+title: DIMRED に帰納的な住人を増やす（openTSNE を追加・umap は 3.14 で見送り）
 created: 2026-07-11
 depends_on: [T-0220]
-verified_by: []
+verified_by:
+  - tests/test_ds_residents.py::test_opentsne_embed_is_deterministic
+  - tests/test_ds_residents.py::test_opentsne_is_registered_inductive
+  - tests/test_inductive_contract.py::test_inductive_dimred_transforms_new_rows
 ---
+## 実装（done・2026-07-13）
+- `opentsne`（`openTSNE.sklearn.TSNE`・inductive=True）を DIMRED に条件登録。決定性は `n_jobs=1`＋
+  `random_state=seed`（実測：同 seed で座標一致）。既存 `tsne`（sklearn・(A) 専用）とは別 kind で共存。
+- **umap は 3.14 で見送り**：計画の「入る」は誤りだった。pynndescent→numba/llvmlite が 3.14 の wheel を
+  持たず llvmlite が <3.10 に落ちてビルド不能（2026-07-13 実測）。帰納的な非線形埋め込みは openTSNE で賄う。
+- 新住人はレジストリ駆動の帰納性契約（T-0220）にテスト側変更なしで合格。
+
 # T-0222 次元圧縮の住人
 
 ## 何が問題か

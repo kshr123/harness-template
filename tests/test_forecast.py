@@ -108,4 +108,36 @@ def test_forecast_is_deterministic() -> None:
 
 @pytest.mark.unit
 def test_ts_models_registered() -> None:
-    assert set(TS_MODELS) == {"arima", "sarima", "ets"}  # all-extras 環境
+    assert set(TS_MODELS) == {"arima", "sarima", "ets", "auto_arima"}  # all-extras 環境（auto_arima=pmdarima）
+
+
+@pytest.mark.unit
+def test_auto_arima_hint_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    import harness.ds.forecast as fc
+
+    monkeypatch.setattr(fc, "TS_MODELS", {})  # 登録空＝未導入を再現
+    monkeypatch.setattr("importlib.util.find_spec", lambda name: None)  # pmdarima 不在を再現
+    with pytest.raises(ValueError, match="uv sync --extra pmdarima"):
+        fc.build_ts_model({"kind": "auto_arima"}, seed=0)
+
+
+@pytest.mark.integration
+def test_auto_arima_backtest_recovers_trend() -> None:
+    # 既知の線形トレンド（0.5*t）を auto_arima がバックテストで捉える（予測はトレンド近傍・許容幅つき）。
+    df, y = _series(80, seasonal=False)
+    res = run_forecast(df, y, {"kind": "auto_arima"}, order_by="date", horizon=6, seed=0, thresholds={})
+    assert res.mask.sum() == 6
+    valid_pred = res.preds[res.mask]
+    valid_true = y[res.mask]
+    # トレンドの傾き 0.5 に対し、6 点先の予測が実測から大きく外れない（rmse がトレンド 1 段ぶん未満）。
+    rmse = float(np.sqrt(np.mean((valid_pred - valid_true) ** 2)))
+    assert rmse < 3.0  # 0.5*t の 6 点ぶん（=3）より内側＝トレンドを捉えている（写経でない許容幅）
+
+
+@pytest.mark.integration
+def test_auto_arima_is_deterministic() -> None:
+    df, y = _series(80, seasonal=False)
+    spec = {"kind": "auto_arima"}
+    r1 = run_forecast(df, y, spec, order_by="date", horizon=6, seed=0, thresholds={})
+    r2 = run_forecast(df, y, spec, order_by="date", horizon=6, seed=0, thresholds={})
+    assert np.allclose(r1.preds, r2.preds)  # 同じ (y, seed) で同じ予測（次数探索は AIC＝乱数なし）
