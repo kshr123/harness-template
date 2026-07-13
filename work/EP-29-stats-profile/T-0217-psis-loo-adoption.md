@@ -1,11 +1,15 @@
 ---
 id: T-0217
 kind: task
-status: todo
+status: done
 title: PSIS-LOO によるモデル比較と採用（harness.promotion の作法に載せる）
 created: 2026-07-11
 depends_on: [T-0215, T-0216, T-0173, T-0174, T-0175]
-verified_by: []
+verified_by:
+  - tests/test_stats_comparison.py::test_compare_ranks_the_true_model_first
+  - tests/test_stats_comparison.py::test_adopt_first_promotes_and_sets_champion
+  - tests/test_stats_comparison.py::test_adopt_worse_model_is_rejected
+  - tests/test_stats_comparison.py::test_loo_requires_log_likelihood
 ---
 # T-0217 比較と採用（背骨の最後の 2 段）
 

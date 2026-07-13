@@ -53,6 +53,9 @@ PSIS-LOO では決められず、共通のホールドアウトで事後予測�
 - `ppc.py` … 事前・事後予測検査のレジストリ `PPC_CHECKS`（coverage_90＝観測が事後予測の 90% 区間に入る割合）。
   `sample_posterior_predictive`／`sample_prior_predictive` で予測を生成し、`assess_ppc` が既存の
   `gates.value_threshold` で判定（新 gate kind なし・下限で自信過剰を止める）。
+- `comparison.py` … PSIS-LOO 比較と採用。`loo`／`compare_models`／`select_best` でベイズモデル同士を elpd で
+  順位づけし、`adopt` が `harness.promotion.promote` に載せる（elpd_loo を primary・現 champion からの厳密改善）。
+  比べられるのはベイズモデル同士だけ（ds champion との跨ぎ比較はできない・上の「限界」節）。
 
 ## 3.14 での依存（2026-07-13 実測）
 pymc 6.1.0・nutpie 0.16.11・arviz 1.2.0・pytensor 3.1.3 が 3.14 で動く（import・サンプリング・診断・netCDF
