@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
 from harness import gates
 from harness.registry import Entry, Registry
 
@@ -24,20 +26,29 @@ class DiagnosticEntry(Entry):
     higher_is_better: bool
 
 
+def _all_values(dataset: Any) -> np.ndarray:  # noqa: ANN401  arviz/xarray Dataset(Tree)
+    """全変数の値を 1 本の配列に連結する（ベクトルパラメータの各成分も含む）。空なら NaN 1 個を返す。
+
+    **NaN を落とさない**のが肝：xarray の `.max()/.min()` は既定 skipna=True で、停止した（分散 0 の）成分の
+    NaN を黙って捨てる。それを worst-case 集約の前で捨てると、未収束のパラメータが緑で通る（gates の not_finite が
+    働く前に非有限が消える）。生の値を numpy で畳めば NaN・inf が伝播し、既存の not_finite 判定に落とせる。
+    """
+    parts = [np.asarray(dataset[var].values, dtype=float).ravel() for var in dataset.data_vars]
+    return np.concatenate(parts) if parts else np.array([float("nan")])
+
+
 def _rhat_max(idata: Any) -> float:  # noqa: ANN401  arviz.InferenceData
-    """全変数の r_hat の最大（1 に近いほど収束・大きいほど未収束）。1 つでも悪ければ拾うので max を採る。"""
+    """全変数（各成分）の r_hat の最大（1 に近いほど収束）。1 成分でも非有限なら NaN を伝播＝not_finite で不合格。"""
     import arviz as az
 
-    rhat = az.rhat(idata)
-    return max(float(rhat[var].max()) for var in rhat.data_vars)
+    return float(np.max(_all_values(az.rhat(idata))))  # np.max は NaN/inf を伝播する（skipna しない）
 
 
 def _ess_bulk_min(idata: Any) -> float:  # noqa: ANN401  arviz.InferenceData
-    """全変数の bulk 有効サンプル数の最小（分布本体の実効的な独立標本数・小さいほど信頼できない）。"""
+    """全変数（各成分）の bulk 有効標本数の最小（小さいほど信頼できない）。非有限は NaN を伝播＝not_finite で不合格。"""
     import arviz as az
 
-    ess = az.ess(idata, method="bulk")
-    return min(float(ess[var].min()) for var in ess.data_vars)
+    return float(np.min(_all_values(az.ess(idata, method="bulk"))))  # np.min も NaN/inf を伝播する
 
 
 def _divergences(idata: Any) -> float:  # noqa: ANN401  arviz.InferenceData

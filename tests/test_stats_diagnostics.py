@@ -58,6 +58,27 @@ def test_impossible_ess_threshold_fails_threshold_not_met() -> None:
     assert any(r.reason == "threshold_not_met" for r in decision.results)
 
 
+def test_stuck_parameter_makes_rhat_nonfinite_and_is_rejected() -> None:
+    """停止した（分散 0 の）成分は r_hat を NaN にする。それを worst-case 集約で伝播し、収束判定は不合格になる
+    （skipna で NaN を黙って捨てて緑で通す欠陥＝黙って未収束を出荷する、を塞ぐ・独立レビュー H1）。"""
+    import arviz as az
+
+    rng = np.random.default_rng(0)
+    # 健全な mu と、全 draw で定数の stuck（＝r_hat が NaN になる成分）を混ぜた事後。MCMC 不要（高速）。
+    # sample_stats.diverging も添える（compute_diagnostics は divergences も測るため）。
+    idata = az.from_dict(
+        {
+            "posterior": {"mu": rng.normal(size=(2, 100)), "stuck": np.ones((2, 100))},
+            "sample_stats": {"diverging": np.zeros((2, 100), dtype=bool)},
+        }
+    )
+    diag = diagnostics.compute_diagnostics(idata)
+    assert not np.isfinite(diag["r_hat"])  # NaN が集約後も残る（skipna で消えない）
+    decision = diagnostics.assess_convergence(idata, {"r_hat": 1.01})
+    assert not decision.approved
+    assert any(r.reason == "not_finite" for r in decision.results)  # 発散・停止は not_finite で止める
+
+
 def test_nonfinite_diagnostic_is_rejected_fail_closed() -> None:
     """診断が非有限（発散した版で r_hat=inf 等）なら不合格（not_finite）＝発散を昇格させない。
 

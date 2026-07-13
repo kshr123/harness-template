@@ -48,6 +48,8 @@ def _coverage(idata: Any, *, obs_name: str, lower: float, upper: float) -> float
     if not hasattr(idata, "posterior_predictive"):
         raise ValueError("posterior_predictive 群が無い（先に sample_posterior_predictive で生成する）")
     ppd = idata.posterior_predictive[obs_name]
+    if ppd.ndim != 3:  # (chain, draw, obs) の 1 次元観測だけを扱う。多次元観測は別途（黙って別物を計算しない）
+        raise ValueError(f"coverage は 1 次元観測（(chain, draw, n_obs)）のみ対応（実際の次元: {ppd.dims}）")
     samples = np.asarray(ppd.values).reshape(-1, ppd.shape[-1])  # (chain*draw, n_obs)
     obs = np.asarray(idata.observed_data[obs_name].values)  # (n_obs,)
     lo = np.quantile(samples, lower, axis=0)

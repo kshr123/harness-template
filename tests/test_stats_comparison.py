@@ -79,3 +79,35 @@ def test_compare_needs_two_models() -> None:
     _, idata = _fit(2)
     with pytest.raises(ValueError, match="2 つ以上"):
         comparison.compare_models({"only": idata})
+
+
+def test_adopt_rejects_when_observed_data_differs_from_champion(tmp_path: Path) -> None:
+    """champion と観測データが違う候補は採用しない（elpd は n 点の和で別データの比較は無意味・M1）。"""
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(80, 2))
+    y1 = 0.5 + x @ np.array([1.5, -2.0]) + rng.normal(scale=0.3, size=80)
+    m1 = models.build_bayes_model({"kind": "linear"}, {"X": x, "y": y1})
+    i1 = sampling.run_inference(m1, sampler="nutpie", draws=150, tune=150, chains=2, seed=0)
+    comparison.add_log_likelihood(m1, i1)
+    comparison.adopt(tmp_path, m1, i1, name="m", work="w", version="v1", decided="20260713T000001000000Z")
+    y2 = y1 + 5.0  # 別の観測データに当てた版（同じ指標でも比べてはいけない）
+    m2 = models.build_bayes_model({"kind": "linear"}, {"X": x, "y": y2})
+    i2 = sampling.run_inference(m2, sampler="nutpie", draws=150, tune=150, chains=2, seed=0)
+    comparison.add_log_likelihood(m2, i2)
+    with pytest.raises(ValueError, match="観測データが違う|data_fingerprint"):
+        comparison.adopt(tmp_path, m2, i2, name="m", work="w", version="v2", decided="20260713T000002000000Z")
+
+
+def test_load_champion_returns_approved_not_lexicographic_latest(tmp_path: Path) -> None:
+    """load_champion は採用済み（v1）を返す。却下された v2 が辞書順で後でも champion にはならない（M3 の穴を塞ぐ）。"""
+    full_model, full = _fit(2)
+    comparison.adopt(tmp_path, full_model, full, name="m", work="w", version="v1", decided="20260713T000001000000Z")
+    red_model, reduced = _fit(1)
+    with pytest.raises(gates.PromotionError):
+        comparison.adopt(
+            tmp_path, red_model, reduced, name="m", work="w", version="v2", decided="20260713T000002000000Z"
+        )
+    _, champ_manifest = store.load_champion(tmp_path, name="m")
+    assert champ_manifest["version"] == "v1"  # 採用済み＝v1
+    _, latest_manifest = store.load_inference(tmp_path, name="m")  # version=None＝保存の最新（却下版も含む）
+    assert latest_manifest["version"] == "v2"  # 却下だが保存はされている＝load_champion と使い分ける根拠

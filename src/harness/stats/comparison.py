@@ -17,10 +17,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from harness import promotion
+from harness.fingerprint import input_fingerprint
 from harness.stats import store
 
 PRIMARY_METRIC = "elpd_loo"  # LOO の期待対数予測密度（大きいほど良い＝予測が上手い）
+
+
+def observed_fingerprint(model: Any) -> str:  # noqa: ANN401  pm.Model
+    """モデルが抱く観測データの指紋。elpd は n 点の和なので、比較は同じ観測同士でしか意味を持たない
+    （independent レビュー M1）。champion と候補で観測が違えば採用を止めるための鍵。
+
+    観測は idata でなくモデルから取る（nutpie の InferenceData は observed_data 群を持たないため）。
+    観測名でソートした対応を指紋にする（順序に依らず同じデータなら同じ指紋）。
+    """
+    obs = {rv.name: np.asarray(model.rvs_to_values[rv].eval()).ravel().tolist() for rv in model.observed_RVs}
+    return input_fingerprint(dict(sorted(obs.items())))
 
 
 def add_log_likelihood(model: Any, idata: Any) -> Any:  # noqa: ANN401  pm.Model/InferenceData
@@ -33,13 +47,23 @@ def add_log_likelihood(model: Any, idata: Any) -> Any:  # noqa: ANN401  pm.Model
     return idata
 
 
-def loo(idata: Any) -> float:  # noqa: ANN401  arviz.InferenceData
-    """PSIS-LOO の elpd（期待対数予測密度・大きいほど良い）。log_likelihood 群が無ければ ValueError。"""
+def loo(idata: Any, *, require_reliable: bool = False) -> float:  # noqa: ANN401  arviz.InferenceData
+    """PSIS-LOO の elpd（期待対数予測密度・大きいほど良い）。log_likelihood 群が無ければ ValueError。
+
+    require_reliable=True のとき、PSIS 近似が信頼できない（Pareto k が閾値超え＝ELPDData.warning）なら ValueError。
+    採用の判断（adopt）では True にする＝当てにならない elpd で champion を差し替えない（うるさく失敗する側）。
+    """
     if not hasattr(idata, "log_likelihood"):
         raise ValueError("log_likelihood 群が無い（先に add_log_likelihood で計算する）")
     import arviz as az
 
-    return float(az.loo(idata).elpd)
+    result = az.loo(idata)
+    if require_reliable and bool(getattr(result, "warning", False)):
+        raise ValueError(
+            "PSIS-LOO が信頼できない（Pareto k が閾値超え＝elpd の推定が当てにならない）。"
+            "モデルを見直すか、より頑健な比較（refit LOO 等）を使うまで採用しない"
+        )
+    return float(result.elpd)
 
 
 def compare_models(idata_map: Mapping[str, Any]) -> Any:  # noqa: ANN401  pandas.DataFrame
@@ -77,12 +101,30 @@ def adopt(
     log_likelihood を計算 → elpd_loo を求め → InferenceData を metrics つきで保存 → promotion.promote に載せる。
     初回は baseline が無いので change_threshold は課さない（有限性は問う）。2 回目以降は現 champion からの厳密な
     改善（elpd_loo が大きくなる）を要求する。却下は promotion.gates.PromotionError（記録は rejected で残る）。
+    **同じ観測データ同士でしか比較しない**：champion と候補の観測の指紋が違えば ValueError（elpd は n 点の和で、
+    別の観測に当てた elpd を比べても意味が無い＝M1）。**信頼できない LOO では採用しない**（Pareto k 超え→ValueError）。
     """
     add_log_likelihood(model, idata)
-    elpd = loo(idata)
+    elpd = loo(idata, require_reliable=True)  # 当てにならない elpd で champion を差し替えない（M2）
+    data_fp = observed_fingerprint(model)
+    ent = store.entity_dir(root, name=name)
+    champion = promotion.champion_version(ent, label=name)
+    if champion is not None:  # 現 champion があるなら、同じ観測に当てた版だけ比較する（M1）
+        champ_manifest = store.version_manifest(root, name=name, version=champion)
+        champ_fp = champ_manifest.get("provenance", {}).get("data_fingerprint")
+        if champ_fp is not None and champ_fp != data_fp:
+            raise ValueError(
+                f"champion({champion})と候補で観測データが違う（data_fingerprint 不一致）。elpd_loo は同じ観測"
+                "同士でしか比較できない（別データの elpd を比べても意味が無い）"
+            )
     resolved_version = version if version is not None else datetime.now(UTC).strftime(store.VERSION_FORMAT)
     store.save_inference(
-        root, idata, name=name, version=resolved_version, metrics={PRIMARY_METRIC: elpd}, provenance={"work": work}
+        root,
+        idata,
+        name=name,
+        version=resolved_version,
+        metrics={PRIMARY_METRIC: elpd},
+        provenance={"work": work, "data_fingerprint": data_fp},
     )
     resolved_decided = decided if decided is not None else datetime.now(UTC).strftime(store.VERSION_FORMAT)
     return promotion.promote(

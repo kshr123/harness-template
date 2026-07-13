@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from harness import storage
+from harness import promotion, storage
 from harness.promotion import MANIFEST_FILE  # 台帳の形式を共有する（版ディレクトリの manifest.yaml＝promotion が読む）
 
 INFERENCE_FILE = "inference.nc"
@@ -76,11 +76,32 @@ def _versions(name_dir: Path) -> list[str]:
     return sorted(d.name for d in name_dir.iterdir() if d.is_dir() and (d / MANIFEST_FILE).is_file())
 
 
-def load_inference(root: Path, *, name: str, version: str | None = None) -> tuple[Any, dict[str, Any]]:
-    """保存済み InferenceData を読む。version=None は最新（版の降順 1 件）。指紋照合してから読む。
+def version_manifest(root: Path, *, name: str, version: str) -> dict[str, Any]:
+    """版の manifest（metrics・provenance・fingerprint 等）を読む（netCDF は読み込まない・軽い）。"""
+    path = entity_dir(root, name=name) / version / MANIFEST_FILE
+    if not path.is_file():
+        raise ValueError(f"manifest が無い（未保存・保存が途中で落ちた）: {path}")
+    return storage.read_manifest(path)
 
-    manifest の format で分岐（未対応形式は ValueError）。実体の指紋が manifest と一致しなければ ValueError
-    （改変・破損した .nc を読ませない＝fail closed）。返り値は (InferenceData, manifest)。
+
+def load_champion(root: Path, *, name: str) -> tuple[Any, dict[str, Any]]:
+    """**採用済み（champion）**の InferenceData を読む（promotion が指す approved の最新）。
+
+    「今どの版を使うか」はこれが正しい入口。`load_inference(version=None)` は保存の最新（却下版を含みうる）で
+    あって champion ではない＝取り違えないこと。champion が無ければ ValueError。
+    """
+    champion = promotion.champion_version(entity_dir(root, name=name), label=name)
+    if champion is None:
+        raise ValueError(f"'{name}' に champion が無い（まだ採用されていない・load_inference で版を指定する）")
+    return load_inference(root, name=name, version=champion)
+
+
+def load_inference(root: Path, *, name: str, version: str | None = None) -> tuple[Any, dict[str, Any]]:
+    """保存済み InferenceData を読む。version=None は**保存の最新**（辞書順の最後・却下版も含みうる）。
+
+    「採用済みの版を使いたい」なら version=None ではなく `load_champion` を使う（version=None は promotion の
+    合否を見ない）。manifest の format で分岐（未対応形式は ValueError）。実体の指紋が manifest と一致しなければ
+    ValueError（改変・破損した .nc を読ませない＝fail closed）。返り値は (InferenceData, manifest)。
     """
     name_dir = entity_dir(root, name=name)
     resolved_version = version
@@ -88,7 +109,7 @@ def load_inference(root: Path, *, name: str, version: str | None = None) -> tupl
         versions = _versions(name_dir)
         if not versions:
             raise ValueError(f"'{name}' の保存済み推論が無い（{name_dir}）")
-        resolved_version = versions[-1]  # 版はタイムスタンプ＝辞書順の最後が最新
+        resolved_version = versions[-1]  # 版はタイムスタンプ＝辞書順の最後が最新（採用の合否は見ない）
     version_dir = name_dir / resolved_version
     manifest_path = version_dir / MANIFEST_FILE
     if not manifest_path.is_file():
