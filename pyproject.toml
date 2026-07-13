@@ -78,6 +78,8 @@ commit-msg-lint = "harness.cli:commit_msg_lint_main"
 serve = "harness.serve.cli:serve_main"
 # LLMOps プロファイルの CLI（AgentSpec の評価・カタログ）。verify 経路（dummy）は extra 無しで動く。
 agent = "harness.agent.cli:agent_main"
+# ベイズ統計モデリングのカタログ（BAYES_MODELS/SAMPLERS/BAYES_DIAGNOSTICS/PPC_CHECKS）。正本は docs/stats.md。
+stats = "harness.stats.cli:stats_main"
 
 [dependency-groups]
 dev = [

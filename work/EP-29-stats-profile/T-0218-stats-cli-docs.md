@@ -1,11 +1,15 @@
 ---
 id: T-0218
 kind: task
-status: todo
+status: done
 title: stats CLI（カタログ）と docs/stats.md の使い方導線を作る（coverage_lint に載せる）
 created: 2026-07-11
 depends_on: [T-0217]
-verified_by: []
+verified_by:
+  - tests/test_stats_cli.py::test_models_catalog_lists_residents
+  - tests/test_stats_cli.py::test_samplers_catalog_lists_nutpie_and_pymc
+  - tests/test_stats_cli.py::test_diagnostics_catalog_lists_kinds
+  - tests/test_stats_cli.py::test_ppc_catalog_lists_coverage
 ---
 # T-0218 入口を作って完了にする
 
