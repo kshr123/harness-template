@@ -1,9 +1,13 @@
-"""公開モジュールが、対応する正本ドキュメントに載っているかの検査（code_doc_lint）。
+"""公開モジュールと、対応する正本ドキュメントの役割一覧が食い違っていないかの**双方向**の検査（code_doc_lint）。
 
-これは体裁でなく**ドキュメントの陳腐化防止（保守）**の検査：新しいモジュールを足したのに正本ドキュメントで
-一切触れられていない状態を verify で止める。「どのコードがどんな役割か」を人が（元コードを読まずに）辿れる
-状態を強制する＝AGENTS の「部品は元コードを読まずに使える状態にして完了」「使い方にたどり着けるリンク・
-記載が必須」をコード側にも効かせる。
+これは体裁でなく**ドキュメントの陳腐化防止（保守）**の検査：「どのコードがどんな役割か」を人が（元コードを
+読まずに）辿れる状態を強制する＝AGENTS の「部品は元コードを読まずに使える状態にして完了」「使い方に
+たどり着けるリンク・記載が必須」をコード側にも効かせる。両向きを見る：
+
+- **順（コード→ドキュメント）**：新しい公開モジュールを足したのに正本ドキュメントで一切触れられていない
+  状態を verify で止める。
+- **逆（ドキュメント→コード）**：役割一覧が挙げるモジュールが実在しなくなった（コードを消したのに説明の行が
+  残った）状態を止める。読者が存在しないコードを探すのを防ぐ。
 
 対象と、対応する正本ドキュメント:
 - **プロファイル**＝`src/harness/*/` のうち `profile.py` を持つディレクトリ（ds・serve・agent・ops…）。
@@ -20,9 +24,11 @@
 （空は ValueError＝黙って免除しない。doc_source_lint / coverage_lint と同じ作法）。免除を増やす前に
 「docs に 1 行足す」を先に検討。core の検査（プロファイル非依存）。stdlib のみに依存。
 
-**この検査が見るのは「言及の有無」だけ**で、説明が正しいか・空でないかは見ない（説明の質はレビュー観点）。
-モジュールを削除したあとに docs の行が残っていても検出しない（逆向きの腐り＝正本ドキュメントに
-実在しないモジュール名の行が残る、は現状どの検査も落とさない。未解決の既知の穴）。
+**この検査が見るのは「言及の有無」と「役割一覧が挙げる名前の実在」だけ**で、説明が正しいか・空でないかは
+見ない（説明の質はレビュー観点）。逆向きの対象は「役割一覧の行」に絞る：表の行（`| ` + 名前 + ` |`）か
+箇条書き（`- ` + 名前）の**先頭**に来る `<名>.py` だけを拾い、散文の途中の言及は数えない（架空のファイル名を
+例示する散文で誤検出しないため）。フルパスのバッククォート（`` `src/harness/x.py` ``）は名前に `/` を含むので
+先頭パターンに一致せず、別ディレクトリのモジュールを箇条書きで触れたいときの逃げ道になる。
 """
 
 from __future__ import annotations
@@ -110,6 +116,56 @@ def _docs_text(root: Path, name: str) -> str:
     return "\n".join(parts)
 
 
+# 役割一覧の行が先頭で名指しする `<名>.py`。行頭の表区切り（`|`）か箇条書き（`-`/`*`）の直後の
+# バッククォート名だけを拾う＝散文の途中の言及（`（`cv.py` の run_cv）` 等）は数えない（逆向きの誤検出回避）。
+# 名前は語文字＋`.py` のみ＝フルパス（`src/harness/x.py`）は `/` を含むので一致しない（別ディレクトリを指す逃げ道）。
+_ROLE_ROW_RE = re.compile(r"^[ \t]*(?:\||[-*])[ \t]*`([0-9A-Za-z_]+\.py)`")
+
+
+def _declared_modules(docs_text: str) -> list[str]:
+    """役割一覧（表の行・箇条書き）が先頭で名指しする `<名>.py` の一覧（出現順・重複はそのまま）。"""
+    return [m.group(1) for line in docs_text.splitlines() if (m := _ROLE_ROW_RE.match(line))]
+
+
+def _scope_dirs(root: Path) -> list[tuple[str, Path]]:
+    """(正本ドキュメント名, モジュールの置き場) の一覧。中核（core→src/harness）＋各プロファイル。
+
+    順向きの対象（core と `_profile_dirs`）と同じ集合を、正本ドキュメント名に対応づけて返す。
+    既知の制約：`src/harness/core/profile.py` という名の「core」プロファイルを作ると docs/core.md が
+    中核とそのプロファイルの両方に照合されて誤検出する（`_EXEMPT` の鍵と同じ名前空間の衝突）。
+    """
+    base = root / "src" / "harness"
+    scopes: list[tuple[str, Path]] = []
+    if base.is_dir():
+        scopes.append(("core", base))
+    scopes.extend((d.name, d) for d in _profile_dirs(root))
+    return scopes
+
+
+def _stale_role_problem(doc_rel: str, module: str, directory: Path, root: Path) -> pm.Problem:
+    """役割一覧に、実在しないモジュールの行が残っている指摘（逆向き）。どの docs のどの名前が空振りかを名指す。"""
+    location = (directory / module).relative_to(root)
+    return pm.Problem(
+        "error",
+        f"{doc_rel}: 役割一覧が `{module}` を挙げているが {location} が実在しない。モジュールを消したら"
+        f"役割の行も消すこと（読者が存在しないコードを探すのを防ぐ＝code_doc_lint の逆向き）",
+    )
+
+
+def _reverse_checks(root: Path) -> list[pm.Problem]:
+    """役割一覧（表・箇条書きの先頭）が挙げるモジュールが、対応する置き場に実在するか（逆向き）。"""
+    problems: list[pm.Problem] = []
+    for name, directory in _scope_dirs(root):
+        for rel in (f"docs/{name}.md", f"docs/{name}-code.md"):
+            path = root / rel
+            if not path.is_file():
+                continue
+            for module in _declared_modules(path.read_text(encoding="utf-8")):
+                if not (directory / module).is_file():
+                    problems.append(_stale_role_problem(rel, module, directory, root))
+    return problems
+
+
 def _problem(location: str, module: str, doc_name: str) -> pm.Problem:
     """触れ忘れの指摘。どのファイルが・どの正本ドキュメントに載っていないかを名指しする。"""
     return pm.Problem(
@@ -121,10 +177,11 @@ def _problem(location: str, module: str, doc_name: str) -> pm.Problem:
 
 
 def run_checks(root: Path) -> list[pm.Problem]:
-    """公開モジュールが正本ドキュメント（中核＝docs/core.md・プロファイル＝docs/<名>.md）に載っているか検査する。"""
+    """公開モジュールと正本ドキュメントの役割一覧が食い違っていないか双方向で検査する（順：触れ忘れ／逆：残骸）。"""
     problems: list[pm.Problem] = []
     exempt = _validated_exempt()
 
+    # 順向き：公開モジュールが対応する正本ドキュメントで一度も触れられているか。
     core_docs = _docs_text(root, "core")
     for module in _core_modules(root):
         location = f"src/harness/{module}"
@@ -140,4 +197,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
             if location in exempt or _mentioned(module, location, docs_text):
                 continue
             problems.append(_problem(location, module, profile))
+
+    # 逆向き：役割一覧が挙げるモジュールが実在するか（消したのに説明の行が残っていないか）。
+    problems.extend(_reverse_checks(root))
     return problems

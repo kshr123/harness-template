@@ -172,6 +172,98 @@ def test_code_doc_only_covers_module(tmp_path: Path) -> None:
     assert _errors(tmp_path) == []
 
 
+# --- 逆向き（T-0206）：役割一覧が挙げるモジュールが実在するか（消したのに行が残る腐りを止める） ---
+
+
+@pytest.mark.unit
+def test_reverse_stale_table_row_is_error(tmp_path: Path) -> None:
+    # core.md の役割一覧（表）が挙げる ghost.py が実在しない＝逆向きの error。実在する pm.py は出ない。
+    _write(tmp_path, "src/harness/pm.py", '"""進捗."""\n')
+    _write(
+        tmp_path,
+        "docs/core.md",
+        "## モジュール一覧\n| モジュール | 役割 |\n| --- | --- |\n| `pm.py` | 進捗 |\n| `ghost.py` | 消えたはず |\n",
+    )
+    errors = _errors(tmp_path)
+    assert any("ghost.py" in m and "実在しない" in m for m in errors)
+    assert not any("pm.py`" in m for m in errors)  # 実在する行は出ない
+    # 行を消せば緑（消したモジュールの説明も消す、が正しい始末）。
+    _write(tmp_path, "docs/core.md", "## モジュール一覧\n| モジュール | 役割 |\n| --- | --- |\n| `pm.py` | 進捗 |\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_reverse_stale_bullet_row_is_error(tmp_path: Path) -> None:
+    # プロファイルの -code.md は箇条書き（`- `X.py` … `）で役割を書く。挙げた gone.py が無ければ error。
+    _profile(tmp_path, "ds", "cv.py")
+    _write(tmp_path, "docs/ds.md", "`cv.py` は交差検証。\n")  # 順向きを満たす
+    _write(tmp_path, "docs/ds-code.md", "- `cv.py` … 交差検証。\n- `gone.py` … 消えたモジュール。\n")
+    errors = _errors(tmp_path)
+    assert any("gone.py" in m and "src/harness/ds/gone.py" in m for m in errors)
+    assert not any("cv.py`" in m and "実在しない" in m for m in errors)
+
+
+@pytest.mark.unit
+def test_reverse_ignores_prose_mentions(tmp_path: Path) -> None:
+    # 散文の途中の言及（行頭が表・箇条書きでない）は逆向きの対象外＝架空名の例示で誤検出しない。
+    _write(tmp_path, "src/harness/pm.py", '"""進捗."""\n')
+    _write(
+        tmp_path,
+        "docs/core.md",
+        "`pm.py` は進捗。例えば `imaginary.py` のような名前を散文で挙げても表の行ではない。\n",
+    )
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_reverse_full_path_backtick_is_an_escape_hatch(tmp_path: Path) -> None:
+    # 別ディレクトリのモジュールを箇条書きで触れたいときはフルパスで書く（`/` を含むので先頭パターンに一致せず、
+    # そのプロファイルの置き場に在ることを要求されない）。フルパスの名前は逆向きの抽出対象にならない。
+    _profile(tmp_path, "ds", "cv.py")
+    _write(tmp_path, "docs/ds.md", "`cv.py` は交差検証。\n")
+    _write(tmp_path, "docs/ds-code.md", "- `cv.py` … 交差検証（保存は `src/harness/storage.py` を使う）。\n")
+    assert _errors(tmp_path) == []  # フルパス言及 src/harness/storage.py は ds/storage.py の実在を要求しない
+
+
+@pytest.mark.unit
+def test_reverse_scoped_to_the_docs_own_directory(tmp_path: Path) -> None:
+    # ds-code.md の箇条書き先頭の `models.py` は src/harness/ds/models.py を指す（中核の models.py ではない）。
+    _write(tmp_path, "src/harness/models.py", "")  # 中核には在る
+    _profile(tmp_path, "ds", "cv.py")  # だが ds には models.py が無い
+    _write(tmp_path, "docs/ds.md", "`cv.py` は交差検証。\n")
+    _write(tmp_path, "docs/ds-code.md", "- `models.py` … 学習済みモデルの保存。\n- `cv.py` … 交差検証。\n")
+    assert any("src/harness/ds/models.py" in m and "実在しない" in m for m in _errors(tmp_path))
+
+
+@pytest.mark.integration
+def test_declared_modules_extractor_is_not_silently_empty() -> None:
+    # 抽出の正規表現が壊れて空を返しても逆向きは緑のままになる（no-op）。実データで非空を固定して黙った破損を防ぐ。
+    core_text = (REPO_ROOT / "docs" / "core.md").read_text(encoding="utf-8")
+    declared = code_doc_lint._declared_modules(core_text)
+    assert declared, "core.md の役割一覧から 1 件も抽出できない＝抽出器が壊れている"
+    # core.md の役割一覧は中核の公開モジュールと一致する（順・逆の両向きが締まっている＝どちらも空振りしない）。
+    assert set(declared) == set(code_doc_lint._core_modules(REPO_ROOT))
+
+
+@pytest.mark.integration
+def test_role_lists_in_code_docs_stay_extractable() -> None:
+    # 逆向きが「書式ドリフトで無言の no-op」になるのを防ぐ（独立レビュー Med）：役割一覧を per-module の行で持つ
+    # ドキュメント（core.md と各 <profile>-code.md）から 1 件も抽出できなくなったら、抽出器か doc の書式が
+    # 検出範囲（表の行・箇条書きの先頭）から外れた合図。番号付き・太字包みなどへ整形し直すとここで気づける。
+    docs_dir = REPO_ROOT / "docs"
+    role_docs = [docs_dir / "core.md", *sorted(docs_dir.glob("*-code.md"))]
+    for doc in role_docs:
+        declared = code_doc_lint._declared_modules(doc.read_text(encoding="utf-8"))
+        assert declared, f"{doc.name} の役割一覧から 1 件も抽出できない（書式が逆向きの検出範囲から外れた）"
+
+
+@pytest.mark.integration
+def test_real_repo_has_no_stale_role_rows() -> None:
+    # 現リポの全 docs 役割一覧が実在するモジュールだけを挙げている（逆向きの回帰＝以後の消し忘れを止める）。
+    stale = [p.message for p in code_doc_lint._reverse_checks(REPO_ROOT)]
+    assert stale == [], stale
+
+
 # --- 免除リストの規約：理由は空でない文字列が必須 ---
 
 

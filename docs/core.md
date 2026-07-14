@@ -44,7 +44,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `doclint.run_checks` | 正本ドキュメントの参照（ID・パス・`uv run` コマンド）の実在検査。死にリンク＝error、未知コマンド＝info。 |
 | `coverage_lint.run_checks` | CLI コマンドの導線カバレッジ検査。スキル/正本 docs から到達できないコマンド＝error。 |
 | `doc_source_lint.run_checks` | 複製後も残る資産が `work/` の作業単位・`issues/` の課題を設計の根拠に参照していないか検査する。参照＝error。 |
-| `code_doc_lint.run_checks` | 公開モジュールが正本ドキュメント（中核＝docs/core.md・プロファイル＝docs/<名>.md）に載っているか検査する。 |
+| `code_doc_lint.run_checks` | 公開モジュールと正本ドキュメントの役割一覧が食い違っていないか双方向で検査する（順：触れ忘れ／逆：残骸）。 |
 | `boundary_lint.run_checks` | 中核（src/harness/*.py）がプロファイル（ds・serve・agent・ops）を import していないか検査する。 |
 | `conventions.run_checks` | テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。 |
 | `retraction_lint.run_checks` | 撤回済みの決まりごとの名前が、資産（src・docs・skills・templates）に残骸として残っていないか検査する。 |
@@ -67,8 +67,9 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 ## モジュール一覧
 
 `src/harness/` の直下にあるものが中核。ここに公開モジュールを足したら、この表に 1 行足すこと
-（触れ忘れは `code_doc_lint` が verify で失敗させる）。逆に、モジュールを消したときに行が残っても
-機械では検出できない（正本ドキュメントに実在しないモジュール名の行が残る「逆向きの腐り」は未解決の既知の穴）。
+（触れ忘れは `code_doc_lint` が verify で失敗させる）。逆に、モジュールを消したのに下の表の行が残ったら、
+`code_doc_lint` の逆向きが verify で失敗させる（役割一覧の行の先頭が名指す `<名>.py` の実在を照合する）＝
+消したときは説明の行も消すこと。
 
 **中核のしくみ**
 
@@ -90,7 +91,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | --- | --- |
 | `doclint.py` | 正本ドキュメントの参照（ID・相対パス・`uv run` コマンド）が実在するか |
 | `doc_source_lint.py` | 複製後も残る資産（docs・src・tests・templates・skills）が一時的な単位（`work/`・`issues/`）を設計の根拠に参照していないか |
-| `code_doc_lint.py` | 公開モジュールが、対応する正本ドキュメントで触れられているか |
+| `code_doc_lint.py` | 公開モジュールと正本ドキュメントの役割一覧が食い違っていないか（順：新しいモジュールの触れ忘れ／逆：消したモジュールの説明の行が残っていないか） |
 | `coverage_lint.py` | CLI コマンドの使い方が、スキルか正本ドキュメントから辿れるか |
 | `boundary_lint.py` | 中核（`src/harness/*.py`）がプロファイル（ds・serve・agent・ops）を import していないか（ast・遅延 import も検出。`PM_CHECKS` に登録され verify に載る） |
 | `retraction_lint.py` | 撤回した決まりごとの名前（`RETRACTED`＝有限・確定済み）が資産に残骸として残っていないか（撤回一覧と `docs/learnings.md` 以外に語境界一致で残れば error。空一覧＝正常） |
