@@ -297,13 +297,27 @@ def test_format_roundtrip(fmt: str, make_project: Callable[..., Any], monkeypatc
 def test_unknown_format_is_rejected_with_hint(
     make_project: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # FORMATS に無い形式は保存前に拒否（版ディレクトリも作らない）。skops の導入手順をメッセージで案内する。
+    # FORMATS に無い形式は保存前に拒否（版ディレクトリも作らない）。Registry.resolve が候補一覧とカタログ案内を出す
+    # （skops/onnx は候補として並び、`uv run data formats` が extra の導入手順を案内する）。
     # （T-0084 で onnx は登録済みになったため、未登録の名前 feather で検査する。）
     _clock(monkeypatch, [_T1])
     proj = make_project()
-    with pytest.raises(ValueError, match=r"feather.*uv sync --extra skops"):
+    with pytest.raises(ValueError, match=r"未知の保存形式 'feather'.*data formats"):
         model_store.save_model(proj.root, _fitted(), name="baseline", work="E-0001", format="feather")
     assert not model_store._model_dir(proj.root, work="E-0001", name="baseline").exists()  # 版ディレクトリ未作成
+
+
+def test_formats_is_a_registry_not_a_bare_dict() -> None:
+    # T-0207：FORMATS は他の 9 レジストリと同じ Registry（docstring/コメントが「レジストリ」と名乗る実体を持つ）。
+    # 素の dict のままだと未知 kind エラーが save/load に二重化する＝名前と実体のずれ。ここで実体を固定する。
+    from harness.registry import Registry
+
+    assert isinstance(model_store.FORMATS, Registry)
+    assert "pickle" in model_store.FORMATS  # Mapping の in がそのまま効く
+    ent = model_store.FORMATS["pickle"]
+    # FormatEntry は factory＝dump の別名を公開する（MetricEntry.fn と同型）＝呼ぶ側は fmt.dump/load/file_name。
+    assert ent.dump is ent.factory
+    assert callable(ent.load) and ent.file_name == "model.pkl" and ent.description
 
 
 class _Unvetted(BaseEstimator):  # type: ignore[misc]

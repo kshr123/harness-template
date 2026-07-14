@@ -29,6 +29,7 @@ from harness import promotion, storage
 from harness.config import load_config
 from harness.ds.eval import METRICS, directions
 from harness.promotion import MANIFEST_FILE, VERSION_FORMAT, Promotion
+from harness.registry import Entry, Registry
 
 # 依存版を記録する配布物（入っていないものは飛ばす）。記録のみ・照合は既定でしない。
 TRACKED_DISTRIBUTIONS = ("scikit-learn", "numpy", "polars", "lightgbm", "statsmodels")
@@ -37,18 +38,22 @@ TRACKED_DISTRIBUTIONS = ("scikit-learn", "numpy", "polars", "lightgbm", "statsmo
 # --- 保存形式（FORMATS レジストリ・拡張ポイント） ---
 
 
-@dataclass(frozen=True)
-class ModelFormat:
-    """保存形式 1 件（FORMATS レジストリの値）。
+@dataclass(frozen=True, kw_only=True)
+class FormatEntry(Entry):
+    """保存形式 1 件（FORMATS レジストリの項目）。factory＝dump（実体を書き出す工場）。
 
+    他の 9 レジストリと同じ `Registry[Entry]` の形に揃える（MODELS/ENCODERS/… と同型）。
     dump は atomic_write 経由で一時パスに書く（部分書き込み防止は storage が担う）。
     load は manifest＋指紋照合を通ったパスだけを受ける。file_name は版ディレクトリ内の実体ファイル名。
     """
 
-    dump: Callable[[object, Path], None]
     load: Callable[[Path], object]
     file_name: str
-    description: str
+
+    @property
+    def dump(self) -> Callable[[object, Path], None]:
+        """実体を書き出す工場の別名（factory と同じもの＝呼ぶ側は fmt.dump で読める）。MetricEntry.fn と同じ形。"""
+        return self.factory
 
 
 def _pickle_dump(model: object, path: Path) -> None:
@@ -132,23 +137,30 @@ def _skops_load(path: Path) -> object:
     return skops.io.load(path, trusted=list(TRUSTED_HARNESS_TYPES))
 
 
-FORMATS: dict[str, ModelFormat] = {
-    # "pickle" は常に登録（既定・後方互換。既存の保存は format: pickle として読める）。
-    "pickle": ModelFormat(
-        dump=_pickle_dump,
-        load=_pickle_load,
-        file_name="model.pkl",
-        description="pickle 1 ファイル（既定）。速く確実だが、読む側は指紋照合済みの自前ファイルに限る。",
-    ),
-}
+# 未知形式のエラー・候補一覧・extra の導入ヒントは Registry.resolve の 1 か所（他の 9 レジストリと同じ）。
+FORMATS: Registry[FormatEntry] = Registry(
+    "保存形式", catalog="data formats", extras_hint={"skops": "skops", "onnx": "onnx"}
+)
+# "pickle" は常に登録（既定・後方互換。既存の保存は format: pickle として読める）。dump に docstring が無いので
+# description は明示で渡す（形式の説明は 1 行に収まらない都合込みの文＝factory の 1 行目に載せない）。
+FORMATS.register(
+    "pickle",
+    _pickle_dump,
+    description="pickle 1 ファイル（既定）。速く確実だが、読む側は指紋照合済みの自前ファイルに限る。",
+    entry_cls=FormatEntry,
+    load=_pickle_load,
+    file_name="model.pkl",
+)
 
 # optional 依存の形式はここで「入っていれば登録」する（MODELS の lightgbm と同じ条件登録・find_spec は import ゼロ）。
 if importlib.util.find_spec("skops") is not None:
-    FORMATS["skops"] = ModelFormat(
-        dump=_skops_dump,
+    FORMATS.register(
+        "skops",
+        _skops_dump,
+        description="skops（安全読込）。信頼リスト（TRUSTED_HARNESS_TYPES）に無い型は load で拒否する。",
+        entry_cls=FormatEntry,
         load=_skops_load,
         file_name="model.skops",
-        description="skops（安全読込）。信頼リスト（TRUSTED_HARNESS_TYPES）に無い型は load で拒否する。",
     )
 
 # ONNX（可搬形式・optional extra `onnx`）。変換＝skl2onnx・読込＝onnxruntime の両方が要る＝両方在るときだけ登録。
@@ -156,12 +168,14 @@ if importlib.util.find_spec("skops") is not None:
 if importlib.util.find_spec("skl2onnx") is not None and importlib.util.find_spec("onnxruntime") is not None:
     from harness.ds.onnx_format import _onnx_dump, _onnx_load
 
-    FORMATS["onnx"] = ModelFormat(
-        dump=_onnx_dump,
-        load=_onnx_load,
-        file_name="model.onnx",
+    FORMATS.register(
+        "onnx",
+        _onnx_dump,
         description="ONNX（可搬・読込で任意コード実行なし）。to_numpy 以降の sklearn 尾部のみ変換＝入力は"
         "特徴量計算済み float32。疎入力（tfidf 等）・lightgbm 尾部・forecast は対象外（dump 時にエラー）。",
+        entry_cls=FormatEntry,
+        load=_onnx_load,
+        file_name="model.onnx",
     )
 
 
@@ -296,11 +310,7 @@ def save_model(
     feature_names: Sequence[str] | None = None,
 ) -> ModelRecord:
     """学習済み model（Pipeline）を FORMATS の形式＋manifest で保存する。版ディレクトリが既にあれば拒否。"""
-    if format not in FORMATS:
-        raise ValueError(
-            f"未対応の保存形式 '{format}'（対応形式: {sorted(FORMATS)}。skops は `uv sync --extra skops` で導入）"
-        )
-    fmt = FORMATS[format]
+    fmt = FORMATS.resolve(format)  # 未知形式は候補一覧＋カタログ案内＋extra ヒントつき ValueError（版ディレクトリ前）
     version = _utcnow().strftime(VERSION_FORMAT)
     version_dir = _model_dir(root, work=work, name=name) / version
     try:
@@ -361,9 +371,13 @@ def load_model(
     if not (version_dir / MANIFEST_FILE).is_file():
         raise ValueError(f"{work}/{name}/{version}: manifest が無い（壊れた保存は読まない）")
     record = _record_from_manifest(version_dir)
-    fmt = FORMATS.get(record.format)
-    if fmt is None:
-        raise NotImplementedError(f"形式 '{record.format}' は未対応（対応形式: {sorted(FORMATS)}）")
+    # メッセージ（候補一覧・カタログ案内・extra ヒント）は resolve の 1 か所に一本化する。ただし型は分ける：
+    # 保存の未知形式は引数ミス＝ValueError、記録が指す形式がこの環境に無いのは「ここでは実現できない」
+    # （形式名は正しいが optional extra 未導入・別環境で保存、等）＝NotImplementedError。だから resolve を包み直す。
+    try:
+        fmt = FORMATS.resolve(record.format)
+    except ValueError as exc:
+        raise NotImplementedError(str(exc)) from exc
     model_path = version_dir / fmt.file_name
     storage.verify_fingerprint(model_path, record.fingerprint)  # 不一致＝実体が改変・破損なら ValueError
     if warn_dependencies:

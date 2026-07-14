@@ -538,7 +538,8 @@ def _data_formats() -> None:
     """モデル保存形式の一覧（FORMATS レジストリから生成）。save_model の format に書ける名前。"""
     from harness.ds.models import FORMATS
 
-    for name, fmt in sorted(FORMATS.items()):  # FORMATS は素の dict＝薄い描画（render_catalog は Registry 用）
+    # FORMATS は Registry だが file_name の列を足すので render_catalog（kind＋説明のみ）でなく自前で描く。
+    for name, fmt in sorted(FORMATS.items()):
         typer.echo(f"{name}\t{fmt.file_name}\t{fmt.description}")
     typer.echo(
         "\n保存は model_store.save_model(..., format=<名前>)。未表示＝未導入："
