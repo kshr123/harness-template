@@ -14,15 +14,13 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import platform
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from importlib import metadata
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from harness import promotion, storage
+from harness import promotion, provenance, storage
 from harness.agent.eval import AGENT_METRICS, directions
 from harness.config import load_config
 from harness.promotion import MANIFEST_FILE, VERSION_FORMAT
@@ -65,58 +63,13 @@ def _agent_dir(root: Path, *, work: str, name: str) -> Path:
 
 
 def _utcnow() -> datetime:
-    # 時刻はこの 1 関数を経由する（テストが monkeypatch で固定できる。明示性はグローバル種禁止と同じ狙い）。
-    return datetime.now(UTC)
+    # 時刻はこの 1 関数を経由する（テストが monkeypatch で固定）。実体は harness.provenance へ 1 本化（複製解消）。
+    return provenance.utcnow()
 
 
 def _prompt_fingerprint(system_prompt: str) -> str:
     """system_prompt の sha256 指紋。プロンプトを変えると必ず変わる（metrics の測定条件の印）。"""
     return hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()
-
-
-def _dependencies() -> dict[str, str]:
-    out: dict[str, str] = {}
-    for dist in TRACKED_DISTRIBUTIONS:
-        try:
-            out[dist] = metadata.version(dist)
-        except metadata.PackageNotFoundError:
-            continue
-    return out
-
-
-def _git_provenance(root: Path) -> dict[str, Any] | None:
-    """git 来歴（短縮 commit・branch・作業木の dirty）。git リポでない/git 不在/失敗は None＝保存は止めない。
-
-    読むのは git コマンドの出力だけ（認証情報・.env には触れない）。ds/models.py と同じ作法の複製
-    （プロファイル独立を保つための許容コスト＝item.md の gate 複製と同じ扱い）。
-    """
-
-    def _run(*args: str) -> str:
-        # encoding を明示する：省略するとロケール既定（Windows では cp932）で復号し、
-        # 非 ASCII を含む git の出力（ブランチ名等）で UnicodeDecodeError になる。
-        proc = subprocess.run(
-            ["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8", check=True, timeout=5
-        )
-        return proc.stdout.strip()
-
-    try:
-        commit = _run("rev-parse", "--short", "HEAD")
-        branch = _run("rev-parse", "--abbrev-ref", "HEAD")
-        # --untracked-files=normal を明示：未追跡ファイルも dirty と数える（dirty の意味を環境非依存にする）。
-        dirty = bool(_run("status", "--porcelain", "--untracked-files=normal"))
-    except OSError, subprocess.SubprocessError, UnicodeDecodeError:
-        # CalledProcessError（非 git リポ）・FileNotFoundError（git 不在）・TimeoutExpired を含む。
-        # UnicodeDecodeError：git の出力が UTF-8 でない場合（来歴が取れないだけで、保存は続ける）。
-        return None
-    return {"commit": commit, "branch": branch, "dirty": dirty}
-
-
-def _lock_fingerprint(root: Path) -> str | None:
-    """root 直下の uv.lock の sha256 指紋（どのロックで評価したかの印）。無ければ None。"""
-    lock = root / "uv.lock"
-    if not lock.is_file():
-        return None
-    return storage.fingerprint(lock)
 
 
 def _record_from_manifest(version_dir: Path) -> AgentRecord:
@@ -160,11 +113,11 @@ def save_agent(root: Path, spec: AgentSpec, *, work: str, name: str, metrics: Ma
         "metrics": dict(metrics),
         "prompt_fingerprint": _prompt_fingerprint(spec.system_prompt),
         "python": platform.python_version(),
-        "dependencies": _dependencies(),
+        "dependencies": provenance.dependencies(TRACKED_DISTRIBUTIONS),
         "created": _utcnow().isoformat(),
         # 来歴：どのコード（git）・どのロック（uv.lock 指紋）で評価したか。取れなければ None（保存は止めない）。
-        "git": _git_provenance(root),
-        "lock_fingerprint": _lock_fingerprint(root),
+        "git": provenance.git_provenance(root),
+        "lock_fingerprint": provenance.lock_fingerprint(root),
     }
     # manifest は最後（かつ唯一）の書き込み＝存在が保存完了の印（write_manifest 自体が tmp→replace で原子的）。
     storage.write_manifest(version_dir / MANIFEST_FILE, manifest)

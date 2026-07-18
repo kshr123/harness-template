@@ -109,6 +109,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `registry.py` | config の種別文字列から部品を引く登録簿と、その一覧表示 | ds・agent |
 | `storage.py` | 保存先 URI の解決・不可分な書き込み・sha256・manifest の読み書き | ds・agent |
 | `promotion.py` | 昇格記録の置き場・読み書き・champion の解決・判定の実行（仕組みだけ。向きや閾値の方針は呼び手） | ds・agent |
+| `provenance.py` | 保存物の由来書き（git commit/branch/dirty・依存版・uv.lock 指紋・時刻）を集める（保存の by-product） | ds・agent |
 | `fingerprint.py` | 入力 1 件を正準な JSON にして sha256 の指紋にする | ds・serve・agent |
 | `testing.py` | pytest のマーカー（unit/integration/e2e）と skip 理由の検査（`tests/conftest.py` が使う） | 全体（テスト） |
 

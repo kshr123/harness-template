@@ -16,16 +16,14 @@ from __future__ import annotations
 import importlib.util
 import pickle
 import platform
-import subprocess
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from importlib import metadata
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from harness import promotion, storage
+from harness import promotion, provenance, storage
 from harness.config import load_config
 from harness.ds.eval import METRICS, directions
 from harness.promotion import MANIFEST_FILE, VERSION_FORMAT, Promotion
@@ -214,8 +212,8 @@ def _model_dir(root: Path, *, work: str, name: str) -> Path:
 
 
 def _utcnow() -> datetime:
-    # 時刻はこの 1 関数を経由する（テストが monkeypatch で固定できる。明示性はグローバル種禁止と同じ狙い）。
-    return datetime.now(UTC)
+    # 時刻はこの 1 関数を経由する（テストが monkeypatch で固定）。実体は harness.provenance へ 1 本化（複製解消）。
+    return provenance.utcnow()
 
 
 def _feature_names_of(model: object) -> tuple[str, ...]:
@@ -228,51 +226,6 @@ def _feature_names_of(model: object) -> tuple[str, ...]:
     except Exception:
         return ()
     return tuple(str(n) for n in names)
-
-
-def _dependencies() -> dict[str, str]:
-    out: dict[str, str] = {}
-    for dist in TRACKED_DISTRIBUTIONS:
-        try:
-            out[dist] = metadata.version(dist)
-        except metadata.PackageNotFoundError:
-            continue
-    return out
-
-
-def _git_provenance(root: Path) -> dict[str, Any] | None:
-    """git 来歴（短縮 commit・branch・作業木の dirty）。git リポでない/git 不在/失敗は None＝保存は止めない。
-
-    読むのは git コマンドの出力だけ（認証情報・.env には触れない）。
-    """
-
-    def _run(*args: str) -> str:
-        # encoding を明示する：省略するとロケール既定（Windows では cp932）で復号し、
-        # 非 ASCII を含む git の出力（ブランチ名等）で UnicodeDecodeError になる。
-        proc = subprocess.run(
-            ["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8", check=True, timeout=5
-        )
-        return proc.stdout.strip()
-
-    try:
-        commit = _run("rev-parse", "--short", "HEAD")
-        branch = _run("rev-parse", "--abbrev-ref", "HEAD")
-        # --untracked-files=normal を明示：利用者のグローバル設定 status.showUntrackedFiles に依らず、
-        # 未追跡ファイルも dirty と数える（dirty の意味を環境非依存にする）。
-        dirty = bool(_run("status", "--porcelain", "--untracked-files=normal"))
-    except OSError, subprocess.SubprocessError, UnicodeDecodeError:
-        # CalledProcessError（非 git リポ）・FileNotFoundError（git 不在）・TimeoutExpired を含む。
-        # UnicodeDecodeError：git の出力が UTF-8 でない場合（来歴が取れないだけで、保存は続ける）。
-        return None
-    return {"commit": commit, "branch": branch, "dirty": dirty}
-
-
-def _lock_fingerprint(root: Path) -> str | None:
-    """root 直下の uv.lock の sha256 指紋（どのロックで作ったかの印）。無ければ None。"""
-    lock = root / "uv.lock"
-    if not lock.is_file():
-        return None
-    return storage.fingerprint(lock)
 
 
 def _record_from_manifest(path: Path) -> ModelRecord:
@@ -333,11 +286,11 @@ def save_model(
         "config": dict(config) if config else {},
         "metrics": dict(metrics) if metrics else {},
         "python": platform.python_version(),
-        "dependencies": _dependencies(),
+        "dependencies": provenance.dependencies(TRACKED_DISTRIBUTIONS),
         "created": _utcnow().isoformat(),
         # 来歴：どのコード（git）・どのロック（uv.lock 指紋）で作られたか。取れなければ None（保存は止めない）。
-        "git": _git_provenance(root),
-        "lock_fingerprint": _lock_fingerprint(root),
+        "git": provenance.git_provenance(root),
+        "lock_fingerprint": provenance.lock_fingerprint(root),
     }
     # manifest は最後に書く（存在＝保存完了の印）。印なので書き込みも原子的に（pickle と同じ tmp→replace）。
     storage.write_manifest(version_dir / MANIFEST_FILE, manifest)
@@ -381,7 +334,7 @@ def load_model(
     model_path = version_dir / fmt.file_name
     storage.verify_fingerprint(model_path, record.fingerprint)  # 不一致＝実体が改変・破損なら ValueError
     if warn_dependencies:
-        now = {**_dependencies(), "python": platform.python_version()}
+        now = {**provenance.dependencies(TRACKED_DISTRIBUTIONS), "python": platform.python_version()}
         was = {**record.dependencies, "python": record.python}
         drift = {k: (was[k], now.get(k)) for k in was if now.get(k) != was[k]}
         if drift:
