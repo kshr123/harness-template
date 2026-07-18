@@ -385,6 +385,56 @@ def render_status(root: Path, extra_pending: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
+def next_actionable(root: Path) -> tuple[list[Node], list[tuple[Node, list[str]]], list[Node]]:
+    """「次に何に着手できるか」を木から算出する（着手順は plan／依存で足りるが、探す手間を省く提案）。
+
+    3 つに分ける：
+    - ready：着手できる末端単位（task/experiment で status=todo・depends_on が全て done）。
+    - waiting：やりたいが依存待ちの末端単位（todo だが未完の depends_on を持つ）。各単位に未完の依存 ID を添える。
+    - to_outline：分解の候補（outline のままの epic）。着手の前にまず detailed へ割る対象。
+    提案であって門番ではない（status は生成物。ここで verify を止めたりしない）。
+    """
+    top, _ = load_tree(root)
+    nodes = _all_nodes(top)
+    status_by_id = {n.item.id: n.item.status for n in nodes}
+    ready: list[Node] = []
+    waiting: list[tuple[Node, list[str]]] = []
+    to_outline: list[Node] = []
+    for n in nodes:
+        # コンテナ（子を持つ epic）は着手単位でない＝既に分解済み。outline のまま子を持つのは分解の途中なので、
+        # 「分解の候補」には末端（子なし）の outline epic だけを挙げる。
+        if n.children:
+            continue
+        if n.item.kind is Kind.epic and n.item.plan is PlanMaturity.outline and n.item.status is not Status.done:
+            to_outline.append(n)
+            continue
+        if n.item.kind not in (Kind.task, Kind.experiment) or n.item.status is not Status.todo:
+            continue
+        unmet = [d for d in n.item.depends_on if status_by_id.get(d) is not Status.done]
+        (waiting.append((n, unmet)) if unmet else ready.append(n))
+    ready.sort(key=lambda n: n.item.id)
+    waiting.sort(key=lambda nu: nu[0].item.id)
+    to_outline.sort(key=lambda n: n.item.id)
+    return ready, waiting, to_outline
+
+
+def render_next(root: Path) -> str:
+    """next_actionable を人が読む文へ。`uv run status --next` の出力。"""
+    ready, waiting, to_outline = next_actionable(root)
+    lines: list[str] = ["# 次に着手できる作業単位（提案・門番ではない）", ""]
+    lines.append("## いま着手できる（todo・依存は満たされている）")
+    lines.extend([f"- {n.item.display}" for n in ready] if ready else ["（なし）"])
+    lines.append("")
+    lines.append("## 依存待ち（todo だが未完の depends_on がある）")
+    lines.extend(
+        [f"- {n.item.display}（待ち: {', '.join(unmet)}）" for n, unmet in waiting] if waiting else ["（なし）"]
+    )
+    lines.append("")
+    lines.append("## 分解の候補（outline のままの epic）")
+    lines.extend([f"- {n.item.display}" for n in to_outline] if to_outline else ["（なし）"])
+    return "\n".join(lines)
+
+
 def _render_node(node: Node, lines: list[str], depth: int) -> None:
     leaves = node.leaves()
     is_container = bool(node.children)

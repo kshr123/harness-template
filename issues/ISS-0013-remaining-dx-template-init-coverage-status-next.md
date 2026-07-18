@@ -1,11 +1,18 @@
 ---
 id: ISS-0013
 kind: question
-state: open
+state: resolved
 found_in: EP-16
 created: 2026-07-06
+closed: 2026-07-18
+promoted_to: T-0231
 title: 残る DX（template-init・カバレッジ・ラチェット・status --next）は設計判断が要るので分離
 ---
+> 解決（2026-07-18・T-0231 で判断を確定）：3 項目の判断を下した。status --next は着手＝実装済み
+> （`uv run status --next`）。template-init は実験の識別子の設計が先＝次に実験を scaffold する時に一緒に決める。
+> coverage ratchet は案件が育つ前は時期尚早＝床を決める根拠ができた時に足す。後者 2 つは消費者・動機が現れた
+> 時に着手する（見送りの理由と再開条件は T-0231 に記録）。判断を委ねられたこの課題の役目は果たした。
+
 # ISS-0013 残る DX の分離（template-init・coverage ratchet・status --next）
 
 ## 事象

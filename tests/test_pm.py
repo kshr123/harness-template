@@ -237,6 +237,65 @@ def test_work_tree_artifact_md_is_ok(tmp_path: Path) -> None:
     assert not [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
 
 
+def test_next_actionable_classifies_ready_waiting_and_outline(tmp_path: Path) -> None:
+    """next_actionable は「着手できる」「依存待ち」「分解候補」を構成から分ける。"""
+    ep = tmp_path / "work" / "EP-10-x"
+    _write(ep / "item.md", {"id": "EP-10", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    # T-1（done）→ T-2 は依存が満たされている＝ready。T-3 は未完の T-4 に依存＝waiting。
+    verified = ["tests/test_pm.py::test_next_actionable_classifies_ready_waiting_and_outline"]
+    _write(ep / "T-0501-done.md", {"id": "T-0501", "kind": "task", "status": "done", "verified_by": verified})
+    _write(ep / "T-0502-ready.md", {"id": "T-0502", "kind": "task", "status": "todo", "depends_on": ["T-0501"]})
+    _write(ep / "T-0503-wait.md", {"id": "T-0503", "kind": "task", "status": "todo", "depends_on": ["T-0504"]})
+    _write(ep / "T-0504-blocker.md", {"id": "T-0504", "kind": "task", "status": "todo"})
+    # outline のままの epic（子なし）＝分解候補。
+    _write(
+        tmp_path / "work" / "EP-11-y" / "item.md",
+        {"id": "EP-11", "kind": "epic", "status": "todo", "plan": "outline"},
+    )
+
+    ready, waiting, to_outline = pm.next_actionable(tmp_path)
+    ready_ids = {n.item.id for n in ready}
+    waiting_ids = {n.item.id for n, _ in waiting}
+    outline_ids = {n.item.id for n in to_outline}
+    # T-0502（依存 done）と T-0504（依存なし）は着手可能。T-0503 は依存 T-0504 が未完＝待ち。
+    assert ready_ids == {"T-0502", "T-0504"}
+    assert waiting_ids == {"T-0503"}
+    assert "T-0504" in [d for n, unmet in waiting if n.item.id == "T-0503" for d in unmet]
+    assert outline_ids == {"EP-11"}
+    # done タスク・分解済み epic（EP-10）は着手候補に出ない。
+    assert "T-0501" not in ready_ids and "EP-10" not in outline_ids
+
+
+def test_status_cli_writes_file_by_default_and_next_flag_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """console_script の入口を CliRunner で叩く：既定は STATUS.md を書き、--next は書かず提案を出す。
+
+    回帰：素の関数を console_script にして typer.Option を既定値に置くと OptionInfo が truthy に評価され、
+    --next 無しでも提案の枝に入って STATUS.md を書かなくなる（typer.run で包まないと argv が解釈されない）。
+    """
+    import typer
+    from typer.testing import CliRunner
+
+    from harness import cli
+
+    _scaffold(tmp_path)  # EP-01（T-0001 done・T-0002 todo）＋EP-02（outline）を作る
+    monkeypatch.chdir(tmp_path)
+    app = typer.Typer()
+    app.command()(cli.status_cmd)  # console_script の本体をそのまま CliRunner に載せる
+    runner = CliRunner()
+
+    result = runner.invoke(app, [])  # 既定＝STATUS.md を生成
+    assert result.exit_code == 0
+    assert (tmp_path / "STATUS.md").is_file()
+    (tmp_path / "STATUS.md").unlink()
+
+    result_next = runner.invoke(app, ["--next"])  # --next＝提案を出し STATUS.md は書かない
+    assert result_next.exit_code == 0
+    assert "次に着手できる" in result_next.stdout
+    assert not (tmp_path / "STATUS.md").exists()
+
+
 def test_work_tree_nested_unit_with_item_chain_is_ok(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # item.md を持つ子ディレクトリ配下の単位は見える（鎖が work/ まで続く）＝error にしない。

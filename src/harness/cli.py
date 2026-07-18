@@ -27,19 +27,34 @@ def _root() -> Path:
     return Path.cwd()
 
 
-def status_main() -> None:
+def status_cmd(
+    next_: Annotated[
+        bool, typer.Option("--next", help="次に着手できる作業単位を提案する（STATUS.md は書き換えない）")
+    ] = False,
+) -> None:
     """作業単位の木から STATUS.md を作り直す（その都度生成・手書き禁止・コミットしない）。
 
     STATUS.md は生成物なので追跡しない（.gitignore）。「見たいときに作り直す」ため、
     生成物とソース（work/ の木）の一致をコミットのたびに突き合わせる仕掛け（ゲート）は置かない。
     見たいときにこのコマンドを走らせれば、最新の進捗と「人の判断待ち」が得られる。
-    """
 
+    --next：着手候補（着手できる末端単位・依存待ち・分解すべき outline epic）を端末に出す（提案・門番でない）。
+    """
     root = _root()
+    if next_:
+        typer.echo(pm.render_next(root))
+        return
     out = root / "STATUS.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(pm.render_status(root, extra_pending=issues.open_pending(root)) + "\n", encoding="utf-8")
     typer.echo(f"生成: {out}")
+
+
+def status_main() -> None:
+    # console_script 入口は argv を渡されないので、オプションを解釈するには typer.run で包む（init_project と同じ形）。
+    # 素の関数を console_script にして typer.Option を既定値に置くと、OptionInfo が truthy に評価され --next 無しでも
+    # 提案の枝に入り STATUS.md を書かなくなる（実測した欠陥）。argv の解釈は typer に任せる。
+    typer.run(status_cmd)
 
 
 def task_lint_main() -> None:
