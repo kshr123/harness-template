@@ -16,11 +16,18 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from harness import storage
 from harness.config import load_config
 from harness.pm import Problem
+
+# role（人が探すための分類）の既知語彙。自由記述ではなく閉じた集合にする。
+# 目的変数の同乗（リーク）を止める安全検査を role の文字列一致に載せているため、綴り違い・亜種
+# （"features"・"feature_store"）を許すと検査が黙って素通りする＝fail-open になる。既知語彙に
+# 固定して未知 role を load 時に ValidationError で弾く＝構文で typo を不可能にする（保証(a)）。
+# 新しい役割を使う案件は、この集合に 1 行足す（＝どこを直せばよいかが 1 か所に集まる）。
+KNOWN_ROLES = frozenset({"raw", "cleaned", "feature", "split", "prediction", "evaluation"})
 
 # polars の型名（この集合以外は data-lint が失敗にする）。
 POLARS_DTYPES = {
@@ -83,6 +90,14 @@ class TableSchema(BaseModel):
     columns: list[Column]
     checks: list[str] = Field(default_factory=list)
     target_column: str | None = None  # このテーブルが持つ目的変数の列名（宣言はラベルの出所側の 1 か所だけでする）
+
+    @field_validator("role")
+    @classmethod
+    def _role_is_known(cls, v: str | None) -> str | None:
+        """role を既知語彙に固定する（未知 role は typo/亜種の温床＝リーク検査の fail-open 源）。"""
+        if v is not None and v not in KNOWN_ROLES:
+            raise ValueError(f"role '{v}' は未知（既知: {sorted(KNOWN_ROLES)}）。新しい役割は KNOWN_ROLES に足す")
+        return v
 
 
 def _project_dir(root: Path) -> Path:
@@ -178,6 +193,11 @@ def _eval_checks(df: Any, checks: list[str], *, where: str, errs: list[str]) -> 
             errs.append(f"{where}: check '{check}' に違反 {bad} 行")
 
 
+def declared_target_columns(schemas: list[TableSchema]) -> set[str]:
+    """どこかのテーブルが target_column として宣言した目的変数の列名の集合（ラベルの出所側の宣言）。"""
+    return {s.target_column for s in schemas if s.target_column is not None}
+
+
 def forbidden_feature_columns(schemas: list[TableSchema], *, own_primary_key: Sequence[str] = ()) -> set[str]:
     """特徴量テーブル（role="feature"）に同乗してはいけない列名の集合。
 
@@ -188,10 +208,8 @@ def forbidden_feature_columns(schemas: list[TableSchema], *, own_primary_key: Se
     own_primary_key（特徴量テーブル自身の primary_key）は除く：自分の結合キーとして持つのは正当な用途で、
     「同乗」（意図せず紛れ込む）ではない。
     """
-    names: set[str] = set()
+    names: set[str] = set(declared_target_columns(schemas))
     for s in schemas:
-        if s.target_column is not None:
-            names.add(s.target_column)
         names.update(s.primary_key)
     return names - set(own_primary_key)
 
@@ -199,22 +217,36 @@ def forbidden_feature_columns(schemas: list[TableSchema], *, own_primary_key: Se
 def validate(df: Any, schema: TableSchema, *, all_schemas: list[TableSchema] | None = None) -> list[str]:  # noqa: ANN401  df は polars.DataFrame
     """実データ（polars DataFrame）を定義に照らして確かめる。違反のメッセージを返す（空＝合格）。
 
-    all_schemas を渡し、かつ schema.role が "feature" のとき、目的変数・ID 列（forbidden_feature_columns）が
-    df に同乗していないかも確かめる（T-0205：発生源の封鎖。one-hot 等で動的に増える列があるため
-    「宣言外の列を一律 error」にはできない＝有限に列挙できる集合だけを狙い撃ちする）。
+    all_schemas を渡したとき、目的変数・ID 列（forbidden_feature_columns）が df に同乗していないかも確かめる
+    （T-0205：発生源の封鎖。one-hot 等で動的に増える列があるため「宣言外の列を一律 error」にはできない＝
+    有限に列挙できる集合だけを狙い撃ちする）。発火の条件は 2 つ：
+    - role="feature"：目的変数・ID 列の両方を禁止列に（特徴量テーブルは X だけを持つべき）。
+    - role 未設定の派生テーブル（processed/split）：目的変数だけを狙い撃ち（分類漏れでも最悪のリークは止める。
+      ID 列は派生テーブルに正当に相乗りするので対象外）。自分自身が宣言した target_column は除く。
+
+    塞げる fail-open と、塞げないもの（正直に書く）：role の既知語彙固定〔KNOWN_ROLES〕が typo・亜種を load 時に
+    弾き、role 未設定の枝が「分類し忘れ」を拾う。ただし y を持ってよい既知 role（cleaned/split/raw 等）を
+    **わざと**特徴量テーブルに付けた場合は、この検査を通り抜ける（既知 role は「この中身は意図的」という
+    書き手の宣言＝role を分類の軸に据える設計上の限界。綴り違いではなく別語彙を選ぶ誤りまでは構文で防げない）。
     """
     import polars as pl
 
     errs: list[str] = []
     present = set(df.columns)
-    if all_schemas is not None and schema.role == "feature":
-        forbidden = forbidden_feature_columns(all_schemas, own_primary_key=schema.primary_key)
+    if all_schemas is not None:
+        if schema.role == "feature":
+            forbidden = forbidden_feature_columns(all_schemas, own_primary_key=schema.primary_key)
+            hint = "目的変数・ID 列は特徴量テーブル（role=feature）に含めない"
+        elif schema.role is None and schema.layer in (Layer.processed, Layer.split):
+            own_target = {schema.target_column} if schema.target_column else set()
+            forbidden = declared_target_columns(all_schemas) - own_target
+            hint = "未分類の派生テーブルに他テーブルの目的変数が同乗している。role か target_column を明示する"
+        else:
+            forbidden = set()
+            hint = ""
         leaked = sorted(forbidden & present)
         if leaked:
-            errs.append(
-                f"特徴量テーブルに禁止列 {leaked} が同乗している"
-                "（目的変数・ID 列は特徴量テーブルに含めない。宣言は他テーブルの target_column / primary_key）"
-            )
+            errs.append(f"禁止列 {leaked} が同乗している（{hint}。宣言は他テーブルの target_column / primary_key）")
     for col in schema.columns:
         if col.name not in present:
             errs.append(f"列 {col.name} が無い")

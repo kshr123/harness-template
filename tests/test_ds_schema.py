@@ -337,6 +337,94 @@ def test_save_rejects_target_leak_into_feature_table(tmp_path: Path) -> None:
         store.save(tmp_path, leaked, "feat")
 
 
+def test_save_fails_closed_when_any_schema_is_invalid(tmp_path: Path) -> None:
+    """定義に 1 つでも不正があれば store.save は保存しない（禁止列集合が欠けてリーク検査が甘くなるのを防ぐ）。
+
+    回帰：ラベルの出所テーブルの role が綴り違いで load に失敗すると、その target_column が禁止集合から抜け、
+    以前は目的変数を載せた特徴量テーブルが黙って保存できてしまった（KNOWN_ROLES 導入で生じた fail-open）。
+    """
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\nrole: cleand\n")  # role が綴り違い＝load 失敗
+    _write(
+        tmp_path,
+        "feat",
+        "id: feat\ndescription: 特徴\nlayer: processed\nrole: feature\nprimary_key: [id]\n"
+        "lineage: {inputs: [synthetic]}\ncolumns:\n"
+        "  - {name: id, dtype: Int64}\n  - {name: f1, dtype: Float64}\n  - {name: y, dtype: Int64}\n",
+    )
+    leaked = pl.DataFrame({"id": [1, 2], "f1": [0.1, 0.2], "y": [0, 1]})  # 目的変数 y が同乗
+    with pytest.raises(ValueError, match="テーブル定義に不正"):
+        store.save(tmp_path, leaked, "feat")
+
+
+def test_unknown_role_is_rejected_at_model_validation() -> None:
+    """未知 role（既知語彙の外）は load 時に ValidationError（typo/亜種を構文で不可能にし fail-open を塞ぐ）。"""
+    from pydantic import ValidationError
+
+    base = {"id": "t", "description": "x", "layer": "processed", "columns": [{"name": "a", "dtype": "Int64"}]}
+    for bad in ("features", "feature_store", "Feature"):  # 綴り違い・亜種・大小差はすべて未知
+        with pytest.raises(ValidationError, match="role"):
+            schema.TableSchema.model_validate({**base, "role": bad})
+    # 既知語彙は通る（回帰の対照）。
+    for good in sorted(schema.KNOWN_ROLES):
+        assert schema.TableSchema.model_validate({**base, "role": good}).role == good
+
+
+def test_data_lint_surfaces_unknown_role(tmp_path: Path) -> None:
+    """未知 role の YAML は load_schemas が弾き、data_lint が「テーブル定義が不正」として表に出す。
+
+    role の validator を消すとこのテストは必ず落ちる（無関係な error での空振り合格を防ぐ）。
+    """
+    # lineage を付けて raw 層にし、role 以外の error（processed の lineage 欠落等）が混じらないようにする＝
+    # role の validator を消すとこのテストが必ず落ちる（M2：無関係な error での空振り合格を防ぐ）。
+    _write(
+        tmp_path,
+        "t",
+        "id: t\ndescription: x\nlayer: raw\nsource: s\nrole: feature_store\ncolumns:\n  - {name: a, dtype: Int64}\n",
+    )
+    problems = schema.data_lint(tmp_path)
+    assert any(p.level == "error" and "テーブル定義が不正" in p.message for p in problems)
+
+
+def test_validate_fires_target_leak_on_unclassified_processed_table(tmp_path: Path) -> None:
+    """role 未設定の派生テーブル（processed）が他テーブルの目的変数を載せたら発火（分類漏れの fail-open を塞ぐ）。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")  # y をラベルの出所として宣言
+    _write(
+        tmp_path,
+        "feat",
+        "id: feat\ndescription: 特徴\nlayer: processed\nprimary_key: [id]\n"  # role 行なし＝未設定
+        "lineage: {inputs: [synthetic]}\ncolumns:\n"
+        "  - {name: id, dtype: Int64}\n  - {name: f1, dtype: Float64}\n  - {name: y, dtype: Int64}\n",
+    )
+    schemas = schema.load_schemas(tmp_path)
+    feat = {s.id: s for s in schemas}["feat"]
+    leaked = pl.DataFrame({"id": [1, 2], "f1": [0.1, 0.2], "y": [0, 1]})
+    errs = schema.validate(leaked, feat, all_schemas=schemas)
+    assert any("禁止列" in e and "y" in e for e in errs)
+
+
+def test_validate_unclassified_table_keeps_its_own_target(tmp_path: Path) -> None:
+    """自分自身が宣言した target_column は、role 未設定でも同乗違反にしない（ラベルの出所は y を持ってよい）。"""
+    _write(
+        tmp_path,
+        "labels",
+        "id: labels\ndescription: ラベル\nlayer: processed\ntarget_column: y\nprimary_key: [id]\n"
+        "lineage: {inputs: []}\ncolumns:\n  - {name: id, dtype: Int64}\n  - {name: y, dtype: Int64}\n",
+    )
+    schemas = schema.load_schemas(tmp_path)
+    labels = {s.id: s for s in schemas}["labels"]
+    df = pl.DataFrame({"id": [1, 2], "y": [0, 1]})
+    assert schema.validate(df, labels, all_schemas=schemas) == []
+
+
+def test_validate_unclassified_raw_table_does_not_fire(tmp_path: Path) -> None:
+    """role 未設定でも raw 層は学習前の X・y 同居が正当なので発火しない（processed/split だけを狙う）。"""
+    _write(tmp_path, "synthetic", SYNTHETIC + "target_column: y\n")
+    schemas = schema.load_schemas(tmp_path)
+    syn = {s.id: s for s in schemas}["synthetic"]  # role 未設定・layer=raw・y を正当に持つ
+    df = data.generate_synthetic(n=50, seed=0)
+    assert schema.validate(df, syn, all_schemas=schemas) == []
+
+
 def test_data_lint_target_column_must_exist(tmp_path: Path) -> None:
     """target_column が列に無ければ data_lint が error にする（宣言のタイポを止める）。"""
     _write(

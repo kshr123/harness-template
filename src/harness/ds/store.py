@@ -15,6 +15,7 @@ from typing import Any
 from harness import storage
 from harness.config import load_config
 from harness.ds import schema as sch
+from harness.pm import Problem
 
 
 def _resolve(root: Path, s: sch.TableSchema) -> Path:
@@ -34,10 +35,21 @@ def _schema_for(root: Path, table_id: str) -> sch.TableSchema:
 def save(root: Path, df: Any, table_id: str, *, code: str | None = None, work: str | None = None) -> str:  # noqa: ANN401
     """検証してから保存する。定義を満たさないデータは保存できない。指紋を返す。
 
-    全テーブル定義を渡して検証する（sch.validate の all_schemas）＝role="feature" のテーブルは、他テーブルが
-    宣言した目的変数・ID 列（target_column／primary_key）の同乗を ValueError で止める（T-0205）。
+    全テーブル定義を渡して検証する（sch.validate の all_schemas）＝特徴量テーブル（role="feature"）や未分類の
+    派生テーブルは、他テーブルが宣言した目的変数・ID 列（target_column／primary_key）の同乗を ValueError で
+    止める（T-0205）。禁止列の集合は「読み込めたテーブル定義」から作るので、**定義に 1 つでも不正があれば
+    集合が欠けてリーク検査が黙って甘くなる**。それを避けるため、定義の読み込みに error がある間は保存しない
+    （fail-closed。例：ラベルの出所テーブルの role が綴り違いで load に失敗すると、その target_column が禁止
+    集合から抜け落ちてしまう）。
     """
-    all_schemas = sch.load_schemas(root)
+    load_problems: list[Problem] = []
+    all_schemas = sch.load_schemas(root, load_problems)
+    load_errors = [p for p in load_problems if p.level == "error"]
+    if load_errors:
+        raise ValueError(
+            f"{table_id}: テーブル定義に不正がある間は保存しない（リーク検査の禁止列集合が欠けるため）: "
+            + "；".join(p.message for p in load_errors)
+        )
     matches = [x for x in all_schemas if x.id == table_id]
     if not matches:
         raise ValueError(f"テーブル定義 {table_id} が見つからない（docs/data か work/*/data に置く）")
