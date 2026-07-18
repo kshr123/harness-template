@@ -1,7 +1,7 @@
 ---
 id: EP-01
 kind: epic
-status: in-progress
+status: done
 title: 基盤づくり（プロジェクト管理の骨格）
 plan: detailed
 requirements: [REQ-001]

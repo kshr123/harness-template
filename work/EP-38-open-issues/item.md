@@ -1,8 +1,9 @@
 ---
 id: EP-38
 kind: epic
-status: in-progress
+status: done
 plan: detailed
+closed: 2026-07-18
 requirements: [REQ-001]
 depends_on: []
 created: 2026-07-18
@@ -24,3 +25,9 @@ created: 2026-07-18
 | T-0228 | 来歴ヘルパ 4 つを harness.provenance に 1 本化（ds/models・agent/store の逐語複製を解消） | ISS-0016 | 片方だけ直す退行を止める（条件(2)） |
 | T-0229 | ISS-0011 を実測で問い直す（調査） | ISS-0011 | 5 項目中 4 つは修正済み・残り 1 は run-once の tradeoff＝着手せず resolved に |
 | T-0230 | optuna チューナーを all-extras に入れて CI で実行する | ISS-0012 | 3.14 で導入可を実測・extra 追加・OptunaSearchCV のテスト（seam は既存） |
+| T-0231 | status --next を足す＋残る DX 2 項目の判断を確定 | ISS-0013 | status --next は実装・template-init/coverage ratchet は動機が無く見送り |
+| T-0232 | 陳腐化した基盤マーカーを実態に合わせる（T-0002・EP-01/02/03） | — | CI+pre-commit は既に在る／EP-02/03 の scope は後続 epic が納品済み |
+
+## 見送り（wontfix）にした課題（消費者・動機がまだ無い＝L-025）
+- ISS-0005（slow の runner）：slow テスト 0 件。最初の 1 件を足す人がその場で経路を選ぶ。
+- ISS-0001（リモート保存の命名規則）：実アダプタ（S3・DWH）がまだ無い。実装と一緒に決める。
