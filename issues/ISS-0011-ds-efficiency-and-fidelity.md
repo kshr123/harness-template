@@ -1,11 +1,18 @@
 ---
 id: ISS-0011
 kind: risk
-state: open
+state: resolved
 found_in: ds-review-2026-07-05
 created: 2026-07-05
+closed: 2026-07-18
+promoted_to: T-0229
 title: DS の一部が大規模データで O(n²) 等に落ちる／TargetEncoder が分類で非層化
 ---
+> 解決（2026-07-18・T-0229 で実測して問い直し）：5 項目中 4 つ（silhouette の sample_size・TargetEncoder の
+> 分類層化・threshold_table の sklearn 委譲・eda のベクトル化）は既に修正済み（多くは EP-18）。残る 1 つ
+> （fixed_split の per-row sha256）は run-once の O(n) で、sha256 は分割の安定性のための意図的な選択＝
+> 欠陥でなく tradeoff。実データで律速になった時に事故を動機に見直す。詳細は work/EP-38-open-issues/T-0229。
+
 # ISS-0011 DS の効率と忠実性（大規模で破綻する箇所）
 
 ## 事象
