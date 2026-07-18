@@ -145,6 +145,36 @@ def test_grid_and_halving_tuners() -> None:
 
 
 @pytest.mark.unit
+def test_optuna_search_picks_good_side() -> None:
+    """optuna（TPE）チューナーが分離データで良い側（C=100）を選ぶ。extra optuna が入っていれば必ず動く。
+
+    verify 環境は uv sync --all-extras＝optuna も入る（「登録されるのに CI で一度も実行されない」を解消）。
+    期待値 C=100 は _separable の構成から導ける（実装出力の写経でない）：neg_log_loss は C=100 が必ず勝つ。
+    """
+    pytest.importorskip("optuna")
+    pytest.importorskip("optuna_integration")
+    from optuna.distributions import CategoricalDistribution
+    from optuna_integration import OptunaSearchCV
+
+    assert "optuna" in TUNERS  # all-extras 環境では条件登録が発火している（未導入なら上の importorskip で skip）
+    x, y = _separable()
+    # 候補は C の 2 値（0.001＝正則化支配で log loss 大／100＝分離を学習）。n_trials=6・seed 固定で両方必ず試す。
+    spec = {
+        "tuner": "optuna",
+        "param_distributions": {"C": CategoricalDistribution([0.001, 100.0])},
+        "n_trials": 6,
+        "scoring": "neg_log_loss",
+    }
+    search = build_tuned(build_model({"kind": "logreg"}, seed=0), spec, seed=0)
+    assert isinstance(search, OptunaSearchCV)  # tuner: optuna → optuna-integration へ素通し
+    search.fit(x, y)
+    assert search.best_params_["C"] == 100.0  # 構成から導ける良い側
+    proba = search.predict_proba(x)  # refit=True → best_estimator_ で予測できる
+    assert proba.shape == (60, 2)
+    np.testing.assert_allclose(proba.sum(axis=1), 1.0)
+
+
+@pytest.mark.unit
 def test_unknown_tuner_and_missing_params_raise() -> None:
     model = build_model({"kind": "logreg"}, seed=0)
     with pytest.raises(ValueError, match="未知のチューナー 'nope'.*random"):  # 候補列挙つき

@@ -1,11 +1,17 @@
 ---
 id: ISS-0012
 kind: question
-state: open
+state: resolved
 found_in: T-0057
 created: 2026-07-06
+closed: 2026-07-18
+promoted_to: T-0230
 title: optuna チューナーの完全統合（extra 追加＋テスト経路＋data tuners コマンド）
 ---
+> 解決（2026-07-18・T-0230）：Python 3.14 で optuna>=4＋optuna-integration>=4 が入ることを実測し、pyproject に
+> optuna extra を追加（--all-extras に入る）。OptunaSearchCV のテスト（良い側を選ぶ・importorskip）を足した。
+> data tuners の CLI は T-0066 で完了済み。3 つの残タスクがすべて閉じた。
+
 # ISS-0012 optuna チューナーの完全統合
 
 ## 事象

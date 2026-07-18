@@ -22,3 +22,5 @@ created: 2026-07-18
 | --- | --- | --- | --- |
 | T-0227 | リーク検査の fail-open を塞ぐ（role を既知語彙に固定＋未分類の派生テーブルも target 列を検査） | ISS-0017 | 自由記述 role の綴り違い・未設定で安全検査が黙って素通りしていた（条件(1)の最悪形） |
 | T-0228 | 来歴ヘルパ 4 つを harness.provenance に 1 本化（ds/models・agent/store の逐語複製を解消） | ISS-0016 | 片方だけ直す退行を止める（条件(2)） |
+| T-0229 | ISS-0011 を実測で問い直す（調査） | ISS-0011 | 5 項目中 4 つは修正済み・残り 1 は run-once の tradeoff＝着手せず resolved に |
+| T-0230 | optuna チューナーを all-extras に入れて CI で実行する | ISS-0012 | 3.14 で導入可を実測・extra 追加・OptunaSearchCV のテスト（seam は既存） |

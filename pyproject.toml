@@ -39,6 +39,9 @@ opentsne = ["openTSNE>=1.0"]
 # クラスタリングの住人（代表点＝実データ点でクラスタを表し外れ値に頑健な kmedoids）。CLUSTERERS に条件登録で増える。
 # kmodes（カテゴリ専用）は数値中心の unsupervised.py に載らないため見送り（2026-07-13・item.md 参照）。
 kmedoids = ["kmedoids>=0.5"]
+# ハイパーパラメータ探索の TPE チューナー（OptunaSearchCV）。入れれば TUNERS に "optuna" が増える（条件登録）。
+# optuna>=4 で OptunaSearchCV は別配布物 optuna-integration へ移管済みなので 2 つ明示。導入例: uv sync --extra ds --extra optuna
+optuna = ["optuna>=4", "optuna-integration>=4"]
 # モデルの安全な保存形式（pickle の代替）。入れれば FORMATS に "skops" が増える（条件登録）。
 # 導入例: uv sync --extra ds --extra skops
 skops = ["skops>=0.11"]
@@ -121,7 +124,7 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 # 型スタブを提供していない外部ライブラリ（frontmatter・PyYAML・scikit-learn・LightGBM）。
-module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*", "kmedoids.*", "openTSNE.*", "pmdarima.*", "pymc.*", "nutpie.*", "arviz.*", "pytensor.*", "h5py.*"]
+module = ["frontmatter", "yaml", "sklearn.*", "lightgbm.*", "statsmodels.*", "scipy.*", "skops.*", "skl2onnx.*", "onnxruntime.*", "onnx.*", "kmedoids.*", "openTSNE.*", "pmdarima.*", "pymc.*", "nutpie.*", "arviz.*", "pytensor.*", "h5py.*", "optuna.*", "optuna_integration.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
