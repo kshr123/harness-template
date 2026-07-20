@@ -8,7 +8,7 @@
 
 実装は `src/harness/ops/`：`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
 **ops は CLI を持たない**＝使い方はこの正本と、`uv run verify` に自動で乗る検査
-（そのプロファイルが公開する検査の集合＝pm_checks）だけ。中核へは `.harness/config.toml` の
+（そのプロファイルが公開する検査の集合＝invariant_checks）だけ。中核へは `.harness/config.toml` の
 `profiles = [..., "harness.ops"]` 経由で PROFILE（プロファイル＝検査と部品の束）の
 検査だけを見せる（core はプロファイルを import しない境界・import を軽く保つ規律）。
 
@@ -45,7 +45,7 @@ S3・GCS の実装／retry・timeout・circuit breaker／オンライン特徴�
 - ジョブの中身はローカルの完了判定と同じ 1 本：checkout → uv セットアップ（Python 3.14）→
   `uv sync --all-extras` → `uv run verify`。完了の定義を CI とローカルで一致させる。
 
-ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に自動で乗る・CLI は持たない）は、
+ci_lint（`src/harness/ops/ci_lint.py`。invariant_checks 経由で `uv run verify` に自動で乗る・CLI は持たない）は、
 この雛形を**実行せずに**構造検査して陳腐化を止める。error になるのは：
 
 - 必須ファイル（`.github/workflows/verify.yml`）の欠落＝複製先がゲート無しで始まってしまう。

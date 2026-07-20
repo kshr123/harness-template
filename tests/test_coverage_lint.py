@@ -249,14 +249,14 @@ def test_changelog_is_exempt_with_reason() -> None:
     assert "未実装" in reason and "免除を外す" in reason
 
 
-# --- 配線：PM_CHECKS（verify の中核検査列）に載っている（外すと導線忘れが検出されなくなる） ---
+# --- 配線：INVARIANT_CHECKS（verify の中核検査列）に載っている（外すと導線忘れが検出されなくなる） ---
 
 
 @pytest.mark.unit
-def test_coverage_lint_is_wired_into_pm_checks() -> None:
+def test_coverage_lint_is_wired_into_invariant_checks() -> None:
     from harness import checks
 
-    assert coverage_lint.run_checks in checks.PM_CHECKS
+    assert coverage_lint.run_checks in checks.INVARIANT_CHECKS
 
 
 # --- 回帰テスト：現リポの全コマンドが導線を持つ（以後の導線忘れを止める） ---

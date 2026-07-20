@@ -217,7 +217,7 @@ def test_work_tree_orphan_dir_hides_unit_is_error(tmp_path: Path) -> None:
     _write(tmp_path / "work" / "EP-01-foundation" / "sub" / "T-0400-x.md", orphan)
     errors = [p for p in pm.work_tree_lint(tmp_path) if p.level == "error"]
     assert any("item.md" in p.message and "sub" in p.message for p in errors)
-    # 統合：pm.lint 経由でも同じ error が出る（PM_CHECKS に載る）。
+    # 統合：pm.lint 経由でも同じ error が出る（INVARIANT_CHECKS に載る）。
     assert any("sub" in p.message for p in pm.lint(tmp_path) if p.level == "error")
 
 

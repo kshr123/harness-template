@@ -31,14 +31,14 @@ def _write_config(root: Path, body: str) -> Path:
 
 
 def test_load_profiles_wires_declared_profile(tmp_path: Path) -> None:
-    # 一時 config が profiles = ["harness.ds"] を宣言したら ds だけが載り、テーブル定義検査が pm_checks に繋がる。
+    # 一時 config が profiles = ["harness.ds"] を宣言したら ds だけが載り、テーブル定義検査が検査列に繋がる。
     # 期待値は「宣言した profiles」から導出（このリポの config 値は見ない）。
     from harness.ds import schema
 
     root = _write_config(tmp_path, 'profiles = ["harness.ds"]\n')
     loaded = profiles.load_profiles(root)
     assert [p.name for p in loaded] == ["ds"]
-    assert schema.data_lint in loaded[0].pm_checks  # テーブル定義の検査が verify に繋がる
+    assert schema.data_lint in loaded[0].invariant_checks  # テーブル定義の検査が verify に繋がる
 
 
 def test_empty_profiles_means_core_only(tmp_path: Path) -> None:

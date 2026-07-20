@@ -88,8 +88,8 @@ def test_import_harness_serve_stays_light() -> None:
         "import harness.serve\n"
         "from harness.serve import deploy_lint\n"
         "assert harness.serve.PROFILE.name == 'serve', harness.serve.PROFILE\n"
-        # deploy_lint（T-0086）が配線されても軽いまま：pm_checks は deploy_lint.run_checks のみ。
-        "assert harness.serve.PROFILE.pm_checks == (deploy_lint.run_checks,), harness.serve.PROFILE\n"
+        # deploy_lint（T-0086）が配線されても軽いまま：invariant_checks は deploy_lint.run_checks のみ。
+        "assert harness.serve.PROFILE.invariant_checks == (deploy_lint.run_checks,), harness.serve.PROFILE\n"
         "heavy = [m for m in ('fastapi', 'uvicorn') if m in sys.modules]\n"
         "assert not heavy, f'import harness.serve が重い依存を読み込んだ: {heavy}'\n"
     )

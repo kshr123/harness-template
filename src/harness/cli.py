@@ -139,7 +139,7 @@ def gates_main() -> None:
 def doc_sync_main() -> None:
     """`docs/core.md` の自動生成節（検査の一覧・言語ツールのコマンド）を作り直す。
 
-    出所は `checks.PM_CHECKS`（名前と docstring 1 行目）と `checks.toml`。検査を足した・docstring を
+    出所は `checks.INVARIANT_CHECKS`（名前と docstring 1 行目）と `checks.toml`。検査を足した・docstring を
     直したあとにこれを走らせる。走らせ忘れは verify（doc_sync.run_checks）が失敗として教える。
     """
 

@@ -22,15 +22,17 @@
 
 実体は `src/harness/checks.py` の `run_check`。次の 2 つを順に走らせる。
 
-1. **プロジェクト管理の検査**（`PM_CHECKS`）… 段階によらず毎回すべて走り、指摘を全件集めてから合否を出す。
-2. **言語ツール**（`checks.toml`）… ruff・mypy・pytest を段階ごとに走らせる。
+1. **不変条件の検査**（`INVARIANT_CHECKS`。不変条件＝invariant＝このリポジトリで常に成り立つべき性質。
+   参照が実在する・完了は検証に結びつく・中核はプロファイルを import しない、等）… 段階によらず毎回すべて走り、
+   指摘を全件集めてから合否を出す。言語ツールが知らない、この基盤固有の規則を機械で確かめる。
+2. **言語ツール**（`checks.toml`）… ruff・mypy・pytest を段階ごとに走らせる（言語として普遍的な正しさ）。
 
-下の 2 つの表は、その 2 つの出所（`PM_CHECKS` の各関数の docstring 1 行目と、`checks.toml`）から
+下の 2 つの表は、その 2 つの出所（`INVARIANT_CHECKS` の各関数の docstring 1 行目と、`checks.toml`）から
 `uv run doc-sync` が生成する。**手で編集しない**。生成し忘れ・書き換えは `doc_sync.run_checks` が
 verify で失敗として教える（`src/harness/doc_sync.py`）。
 
 <!-- doc-sync:begin ここから uv run doc-sync が生成する。手で編集しない。 -->
-### プロジェクト管理の検査（`PM_CHECKS`）
+### 不変条件の検査（`INVARIANT_CHECKS`）
 
 段階（fast/standard/full）によらず毎回走る。プロファイルの検査は
 `.harness/config.toml` の `profiles` から実行時に加わるので、この表には載らない（各プロファイルの
@@ -81,7 +83,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `issues.py` | 課題（不具合・リスク・疑問）の登録簿の読み込みと、作業単位との整合の検査 |
 | `config.py` | `.harness/config.toml` を読む（有効なプロファイル・データや課題の置き場） |
 | `profiles.py` | config が指すプロファイルの `PROFILE` 宣言を読み込み、検査に繋ぐ |
-| `checks.py` | 検証の入口。`PM_CHECKS` と `checks.toml` の言語ツールを束ねて走らせ、合否を返す |
+| `checks.py` | 検証の入口。`INVARIANT_CHECKS` と `checks.toml` の言語ツールを束ねて走らせ、合否を返す |
 | `cli.py` | 中核 CLI（typer）の入口。`uv run <コマンド>` はここから呼ばれる |
 | `init_project.py` | 複製後の初期化（`uv run init-project`）。fork した案件の案件領域を白紙化し verify 緑の出発点に戻す（本体領域には触れない・未 fork では拒否） |
 | `gates.py` | 昇格の判定（`value_threshold`・`change_threshold`）。champion を差し替えてよいかを決める |
@@ -95,9 +97,9 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `code_doc_lint.py` | 公開モジュールと正本ドキュメントの役割一覧が食い違っていないか（順：新しいモジュールの触れ忘れ／逆：消したモジュールの説明の行が残っていないか） |
 | `profile_doc_lint.py` | 各プロファイルの正本 `docs/<名>.md` があり、doc 索引 `docs/README.md` から辿れるか（プロファイル追加時の索引の陳腐化を止める） |
 | `coverage_lint.py` | CLI コマンドの使い方が、スキルか正本ドキュメントから辿れるか |
-| `boundary_lint.py` | 中核（`src/harness/*.py`）がプロファイル（ds・serve・agent・ops）を import していないか（ast・遅延 import も検出。`PM_CHECKS` に登録され verify に載る） |
+| `boundary_lint.py` | 中核（`src/harness/*.py`）がプロファイル（ds・serve・agent・ops）を import していないか（ast・遅延 import も検出。`INVARIANT_CHECKS` に登録され verify に載る） |
 | `retraction_lint.py` | 撤回した決まりごとの名前（`RETRACTED`＝有限・確定済み）が資産に残骸として残っていないか（撤回一覧と `docs/learnings.md` 以外に語境界一致で残れば error。空一覧＝正常） |
-| `doc_sync.py` | この文書の自動生成節が `PM_CHECKS`・`checks.toml` の現状と一致しているか |
+| `doc_sync.py` | この文書の自動生成節が `INVARIANT_CHECKS`・`checks.toml` の現状と一致しているか |
 | `conventions.py` | テスト規約（乱数の種・`--test` の有無・skip の理由・`subprocess` の `encoding`）を静的に検査する |
 | `commit_lint.py` | コミットメッセージの冒頭に、`work/` に実在する作業単位の ID があるか |
 
@@ -122,7 +124,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 
 1. `src/harness/<名前>.py` に `run_checks(root: Path) -> list[pm.Problem]` を書く。**docstring の 1 行目が
    上の表の要約になる**ので、何を見て何を error にするかを 1 文で書く。
-2. `src/harness/checks.py` の `PM_CHECKS` に加える。
+2. `src/harness/checks.py` の `INVARIANT_CHECKS` に加える。
 3. `uv run doc-sync` で上の表を作り直し、生成結果ごとコミットする。
 
 `pm.Problem` の水準は `error`（合否に効く）と `info`（知らせるだけ）の 2 つ。環境の違いで揺れる指摘
@@ -145,4 +147,4 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 
 この検査で止められないことが 1 つある。**上の表をマーカーの外に複製すれば、複製の側は古くなっても
 検出されない**。恒久ドキュメント（README・AGENTS・DoD など）には検査やコマンドの項目を手書きで列挙せず、
-「プロジェクト管理の検査＋ruff・mypy・pytest」のような分類だけを書いてこの文書へリンクすること。
+「不変条件の検査＋ruff・mypy・pytest」のような分類だけを書いてこの文書へリンクすること。

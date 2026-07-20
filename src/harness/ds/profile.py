@@ -34,4 +34,4 @@ _DS_TEST_GLOBS = (
     "test_promotion_characterization.py",
 )
 
-PROFILE = Profile(name="ds", pm_checks=(schema.data_lint,), test_globs=_DS_TEST_GLOBS)
+PROFILE = Profile(name="ds", invariant_checks=(schema.data_lint,), test_globs=_DS_TEST_GLOBS)

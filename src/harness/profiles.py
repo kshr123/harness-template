@@ -16,22 +16,22 @@ from pathlib import Path
 from harness import pm
 from harness.config import load_config
 
-# プロジェクト管理の検査の型（root を受けて指摘の一覧を返す）。checks.py もこれを使う。
-PmCheck = Callable[[Path], list[pm.Problem]]
+# 不変条件の検査の型（root を受けて指摘の一覧を返す）。checks.py もこれを使う。
+InvariantCheck = Callable[[Path], list[pm.Problem]]
 
 
 @dataclass(frozen=True)
 class Profile:
     """プロファイルの宣言。各プロファイルはモジュール直下に `PROFILE` として 1 つ公開する。
 
-    検査（`pm_checks`）だけでなく、そのプロファイルが所有するテスト（`test_globs`＝tests/ からの glob）も
+    検査（`invariant_checks`）だけでなく、そのプロファイルが所有するテスト（`test_globs`＝tests/ からの glob）も
     同じ宣言に束ねる。非 DS の案件（`profiles = []`）では、無効なプロファイルの `test_globs` を
     収集除外（tests/conftest.py の collect_ignore_glob）と mypy の対象除外（checks.py）が使い、optional 依存
     （polars・fastapi 等）を import するテスト・ソースを収集/型検査から外す。持ち物は 1 か所（この宣言）に
-    集める＝2 つ目の台帳を作らない（pm_checks と同じ束ね方）。"""
+    集める＝2 つ目の台帳を作らない（invariant_checks と同じ束ね方）。"""
 
     name: str
-    pm_checks: tuple[PmCheck, ...] = ()
+    invariant_checks: tuple[InvariantCheck, ...] = ()
     # このプロファイルが所有するテストファイル（tests/ からの glob）。無効時に収集・型検査から外す集合。
     test_globs: tuple[str, ...] = ()
 

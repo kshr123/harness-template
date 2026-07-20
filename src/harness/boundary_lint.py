@@ -18,7 +18,7 @@
   ValueError＝黙って免除しない。fail closed）。免除を増やす前に「なぜ中核がプロファイルを要るのか」を疑う。
 
 core の検査（プロファイル非依存）。stdlib のみに依存。`harness.pm.Problem` を返すため `pm` を先頭で import
-する。循環はしない：`pm` はこのモジュールを import せず、両者を束ねる `checks.py` が `PM_CHECKS` にこの
+する。循環はしない：`pm` はこのモジュールを import せず、両者を束ねる `checks.py` が `INVARIANT_CHECKS` にこの
 `run_checks` を登録して verify に載せる（他の lint と同じ作法）。
 """
 

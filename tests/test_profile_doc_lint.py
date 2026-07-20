@@ -71,8 +71,8 @@ def test_link_match_accepts_path_prefix_and_anchor(tmp_path: Path) -> None:
     assert _errors(tmp_path) == []
 
 
-def test_wired_into_pm_checks() -> None:
-    assert profile_doc_lint.run_checks in checks.PM_CHECKS
+def test_wired_into_invariant_checks() -> None:
+    assert profile_doc_lint.run_checks in checks.INVARIANT_CHECKS
 
 
 @pytest.mark.integration

@@ -7,7 +7,7 @@ created: 2026-07-10
 depends_on: [EP-27]
 verified_by:
   - tests/test_doc_sync.py::test_real_repo_core_doc_is_fresh
-  - tests/test_doc_sync.py::test_check_table_has_exactly_one_row_per_pm_check
+  - tests/test_doc_sync.py::test_check_table_has_exactly_one_row_per_invariant_check
   - tests/test_doc_sync.py::test_check_table_uses_docstring_first_line_as_summary
   - tests/test_doc_sync.py::test_render_ignores_config_so_every_copy_generates_the_same_table
   - tests/test_doc_sync.py::test_stale_block_is_error
@@ -17,7 +17,7 @@ verified_by:
   - tests/test_doc_sync.py::test_check_without_docstring_raises
   - tests/test_doc_sync.py::test_sync_is_idempotent
   - tests/test_doc_sync.py::test_crlf_document_is_not_reported_as_stale
-  - tests/test_doc_sync.py::test_doc_sync_is_registered_in_pm_checks
+  - tests/test_doc_sync.py::test_doc_sync_is_registered_in_invariant_checks
 ---
 # T-0167 中核の正本ドキュメント＋内訳の自動生成
 

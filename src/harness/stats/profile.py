@@ -2,7 +2,7 @@
 
 ここに載せるのは検査の結線とテストの所有宣言だけ。重い依存（pymc・nutpie・arviz）はここから import しない
 （プロファイルのモジュールは軽く保つ規約＝discover_profiles が extra 未導入でも import できる。ds/serve/ops と同型）。
-pm_checks はまだ無い（推論・診断・保存のコードは T-0213 以降で入り、必要な検査はそのとき束ねる）。
+invariant_checks はまだ無い（推論・診断・保存のコードは T-0213 以降で入り、必要な検査はそのとき束ねる）。
 """
 
 from __future__ import annotations
@@ -15,4 +15,4 @@ from harness.profiles import Profile
 # test_stats_*.py の名前に収める（ここへ 1 行足すのと同義＝2 つ目の台帳を作らない）。
 _STATS_TEST_GLOBS = ("test_stats_*.py",)
 
-PROFILE = Profile(name="stats", pm_checks=(), test_globs=_STATS_TEST_GLOBS)
+PROFILE = Profile(name="stats", invariant_checks=(), test_globs=_STATS_TEST_GLOBS)

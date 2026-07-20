@@ -14,6 +14,6 @@ from harness.profiles import Profile
 # （anthropic/fastapi を import する cassette/serve のテスト等。昇格の特性化は ds とも共有）。
 PROFILE = Profile(
     name="agent",
-    pm_checks=(lint.run_checks, schedule_lint.run_checks),
+    invariant_checks=(lint.run_checks, schedule_lint.run_checks),
     test_globs=("test_agent_*.py", "test_promotion_characterization.py"),
 )

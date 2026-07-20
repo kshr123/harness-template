@@ -194,14 +194,14 @@ def test_blank_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         doc_source_lint.run_checks(tmp_path)
 
 
-# --- 配線：PM_CHECKS に載っている ---
+# --- 配線：INVARIANT_CHECKS に載っている ---
 
 
 @pytest.mark.unit
-def test_doc_source_lint_is_wired_into_pm_checks() -> None:
+def test_doc_source_lint_is_wired_into_invariant_checks() -> None:
     from harness import checks
 
-    assert doc_source_lint.run_checks in checks.PM_CHECKS
+    assert doc_source_lint.run_checks in checks.INVARIANT_CHECKS
 
 
 # --- 回帰テスト：現リポの複製後も残る資産が work/・ISS を根拠に参照しない ---

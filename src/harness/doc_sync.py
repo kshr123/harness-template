@@ -4,18 +4,18 @@
 （検査を足しても誰も追随できない＝複製がある限り必ず腐る）。要約の出所を 1 つに定めてしまえば、複製は
 機械が維持する派生物になる。ここでは次の 2 つを唯一の出所として Markdown 表を生成する：
 
-- `checks.PM_CHECKS` … 各検査関数の名前（`<モジュール>.<関数>`）と **docstring 1 行目**（＝要約）。
+- `checks.INVARIANT_CHECKS` … 各検査関数の名前（`<モジュール>.<関数>`）と **docstring 1 行目**（＝要約）。
 - `checks.toml` … 段階（fast/standard/full）ごとの言語ツールのコマンド。
 
 生成した表は `docs/core.md` のマーカーで囲んだ節に書き込み、**生成物をコミットする**（`docs/core.md` は
 他の正本から参照される読み物なので、`STATUS.md` のような「見たいときに作り直す」扱いにはできない）。
 コミットする以上は内容が最新かを検査する必要があるので、`run_checks` が生成し直した内容と突き合わせ、
 食い違えば verify を失敗させる（生成物をコミットし CI で `git diff --exit-code` する運用と同じやり方）。
-`doc_sync.run_checks` 自身も `PM_CHECKS` の一員なので表に載る（表の完全性の定義そのもの）。
+`doc_sync.run_checks` 自身も `INVARIANT_CHECKS` の一員なので表に載る（表の完全性の定義そのもの）。
 
 設計上の決め事:
 - **`.harness/config.toml` を読まない**。プロファイル（ds・serve・agent・ops）の検査は実行時に config から
-  加わるので、生成表は中核の `PM_CHECKS` だけを対象にする。これで生成結果はどの複製先でも同一になり、
+  加わるので、生成表は中核の `INVARIANT_CHECKS` だけを対象にする。これで生成結果はどの複製先でも同一になり、
   非 DS の案件（profiles = []）でも `docs/core.md` は変わらない。config に依存した実数を出すのは
   `checks.py` の実行時の表示だけ。
 - **docstring 1 行目が無い・空の検査関数は ValueError**（黙って空欄の行を生成しない＝fail closed。
@@ -30,7 +30,7 @@
 レビュー観点として残る。
 
 core の検査（プロファイル非依存）。stdlib のみに依存。循環 import を避けるため `harness.checks` は
-関数の中で import する（`checks` は `PM_CHECKS` を組み立てるためにこのモジュールを先に import する）。
+関数の中で import する（`checks` は `INVARIANT_CHECKS` を組み立てるためにこのモジュールを先に import する）。
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ MARKER_BEGIN = "<!-- doc-sync:begin ここから uv run doc-sync が生成する
 MARKER_END = "<!-- doc-sync:end -->"
 
 # 生成する 2 つの表の見出し（`docs/core.md` の散文からも参照される）。
-HEADING_CHECKS = "### プロジェクト管理の検査（`PM_CHECKS`）"
+HEADING_CHECKS = "### 不変条件の検査（`INVARIANT_CHECKS`）"
 HEADING_COMMANDS = "### 言語ツール（`checks.toml`）"
 
 
@@ -72,11 +72,11 @@ def _escape_cell(text: str) -> str:
     return text.replace("|", r"\|")
 
 
-def _pm_checks() -> list[Callable[[Path], list[pm.Problem]]]:
+def _invariant_checks() -> list[Callable[[Path], list[pm.Problem]]]:
     """中核の検査の一覧（実行時 import＝checks → doc_sync の循環を避ける）。"""
     from harness import checks
 
-    return list(checks.PM_CHECKS)
+    return list(checks.INVARIANT_CHECKS)
 
 
 def _levels() -> tuple[str, ...]:
@@ -110,7 +110,7 @@ def render(root: Path) -> str:
         "| 検査 | 何を見るか |",
         "| --- | --- |",
     ]
-    lines.extend(f"| `{_name(check)}` | {_escape_cell(_summary(check))} |" for check in _pm_checks())
+    lines.extend(f"| `{_name(check)}` | {_escape_cell(_summary(check))} |" for check in _invariant_checks())
     lines += [
         "",
         HEADING_COMMANDS,
@@ -177,7 +177,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
         return [
             pm.Problem(
                 "error",
-                f"{DOC_REL}: 自動生成の節が PM_CHECKS・checks.toml の現状と食い違う"
+                f"{DOC_REL}: 自動生成の節が INVARIANT_CHECKS・checks.toml の現状と食い違う"
                 f"（`uv run doc-sync` で作り直す。手で書き換えない）",
             )
         ]

@@ -38,7 +38,7 @@ from harness import pm
 # 免除リスト：真に導線不要な内部コマンドだけ（トークン → なぜ導線が不要かの理由。空は不可）。
 _EXEMPT: dict[str, str] = {
     "data lint": (
-        "テーブル定義（スキーマ YAML）の静的検査の内部入口。verify（ds プロファイルの pm_checks）が"
+        "テーブル定義（スキーマ YAML）の静的検査の内部入口。verify（ds プロファイルの invariant_checks）が"
         "毎回自動で呼ぶため、人・エージェントがスキル経由で直接叩く導線を必要としない。"
     ),
     "changelog": (

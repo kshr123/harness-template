@@ -290,14 +290,14 @@ def test_blank_exempt_reason_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         code_doc_lint.run_checks(tmp_path)
 
 
-# --- 配線：PM_CHECKS に載っている ---
+# --- 配線：INVARIANT_CHECKS に載っている ---
 
 
 @pytest.mark.unit
-def test_code_doc_lint_is_wired_into_pm_checks() -> None:
+def test_code_doc_lint_is_wired_into_invariant_checks() -> None:
     from harness import checks
 
-    assert code_doc_lint.run_checks in checks.PM_CHECKS
+    assert code_doc_lint.run_checks in checks.INVARIANT_CHECKS
 
 
 # --- 回帰テスト：現リポの全プロファイル＋中核のモジュールが docs で触れられている ---

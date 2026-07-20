@@ -84,7 +84,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 3. `uv run verify` にすべて成功させる。成功した出力（証拠）を示す。テストは緩めない・消さない。
 
 ## コマンド（実体は uv。make は使わない）
-- `uv run verify` … 完了判定（プロジェクト管理の検査＋ruff・mypy・pytest）。**個々の検査の一覧と要約は `docs/core.md`**（`PM_CHECKS` と `checks.toml` から生成。ここには手書きで列挙しない）
+- `uv run verify` … 完了判定（不変条件〔invariant＝常に成り立つべき性質〕の検査＋ruff・mypy・pytest）。**個々の検査の一覧と要約は `docs/core.md`**（`INVARIANT_CHECKS` と `checks.toml` から生成。ここには手書きで列挙しない）
 - `uv run doc-sync` … `docs/core.md` の自動生成節を作り直す（検査を足した・docstring を直したあとに走らせる。走らせ忘れは verify が失敗として教える）
 - `uv run status` … STATUS.md を作り直す（生成物・コミットしない）
 - `uv run task-lint` … 作業単位の検査（ID の重複・depends_on の指す先が無い、を失敗にする）

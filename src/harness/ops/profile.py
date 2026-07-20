@@ -12,4 +12,4 @@ from harness.profiles import Profile
 
 # ops プロファイルが所有するテスト（tests/ からの glob）。ops を外した案件では収集・型検査から外す
 # （ci_lint の構造テスト。ops は軽い依存だけなので import は失敗しないが、無効化＝検査が外れるのに合わせる）。
-PROFILE = Profile(name="ops", pm_checks=(ci_lint.run_checks,), test_globs=("test_ci_lint.py",))
+PROFILE = Profile(name="ops", invariant_checks=(ci_lint.run_checks,), test_globs=("test_ci_lint.py",))

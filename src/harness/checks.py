@@ -1,8 +1,9 @@
 """共通の検証コマンドの実体。
 
-一つの入口（uv run check / verify）で、プロジェクト管理の検査（`PM_CHECKS`）と言語ツール
-（`checks.toml` の ruff/mypy/pytest）を走らせ、合否を返す。CI もローカルもこの同じ入口を使う
-＝完了の定義を一致させる。**個々の検査の一覧と要約は `docs/core.md`**（`PM_CHECKS` と `checks.toml`
+一つの入口（uv run check / verify）で、不変条件（invariant＝常に成り立つべき性質）の検査
+（`INVARIANT_CHECKS`＝リポジトリ自身の規則が守られているか）と言語ツール
+（`checks.toml` の ruff/mypy/pytest＝普遍的な正しさ）を走らせ、合否を返す。CI もローカルもこの同じ入口を使う
+＝完了の定義を一致させる。**個々の検査の一覧と要約は `docs/core.md`**（`INVARIANT_CHECKS` と `checks.toml`
 から `uv run doc-sync` が生成する。ここに手書きで列挙しない）。
 """
 
@@ -30,16 +31,16 @@ from harness import (
     retraction_lint,
     testing,
 )
-from harness.profiles import PmCheck
+from harness.profiles import InvariantCheck
 from harness.testing import markers_in_expr
 
 # レベル：fast（フック相当）→ standard（pre-commit 相当）→ full（CI・done）。
 LEVELS = ("fast", "standard", "full")
 
-# 中核のプロジェクト管理の検査（どの段階でも走る・順不同で全件集める）。
+# 中核の不変条件の検査（どの段階でも走る・順不同で全件集める）。
 # プロファイルの検査（例：DS のテーブル定義 data_lint）は .harness/config.toml の profiles から
 # 実行時に集める（プロファイル境界。中核はプロファイルを import しない）。
-PM_CHECKS: list[PmCheck] = [
+INVARIANT_CHECKS: list[InvariantCheck] = [
     pm.lint,
     pm.spec_lint,
     issues.run_checks,
@@ -264,16 +265,17 @@ def _verify_checks_config(root: Path) -> None:
         )
 
 
-def _pm_checks(root: Path) -> bool:
-    """プロジェクト管理の決まりごとを検査する。参照エラー・壊れた frontmatter・完了↔検証の欠落は失敗。
+def _run_invariant_checks(root: Path) -> bool:
+    """不変条件の検査（リポジトリ自身の規則が守られているか）を走らせる。
 
+    参照・壊れた frontmatter・完了↔検証の欠落は失敗。
     STATUS.md は生成物（その都度 `uv run status` で作り直す・コミットしない）なので、
     ここで「生成物とソースの一致」は突き合わせない（古い生成物を理由に検証を落とさない）。
     """
 
     ok = True
     problems: list[pm.Problem] = []
-    all_checks = PM_CHECKS + [c for p in profiles.load_profiles(root) for c in p.pm_checks]
+    all_checks = INVARIANT_CHECKS + [c for p in profiles.load_profiles(root) for c in p.invariant_checks]
     for check in all_checks:
         problems += check(root)
     for p in problems:
@@ -283,7 +285,7 @@ def _pm_checks(root: Path) -> bool:
             ok = False
     if ok:
         # 件数は実測（config で有効にしたプロファイルの検査も数に入る）。内訳の手書き列挙は置かない。
-        print(f"  ○ プロジェクト管理の検査 {len(all_checks)} 件すべて通過（内訳は docs/core.md）")
+        print(f"  ○ 不変条件の検査 {len(all_checks)} 件すべて通過（内訳は docs/core.md）")
     return ok
 
 
@@ -299,7 +301,7 @@ def run_check(root: Path, level: str = "full") -> int:
     _verify_checks_config(root)
 
     print(f"[check level={level}]")
-    ok = _pm_checks(root)
+    ok = _run_invariant_checks(root)
 
     for cmd in _load_commands(root, level):
         # 無効なプロファイルのソース・テストを mypy の対象から外す（非 DS 案件では optional 依存が無い＝

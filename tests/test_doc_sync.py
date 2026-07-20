@@ -1,7 +1,7 @@
 """doc_sync のテスト：中核の正本ドキュメント（docs/core.md）の自動生成節と、その鮮度検査。
 
 期待値はすべて入力の構成から導く：
-- 検査の表は `checks.PM_CHECKS`（関数の一覧）から導出する＝行数・名前・要約は PM_CHECKS 側の事実。
+- 検査の表は `checks.INVARIANT_CHECKS`（関数の一覧）から導出する＝行数・名前・要約は INVARIANT_CHECKS 側の事実。
 - コマンドの表は一時プロジェクトに置いた `checks.toml` の中身から導出する。
 最後の 1 本は現リポの `docs/core.md` に対する回帰テスト（コミット済みの生成物が古くないこと）。
 """
@@ -56,20 +56,20 @@ def _section(text: str, heading: str) -> str:
     return text[start:rest]
 
 
-# --- 生成の内容（PM_CHECKS と checks.toml から導く） ---
+# --- 生成の内容（INVARIANT_CHECKS と checks.toml から導く） ---
 
 
-def test_check_table_has_exactly_one_row_per_pm_check(tmp_path: Path) -> None:
-    # 表の行数は PM_CHECKS の件数と一致する（載せ忘れ・二重掲載が起きない）。
+def test_check_table_has_exactly_one_row_per_invariant_check(tmp_path: Path) -> None:
+    # 表の行数は INVARIANT_CHECKS の件数と一致する（載せ忘れ・二重掲載が起きない）。
     text = doc_sync.render(tmp_path)
     rows = _table_rows(_section(text, doc_sync.HEADING_CHECKS))
-    assert len(rows) == len(checks.PM_CHECKS)
+    assert len(rows) == len(checks.INVARIANT_CHECKS)
 
 
-def test_check_table_names_each_pm_check_as_module_dot_function(tmp_path: Path) -> None:
+def test_check_table_names_each_invariant_check_as_module_dot_function(tmp_path: Path) -> None:
     # 名前は一律 `<モジュール>.<関数>`。特例（run_checks の短縮）は作らない。
     text = doc_sync.render(tmp_path)
-    for fn in checks.PM_CHECKS:
+    for fn in checks.INVARIANT_CHECKS:
         expected = f"{fn.__module__.removeprefix('harness.')}.{fn.__name__}"
         assert f"`{expected}`" in text
 
@@ -77,7 +77,7 @@ def test_check_table_names_each_pm_check_as_module_dot_function(tmp_path: Path) 
 def test_check_table_uses_docstring_first_line_as_summary(tmp_path: Path) -> None:
     # 要約の出所は docstring 1 行目だけ（文言を二重に持たない＝食い違いが起きない）。
     text = doc_sync.render(tmp_path)
-    for fn in checks.PM_CHECKS:
+    for fn in checks.INVARIANT_CHECKS:
         first_line = (fn.__doc__ or "").strip().splitlines()[0]
         assert doc_sync._escape_cell(first_line) in text
 
@@ -243,6 +243,6 @@ def test_real_repo_core_doc_is_fresh() -> None:
     assert problems == [], [p.message for p in problems]
 
 
-def test_doc_sync_is_registered_in_pm_checks() -> None:
+def test_doc_sync_is_registered_in_invariant_checks() -> None:
     # 自己言及：doc_sync 自身も verify が回す検査の 1 つとして表に載る（表の完全性の定義）。
-    assert doc_sync.run_checks in checks.PM_CHECKS
+    assert doc_sync.run_checks in checks.INVARIANT_CHECKS

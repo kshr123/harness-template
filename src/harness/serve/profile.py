@@ -12,4 +12,4 @@ from harness.serve import deploy_lint
 
 # 配信プロファイルが所有するテスト（tests/ からの glob）。非配信の案件では収集・型検査から外す
 # （fastapi/uvicorn を import する app/cli/shadow のテスト。deploy_lint の構造テストも同じ prefix）。
-PROFILE = Profile(name="serve", pm_checks=(deploy_lint.run_checks,), test_globs=("test_serve_*.py",))
+PROFILE = Profile(name="serve", invariant_checks=(deploy_lint.run_checks,), test_globs=("test_serve_*.py",))

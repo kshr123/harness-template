@@ -208,4 +208,4 @@ def test_missing_concurrency_is_info(tmp_path: Path) -> None:
 def test_agent_profile_includes_schedule_lint() -> None:
     from harness.agent.profile import PROFILE
 
-    assert schedule_lint.run_checks in PROFILE.pm_checks
+    assert schedule_lint.run_checks in PROFILE.invariant_checks
