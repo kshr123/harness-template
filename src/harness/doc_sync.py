@@ -103,7 +103,7 @@ def render(root: Path) -> str:
     lines: list[str] = [
         HEADING_CHECKS,
         "",
-        "段階（fast/standard/full）によらず毎回走る。プロファイル（ds・serve・agent・ops）の検査は",
+        "段階（fast/standard/full）によらず毎回走る。プロファイルの検査は",
         "`.harness/config.toml` の `profiles` から実行時に加わるので、この表には載らない（各プロファイルの",
         "正本ドキュメントを見る）。",
         "",

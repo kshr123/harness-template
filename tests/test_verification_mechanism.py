@@ -156,6 +156,20 @@ def test_checks_config_rejects_missing_mypy(tmp_path: Path) -> None:
         checks._verify_checks_config(root)
 
 
+def test_checks_config_rejects_missing_file(tmp_path: Path) -> None:
+    # checks.toml が無い＝寛容にすると言語検査ゼロで緑になる（黙って全テスト層を失う）。存在を必須にして拒否する。
+    # 期待値（拒否）は入力の構成から導ける：ファイルを一切書かない tmp_path なので不存在が確定する。
+    with pytest.raises(ValueError, match="checks.toml が無い"):
+        checks._verify_checks_config(tmp_path)
+
+
+def test_run_check_rejects_missing_config_before_pytest(tmp_path: Path) -> None:
+    # 番人が門の内側に住まない証拠（不存在版）：checks.toml が無い root の run_check は、pytest に到達する
+    # 前（無条件の層）で ValueError を投げる＝「ファイルを消せば緑」の経路を上流で断つ。
+    with pytest.raises(ValueError, match="checks.toml が無い"):
+        checks.run_check(tmp_path, "full")
+
+
 def test_run_check_rejects_broken_config_before_pytest(tmp_path: Path) -> None:
     # 番人が門の内側に住まない証拠：壊れた checks.toml を与えた run_check は、pytest サブプロセスに
     # 到達する前（＝マーカー選択の上流・無条件の層）で ValueError を投げる。pytest が 1 件も走らなくても

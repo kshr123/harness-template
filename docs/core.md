@@ -4,10 +4,10 @@
 
 - **中核**（`src/harness/*.py`）… どの案件でも同じもの。作業単位の管理・課題・ドキュメントの検査・
   検証コマンドの入口。プロファイルのコードを import しない。
-- **プロファイル**（`src/harness/ds/`・`src/harness/serve/`・`src/harness/agent/`・`src/harness/ops/`）…
+- **プロファイル**（`src/harness/ds/`・`src/harness/serve/`・`src/harness/agent/`・`src/harness/ops/`・`src/harness/stats/`）…
   案件によって載せ替えるもの。`.harness/config.toml` の `profiles` に書いたものだけが実行時に加わる。
   非 DS の案件は `profiles` を空にすれば DS の検査が丸ごと外れる（`src/harness/checks.py` の手編集は不要）。
-  それぞれの正本は [ds.md](ds.md)・[serve.md](serve.md)・[agent.md](agent.md)・[ops.md](ops.md)。
+  それぞれの正本は [ds.md](ds.md)・[serve.md](serve.md)・[agent.md](agent.md)・[ops.md](ops.md)・[stats.md](stats.md)。
 
 この文書は中核の正本。とくに **`uv run verify` が実際に何を回すか**をここだけで定義する。
 
@@ -32,7 +32,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 <!-- doc-sync:begin ここから uv run doc-sync が生成する。手で編集しない。 -->
 ### プロジェクト管理の検査（`PM_CHECKS`）
 
-段階（fast/standard/full）によらず毎回走る。プロファイル（ds・serve・agent・ops）の検査は
+段階（fast/standard/full）によらず毎回走る。プロファイルの検査は
 `.harness/config.toml` の `profiles` から実行時に加わるので、この表には載らない（各プロファイルの
 正本ドキュメントを見る）。
 
@@ -45,7 +45,8 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `coverage_lint.run_checks` | CLI コマンドの導線カバレッジ検査。スキル/正本 docs から到達できないコマンド＝error。 |
 | `doc_source_lint.run_checks` | 複製後も残る資産が `work/` の作業単位・`issues/` の課題を設計の根拠に参照していないか検査する。参照＝error。 |
 | `code_doc_lint.run_checks` | 公開モジュールと正本ドキュメントの役割一覧が食い違っていないか双方向で検査する（順：触れ忘れ／逆：残骸）。 |
-| `boundary_lint.run_checks` | 中核（src/harness/*.py）がプロファイル（ds・serve・agent・ops）を import していないか検査する。 |
+| `profile_doc_lint.run_checks` | 各プロファイルに正本 docs/<名>.md があり、doc 索引 docs/README.md から辿れるか検査する。欠落＝error。 |
+| `boundary_lint.run_checks` | 中核（src/harness/*.py）がプロファイル（ds・serve・agent…）を import していないか検査する。 |
 | `conventions.run_checks` | テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。 |
 | `retraction_lint.run_checks` | 撤回済みの決まりごとの名前が、資産（src・docs・skills・templates）に残骸として残っていないか検査する。 |
 | `doc_sync.run_checks` | 中核の正本ドキュメントの自動生成節が最新か検査する。古い・マーカー異常＝error。 |
@@ -92,6 +93,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `doclint.py` | 正本ドキュメントの参照（ID・相対パス・`uv run` コマンド）が実在するか |
 | `doc_source_lint.py` | 複製後も残る資産（docs・src・tests・templates・skills）が一時的な単位（`work/`・`issues/`）を設計の根拠に参照していないか |
 | `code_doc_lint.py` | 公開モジュールと正本ドキュメントの役割一覧が食い違っていないか（順：新しいモジュールの触れ忘れ／逆：消したモジュールの説明の行が残っていないか） |
+| `profile_doc_lint.py` | 各プロファイルの正本 `docs/<名>.md` があり、doc 索引 `docs/README.md` から辿れるか（プロファイル追加時の索引の陳腐化を止める） |
 | `coverage_lint.py` | CLI コマンドの使い方が、スキルか正本ドキュメントから辿れるか |
 | `boundary_lint.py` | 中核（`src/harness/*.py`）がプロファイル（ds・serve・agent・ops）を import していないか（ast・遅延 import も検出。`PM_CHECKS` に登録され verify に載る） |
 | `retraction_lint.py` | 撤回した決まりごとの名前（`RETRACTED`＝有限・確定済み）が資産に残骸として残っていないか（撤回一覧と `docs/learnings.md` 以外に語境界一致で残れば error。空一覧＝正常） |

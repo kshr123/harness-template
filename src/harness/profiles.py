@@ -76,6 +76,19 @@ def discover_profiles(root: Path) -> dict[str, Profile]:
     return result
 
 
+def profile_names(root: Path) -> tuple[str, ...]:
+    """同梱プロファイルの名前（`src/harness/<name>/profile.py` を持つディレクトリ名）を名前順で返す。
+
+    import せずディレクトリ構造だけから導く（軽い・副作用なし）。プロファイル一覧を要する検査・散文が
+    手書きの列挙でなくこの 1 か所から引くための単一の出どころ（`discover_profiles` は PROFILE を import して
+    有効/無効を判定する用途で、名前だけならこの走査で足りる）。新しいプロファイルを足すと自動で集合に入る。
+    """
+    pkg_dir = root / "src" / "harness"
+    if not pkg_dir.is_dir():
+        return ()
+    return tuple(sorted(p.parent.name for p in pkg_dir.glob("*/profile.py")))
+
+
 def disabled_profiles(root: Path, enabled: Iterable[str] | None = None) -> list[Profile]:
     """同梱されているが有効化されていないプロファイル（＝ソースはあるが `profiles` に載っていない）。
 

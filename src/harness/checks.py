@@ -25,6 +25,7 @@ from harness import (
     doclint,
     issues,
     pm,
+    profile_doc_lint,
     profiles,
     retraction_lint,
     testing,
@@ -46,6 +47,7 @@ PM_CHECKS: list[PmCheck] = [
     coverage_lint.run_checks,
     doc_source_lint.run_checks,
     code_doc_lint.run_checks,
+    profile_doc_lint.run_checks,
     boundary_lint.run_checks,
     conventions.run_checks,
     retraction_lint.run_checks,
@@ -106,7 +108,7 @@ def _registered_markers(root: Path) -> set[str]:
 
 # 走らせてよいコマンドの allowlist（argv 単位）。**何を走らせてよいか**だけを固定し、段階への割り当て・順序は
 # checks.toml が自由に決める。未知の argv は起動を拒否（fail closed）＝「まだ列挙していない次のフラグ」も
-# 既定で止まる（denylist のように 1 つずつ潰さない＝docs/learnings.md L-017）。
+# 既定で止まる（denylist のように 1 つずつ潰さない）。
 _ALLOWED_RUFF_ARGV: frozenset[tuple[str, ...]] = frozenset({("ruff", "format", "--check", "."), ("ruff", "check", ".")})
 _ALLOWED_MYPY_ARGV: frozenset[tuple[str, ...]] = frozenset({("mypy",)})
 # pytest コマンドで許すフラグ（引数を取らないもの）。-m は式トークンを 1 つ取るので別扱い。
@@ -187,7 +189,7 @@ def _verify_checks_config(root: Path) -> None:
     保証すること（allowlist＝fail closed）：走らせてよいのは ruff/mypy の決まった argv と、pytest の
     `-q`・`-m <式>` だけ。未知の引数・未知のコマンド・充足不能な `-m` 式（異なる層の and 等）はすべて
     起動前に ValueError で止まる。「まだ列挙していない次のフラグ」も既定で拒否される（denylist のように
-    1 つずつ潰さない＝L-017）。対象集合はツール自身の定数（LEVELS・testing.PYRAMID・許可 argv 定数）と
+    1 つずつ潰さない）。対象集合はツール自身の定数（LEVELS・testing.PYRAMID・許可 argv 定数）と
     pyproject の登録から機械的に導ける（自己申告の台帳ではない＝保証の (b)）。
 
     検査対象は checks.toml の**生の argv**（`_load_commands` が読んだもの）だけ。harness 自身が実行時に足す
@@ -205,7 +207,15 @@ def _verify_checks_config(root: Path) -> None:
 
     path = root / "checks.toml"
     if not path.is_file():
-        return  # 複製直後などファイルが無いときは _load_commands と同じく寛容（走らせるものが無いだけ）。
+        # 不存在を寛容にすると _load_commands が空を返し、ruff/mypy/pytest が 1 つも走らないまま verify が
+        # 緑になる（黙って全テスト層を失う）。クローンは checks.toml を必ず同梱するので「複製直後でファイルが
+        # 無い」状態は起きない＝寛容の根拠が無い。言語検査を持たない状態を望むなら空でなく明示的に書かせ、
+        # 下の (1) が「必須の言語検査を欠く」として拒否する一本道に乗せる（fail-closed）。
+        raise ValueError(
+            f"checks.toml が無い: {path}"
+            "（クローンは必ず同梱する。無ければ ruff/mypy/pytest が 1 つも走らず verify が緑になる＝"
+            "黙って全テスト層を失う。存在を必須にして fail-closed にする）"
+        )
     commands = _load_commands(root, LEVELS[-1])  # full まで＝全レベルのコマンドを累積。
 
     # 各コマンドを argv allowlist に照合し、外れたら起動を拒否する。pytest の -m 式が参照するマーカーも集める。

@@ -24,8 +24,17 @@ def _core(root: Path, name: str, body: str) -> None:
     (d / name).write_text(body, encoding="utf-8")
 
 
+def _profile(root: Path, name: str) -> None:
+    """一時プロジェクトにプロファイル src/harness/<name>/profile.py を置く（越境の対象集合は profile.py の走査から
+    導かれるので、テストの世界にも参照するプロファイルを実在させる）。"""
+    d = root / "src" / "harness" / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "profile.py").write_text("PROFILE = object()\n", encoding="utf-8")
+
+
 def test_core_absolute_import_of_profile_is_error(tmp_path: Path) -> None:
     # 中核が `import harness.ds.models` すると error（絶対 import の越境）。
+    _profile(tmp_path, "ds")
     _core(tmp_path, "badcore.py", "import harness.ds.models\n")
     errors = [p for p in boundary_lint.run_checks(tmp_path) if p.level == "error"]
     assert any("badcore.py" in p.message and "ds" in p.message for p in errors)
@@ -33,21 +42,31 @@ def test_core_absolute_import_of_profile_is_error(tmp_path: Path) -> None:
 
 def test_core_from_import_of_profile_is_error(tmp_path: Path) -> None:
     # `from harness.serve import app` も error。
+    _profile(tmp_path, "serve")
     _core(tmp_path, "badcore.py", "from harness.serve import app\n")
     assert any("serve" in p.message for p in boundary_lint.run_checks(tmp_path) if p.level == "error")
 
 
 def test_core_relative_import_of_profile_is_error(tmp_path: Path) -> None:
     # 相対 import（`from .agent import cli`）も harness.agent に解決して error。
+    _profile(tmp_path, "agent")
     _core(tmp_path, "badcore.py", "from .agent import cli\n")
     assert any("agent" in p.message for p in boundary_lint.run_checks(tmp_path) if p.level == "error")
 
 
 def test_core_lazy_import_inside_function_is_error_and_marked(tmp_path: Path) -> None:
     # 関数内の遅延 import も検出し、メッセージに「遅延 import」と印を付ける（トップレベルだけ見る抜け道を塞ぐ）。
+    _profile(tmp_path, "ds")
     _core(tmp_path, "badcore.py", "def go():\n    import harness.ds\n    return harness.ds\n")
     errors = [p for p in boundary_lint.run_checks(tmp_path) if p.level == "error"]
     assert any("遅延 import" in p.message for p in errors)
+
+
+def test_core_import_of_nonexistent_profile_name_is_not_flagged(tmp_path: Path) -> None:
+    # 越境の対象は実在するプロファイル（profile.py を持つ dir）だけ。存在しない名前の import は越境でない
+    # ＝対象集合を手書きの一覧でなく src の走査から導く効果を固定する。
+    _core(tmp_path, "core.py", "import harness.notaprofile\n")
+    assert not [p for p in boundary_lint.run_checks(tmp_path) if p.level == "error"]
 
 
 def test_core_importing_core_is_ok(tmp_path: Path) -> None:

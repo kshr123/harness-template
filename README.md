@@ -22,7 +22,7 @@
   `docs/method.md`（開発の進め方）。案件固有の外部設計文書があれば
   `docs/charter.md` から参照する（README はテンプレートとして複製されるので、複製先に無いリポ外パスは書かない）。
 - **profile** … 中核（core）に領域別の部品と検査を足す束のこと。
-  ds（データサイエンス）・serve（配信）・agent（LLM）・ops（運用）があり、`.harness/config.toml` で有効化する。
+  ds（データサイエンス）・serve（配信）・agent（LLM）・ops（運用）・stats（ベイズ統計）があり、`.harness/config.toml` で有効化する。
 
 ## 使い方（主要コマンド）
 ```bash
@@ -35,6 +35,7 @@ uv run verify           # 完了判定（プロジェクト管理の検査＋ruf
 uv run data --help      # DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。正本は docs/ds.md）
 uv run serve --help     # 配信プロファイル。champion（評価に合格して現在採用中のモデルの版）を Web API で配信（正本は docs/serve.md）
 uv run agent --help     # LLM エージェントの開発・運用プロファイル。AgentSpec（エージェントを宣言する YAML）を評価（正本は docs/agent.md）
+uv run stats --help     # ベイズ統計モデリングのプロファイル。モデル・サンプラー・診断・PPC のカタログ（正本は docs/stats.md）
 uvx pre-commit run --all-files   # コミット直前の検査
 ```
 

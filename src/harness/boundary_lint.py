@@ -27,10 +27,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from harness import pm
-
-# プロファイルのディレクトリ名（`src/harness/<name>/`）。中核がこれらを import してはいけない。
-_PROFILES = ("ds", "serve", "agent", "ops", "stats")
+from harness import pm, profiles
 
 # 免除リスト：(中核モジュールのファイル名, import 先の完全修飾モジュール) → なぜ許すかの理由（空は不可）。
 # 例：("cli.py", "harness.ds")。現状は空（中核 → プロファイルの越境は 0 件）。
@@ -73,15 +70,19 @@ def _imported_modules(node: ast.Import | ast.ImportFrom, pkg: str = "harness") -
     return [f"{prefix}.{alias.name}" if prefix else alias.name for alias in node.names]
 
 
-def _profile_of(module: str) -> str | None:
-    """完全修飾モジュール名がプロファイルへの依存なら、そのプロファイル名を返す（そうでなければ None）。"""
+def _profile_of(module: str, profile_names: frozenset[str]) -> str | None:
+    """完全修飾モジュール名がプロファイルへの依存なら、そのプロファイル名を返す（そうでなければ None）。
+
+    プロファイルの集合は手書きせず `profiles.profile_names`（`src/harness/<name>/profile.py` の走査）から
+    渡す＝新しいプロファイルを足しても境界検査が自動で覆う（一覧の二重管理をしない）。
+    """
     parts = module.split(".")
-    if len(parts) >= 2 and parts[0] == "harness" and parts[1] in _PROFILES:
+    if len(parts) >= 2 and parts[0] == "harness" and parts[1] in profile_names:
         return parts[1]
     return None
 
 
-def _violations(path: Path) -> list[tuple[int, str, str, bool]]:
+def _violations(path: Path, profile_names: frozenset[str]) -> list[tuple[int, str, str, bool]]:
     """1 つの中核モジュールの越境を (行番号, import 先モジュール, プロファイル, 遅延か) の一覧で返す。
 
     `ast.walk` で全ノードを見るため、関数内の遅延 import も拾う（トップレベル body に無い import ＝遅延）。
@@ -93,19 +94,23 @@ def _violations(path: Path) -> list[tuple[int, str, str, bool]]:
         if not isinstance(node, ast.Import | ast.ImportFrom):
             continue
         for module in _imported_modules(node):
-            profile = _profile_of(module)
+            profile = _profile_of(module, profile_names)
             if profile is not None:
                 out.append((node.lineno, module, profile, id(node) not in toplevel))
     return out
 
 
 def run_checks(root: Path) -> list[pm.Problem]:
-    """中核（src/harness/*.py）がプロファイル（ds・serve・agent・ops）を import していないか検査する。"""
+    """中核（src/harness/*.py）がプロファイル（ds・serve・agent…）を import していないか検査する。
+
+    プロファイルの集合は `profiles.profile_names`（同梱の profile.py から導出）＝手書きの一覧を持たない。
+    """
     problems: list[pm.Problem] = []
     exempt = _validated_exempt()
+    profile_names = frozenset(profiles.profile_names(root))
     for path in _core_modules(root):
         filename = path.name
-        for lineno, module, profile, lazy in _violations(path):
+        for lineno, module, profile, lazy in _violations(path, profile_names):
             if (filename, module) in exempt:
                 continue
             kind = "遅延 import" if lazy else "import"
