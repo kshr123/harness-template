@@ -76,7 +76,9 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。
   - `id`（例 `EP-01` / `T-0007` / `E-0003`。一意・再利用しない）／`kind`（epic | task | experiment）／`status`／`plan`（epic・実験）／`requirements`（REQ-…）／`depends_on`（先行する単位の ID）。
+  - 任意：`priority`（`high | normal | low`。**人が置く判断**を `uv run status --next` の並べ替えに運ぶ＝機械は決めず順位を執行するだけ。未指定は normal と同じ＝並びは既定の ID 順のまま。列挙なのでタイポは検証で失敗する）。
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。
+- **着手の提案は `uv run status --next`**：仕掛かり中（in-progress の末端＝再開の候補）→ いま着手できる（todo・依存充足）→ 依存待ち → 分解の候補、の順で出す。並びは `priority`→ID。門番ではない（時間経過で赤にはしない＝可視化のみ）。
 
 ## 手順（1 タスク）
 1. その単位の `item.md`（またはファイル）と本ファイルだけを読む。全単位は読まない（読み込みすぎない）。

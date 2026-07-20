@@ -39,6 +39,22 @@ class PlanMaturity(StrEnum):
     detailed = "detailed"
 
 
+class Priority(StrEnum):
+    """着手の優先度。人が置く判断（機械は決めず、置かれた順位を並べ替えに運ぶだけ）。
+
+    未知の値は検証で失敗する（保証 (a)＝構造的に不可能）ので、自由文字列のタイポは done にならない。
+    無指定は normal と同じ扱い＝並びは既定の ID 順のまま（優先度を置いた単位だけが上下する）。
+    """
+
+    high = "high"
+    normal = "normal"
+    low = "low"
+
+
+# 並べ替え用の順位（小さいほど先）。無指定（None）は normal と同じ中位＝優先度を置かなければ ID 順を保つ。
+_PRIORITY_RANK = {Priority.high: 0, Priority.normal: 1, Priority.low: 2}
+
+
 class Item(BaseModel):
     """1 つの作業単位（item.md、または軽い単位のファイル）の frontmatter。"""
 
@@ -57,9 +73,14 @@ class Item(BaseModel):
     # 作成日・完了日。時系列の並べ替えの材料にする（設計「時系列の扱い」）。
     created: date | None = None
     closed: date | None = None
-    priority: str | None = None
+    priority: Priority | None = None  # 着手の優先度（人が置く）。status --next の並べ替えに使う。
     owner: str | None = None
 
     @property
     def display(self) -> str:
         return f"{self.id} {self.title}" if self.title else self.id
+
+    @property
+    def priority_rank(self) -> int:
+        """並べ替え用の優先度の順位（小さいほど先）。無指定は normal と同じ中位。"""
+        return 1 if self.priority is None else _PRIORITY_RANK[self.priority]

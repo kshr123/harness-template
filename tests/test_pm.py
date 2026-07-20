@@ -253,7 +253,7 @@ def test_next_actionable_classifies_ready_waiting_and_outline(tmp_path: Path) ->
         {"id": "EP-11", "kind": "epic", "status": "todo", "plan": "outline"},
     )
 
-    ready, waiting, to_outline = pm.next_actionable(tmp_path)
+    in_progress, ready, waiting, to_outline = pm.next_actionable(tmp_path)
     ready_ids = {n.item.id for n in ready}
     waiting_ids = {n.item.id for n, _ in waiting}
     outline_ids = {n.item.id for n in to_outline}
@@ -262,8 +262,65 @@ def test_next_actionable_classifies_ready_waiting_and_outline(tmp_path: Path) ->
     assert waiting_ids == {"T-0503"}
     assert "T-0504" in [d for n, unmet in waiting if n.item.id == "T-0503" for d in unmet]
     assert outline_ids == {"EP-11"}
-    # done タスク・分解済み epic（EP-10）は着手候補に出ない。
+    # done タスク・分解済み epic（EP-10）は着手候補に出ない。この構成に in-progress の末端は無い。
     assert "T-0501" not in ready_ids and "EP-10" not in outline_ids
+    assert in_progress == []
+
+
+def test_next_actionable_orders_ready_by_priority_then_id(tmp_path: Path) -> None:
+    """ready の並びは優先度（人が置く判断）→ID。優先度を置いた単位だけが上下し、無指定は ID 順のまま。"""
+    ep = tmp_path / "work" / "EP-12-p"
+    _write(ep / "item.md", {"id": "EP-12", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    # ID 順なら A<B<C<D だが、優先度で D(high) が先頭、B(low) が末尾に来る。C・A は無指定＝中位で ID 順。
+    _write(ep / "T-0601-a.md", {"id": "T-0601", "kind": "task", "status": "todo"})
+    _write(ep / "T-0602-b.md", {"id": "T-0602", "kind": "task", "status": "todo", "priority": "low"})
+    _write(ep / "T-0603-c.md", {"id": "T-0603", "kind": "task", "status": "todo"})
+    _write(ep / "T-0604-d.md", {"id": "T-0604", "kind": "task", "status": "todo", "priority": "high"})
+
+    _, ready, _, _ = pm.next_actionable(tmp_path)
+    assert [n.item.id for n in ready] == ["T-0604", "T-0601", "T-0603", "T-0602"]
+
+
+def test_next_actionable_lists_in_progress_leaves(tmp_path: Path) -> None:
+    """仕掛かり中（in-progress の末端 task/experiment/investigation）は再開の候補として可視化する。
+
+    investigation も末端の作業単位なので放置の可視化から漏らさない（分解済み epic はコンテナなので出さない）。
+    """
+    ep = tmp_path / "work" / "EP-13-r"
+    # 末端でない in-progress epic は「仕掛かり中」に出さない（分解済みコンテナ）。
+    _write(ep / "item.md", {"id": "EP-13", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    _write(ep / "T-0701-wip.md", {"id": "T-0701", "kind": "task", "status": "in-progress"})
+    _write(ep / "INV-0701-probe.md", {"id": "INV-0701", "kind": "investigation", "status": "in-progress"})
+    _write(ep / "T-0702-todo.md", {"id": "T-0702", "kind": "task", "status": "todo"})
+
+    in_progress, ready, _, _ = pm.next_actionable(tmp_path)
+    # task と investigation の両方が再開候補に出る（ID 順）。分解済み epic EP-13 は出ない。
+    assert [n.item.id for n in in_progress] == ["INV-0701", "T-0701"]
+    assert [n.item.id for n in ready] == ["T-0702"]
+
+
+def test_next_actionable_orders_outline_epics_by_priority(tmp_path: Path) -> None:
+    """分解の候補（outline epic）も priority→ID で並べる＝epic に置いた優先度も静かに捨てない。"""
+    _write(
+        tmp_path / "work" / "EP-15-a" / "item.md",
+        {"id": "EP-15", "kind": "epic", "status": "todo", "plan": "outline"},
+    )
+    _write(
+        tmp_path / "work" / "EP-16-b" / "item.md",
+        {"id": "EP-16", "kind": "epic", "status": "todo", "plan": "outline", "priority": "high"},
+    )
+    _, _, _, to_outline = pm.next_actionable(tmp_path)
+    # ID 順なら EP-15<EP-16 だが、EP-16 が high なので先頭に来る。
+    assert [n.item.id for n in to_outline] == ["EP-16", "EP-15"]
+
+
+def test_invalid_priority_value_is_rejected(tmp_path: Path) -> None:
+    """優先度は列挙（high/normal/low）＝未知の自由文字列は検証で失敗する（保証 (a)。タイポは done にならない）。"""
+    ep = tmp_path / "work" / "EP-14-bad"
+    _write(ep / "item.md", {"id": "EP-14", "kind": "epic", "status": "todo", "plan": "outline"})
+    _write(ep / "T-0801-x.md", {"id": "T-0801", "kind": "task", "status": "todo", "priority": "urgent"})
+    problems = pm.lint(tmp_path)
+    assert any("T-0801" in p.message or "priority" in p.message.lower() for p in problems if p.level == "error")
 
 
 def test_status_cli_writes_file_by_default_and_next_flag_does_not(

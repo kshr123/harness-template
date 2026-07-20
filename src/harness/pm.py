@@ -385,18 +385,26 @@ def render_status(root: Path, extra_pending: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
-def next_actionable(root: Path) -> tuple[list[Node], list[tuple[Node, list[str]]], list[Node]]:
+def next_actionable(root: Path) -> tuple[list[Node], list[Node], list[tuple[Node, list[str]]], list[Node]]:
     """「次に何に着手できるか」を木から算出する（着手順は plan／依存で足りるが、探す手間を省く提案）。
 
-    3 つに分ける：
-    - ready：着手できる末端単位（task/experiment で status=todo・depends_on が全て done）。
+    4 つに分ける（末端の作業単位＝task/experiment/investigation を対象にする。epic はコンテナ扱い）：
+    - in_progress：仕掛かり中の末端単位（status=in-progress）。再開の候補＝新規着手より先に片づける。
+    - ready：着手できる末端単位（status=todo・depends_on が全て done）。
     - waiting：やりたいが依存待ちの末端単位（todo だが未完の depends_on を持つ）。各単位に未完の依存 ID を添える。
     - to_outline：分解の候補（outline のままの epic）。着手の前にまず detailed へ割る対象。
-    提案であって門番ではない（status は生成物。ここで verify を止めたりしない）。
+    提案であって門番ではない（status は生成物。ここで verify を止めたりしない）。仕掛かり中は時間経過で検査を落とす
+    ような閾値にはしない（生成物の一致ゲートを撤去したのと同じ、非決定的な赤の再発明を避ける）＝可視化にとどめる。
+
+    どの節も並びは優先度（人が置く判断）→ ID の順。優先度を置かなければ全て中位で並びは ID 順のまま
+    （既定の挙動を保つ）。分解の候補（to_outline）も同じ＝epic に置いた優先度も静かに捨てず並べ替えに運ぶ。
     """
     top, _ = load_tree(root)
     nodes = _all_nodes(top)
     status_by_id = {n.item.id: n.item.status for n in nodes}
+    # 末端の「作業」単位＝着手・再開の対象。epic はコンテナ（分解の候補は下で別扱い）。
+    leaf_work_kinds = (Kind.task, Kind.experiment, Kind.investigation)
+    in_progress: list[Node] = []
     ready: list[Node] = []
     waiting: list[tuple[Node, list[str]]] = []
     to_outline: list[Node] = []
@@ -408,30 +416,47 @@ def next_actionable(root: Path) -> tuple[list[Node], list[tuple[Node, list[str]]
         if n.item.kind is Kind.epic and n.item.plan is PlanMaturity.outline and n.item.status is not Status.done:
             to_outline.append(n)
             continue
-        if n.item.kind not in (Kind.task, Kind.experiment) or n.item.status is not Status.todo:
+        if n.item.kind not in leaf_work_kinds:
+            continue
+        if n.item.status is Status.in_progress:
+            in_progress.append(n)
+            continue
+        if n.item.status is not Status.todo:
             continue
         unmet = [d for d in n.item.depends_on if status_by_id.get(d) is not Status.done]
         (waiting.append((n, unmet)) if unmet else ready.append(n))
-    ready.sort(key=lambda n: n.item.id)
-    waiting.sort(key=lambda nu: nu[0].item.id)
-    to_outline.sort(key=lambda n: n.item.id)
-    return ready, waiting, to_outline
+
+    def by_priority_then_id(n: Node) -> tuple[int, str]:
+        return (n.item.priority_rank, n.item.id)
+
+    in_progress.sort(key=by_priority_then_id)
+    ready.sort(key=by_priority_then_id)
+    waiting.sort(key=lambda nu: by_priority_then_id(nu[0]))
+    to_outline.sort(key=by_priority_then_id)
+    return in_progress, ready, waiting, to_outline
+
+
+def _next_line(node: Node) -> str:
+    """`status --next` の 1 行。優先度を置いた単位だけ印を添える（無指定は既定＝印なし）。"""
+    mark = f"［優先度: {node.item.priority.value}］" if node.item.priority else ""
+    return f"- {node.item.display}{mark}"
 
 
 def render_next(root: Path) -> str:
     """next_actionable を人が読む文へ。`uv run status --next` の出力。"""
-    ready, waiting, to_outline = next_actionable(root)
+    in_progress, ready, waiting, to_outline = next_actionable(root)
     lines: list[str] = ["# 次に着手できる作業単位（提案・門番ではない）", ""]
+    lines.append("## 仕掛かり中（in-progress・再開の候補＝新規着手より先に）")
+    lines.extend([_next_line(n) for n in in_progress] if in_progress else ["（なし）"])
+    lines.append("")
     lines.append("## いま着手できる（todo・依存は満たされている）")
-    lines.extend([f"- {n.item.display}" for n in ready] if ready else ["（なし）"])
+    lines.extend([_next_line(n) for n in ready] if ready else ["（なし）"])
     lines.append("")
     lines.append("## 依存待ち（todo だが未完の depends_on がある）")
-    lines.extend(
-        [f"- {n.item.display}（待ち: {', '.join(unmet)}）" for n, unmet in waiting] if waiting else ["（なし）"]
-    )
+    lines.extend([f"{_next_line(n)}（待ち: {', '.join(unmet)}）" for n, unmet in waiting] if waiting else ["（なし）"])
     lines.append("")
     lines.append("## 分解の候補（outline のままの epic）")
-    lines.extend([f"- {n.item.display}" for n in to_outline] if to_outline else ["（なし）"])
+    lines.extend([_next_line(n) for n in to_outline] if to_outline else ["（なし）"])
     return "\n".join(lines)
 
 
