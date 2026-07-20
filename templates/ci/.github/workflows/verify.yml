@@ -5,6 +5,10 @@
 # .github/workflows/ci.yaml）。代わりに ci_lint（src/harness/ops/ci_lint.py）が uv run verify のたびに
 # 構造（verify step の有無・Python 版・--all-extras）を静的検査し、雛形が腐るのを止める。
 # 使い方の正本は docs/ops.md の「CI（verify ゲート）テンプレートと ci_lint」。
+#
+# コピーしただけでは CI が走るだけで、赤でもマージできる。この verify ジョブを required status check にし、
+# PR レビュー必須（承認者 ≠ 作成者）を設定する 1 手順は複製後に人が行う（作業ツリーの外＝唯一の不動点。
+# 機械化できない）。手順・gh CLI 例は docs/ops.md の「verify を required check にする」。
 name: verify
 
 on:

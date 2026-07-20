@@ -315,3 +315,36 @@ def test_broken_yaml_does_not_crash_and_is_not_self_reported(tmp_path: Path) -> 
     (root / "templates" / "ci" / WORKFLOW).write_text("jobs: [unclosed\n", encoding="utf-8")
     errors = _errors(root)
     assert not any("YAML" in m for m in errors)
+
+
+# ---- retrain 雛形の却下/故障の分離（EP-39 T-0238）：fail-open な continue-on-error 助言を残さない ----
+#
+# 雛形は使い方を教える媒体なので、当リポの audit ジョブで禁止済みの fail-open（全故障を無音化）を逆に
+# 勧めていないことを、実テンプレート（生きた fixture）の中身から確かめる。
+
+
+@pytest.mark.unit
+def test_retrain_template_separates_rejection_from_failure() -> None:
+    text = (TEMPLATES / RETRAIN).read_text(encoding="utf-8")
+    # 却下（意図した停止）は PromotionError だけを握って緑にする＝握る例外を型で限定している。
+    assert "except PromotionError" in text
+    # 全故障を無音にする continue-on-error を step が有効化していない（注意書きのコメントでの言及は許す＝
+    # コメント行を除いた実行される行に continue-on-error が現れないことを見る）。
+    active_lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+    assert not any("continue-on-error" in ln for ln in active_lines)
+
+
+# ---- required check への到達路（EP-39 T-0237）：宣言された唯一の不動点への手順が在り、入口から辿れる ----
+
+
+@pytest.mark.unit
+def test_required_check_procedure_is_documented_and_linked() -> None:
+    ops = (REPO_ROOT / "docs" / "ops.md").read_text(encoding="utf-8")
+    # 手順の本体：required status check 化と、承認者≠作成者のレビュー必須。
+    assert "required status check" in ops
+    assert "verify を required check にする" in ops
+    # 複製の入口（template-copy.md §1）と雛形 header の両方から、その手順へ到達できる。
+    copy_doc = (REPO_ROOT / "docs" / "template-copy.md").read_text(encoding="utf-8")
+    assert "required status check" in copy_doc
+    verify_yml = (TEMPLATES / WORKFLOW).read_text(encoding="utf-8")
+    assert "required check" in verify_yml

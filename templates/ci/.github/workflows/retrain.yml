@@ -43,26 +43,35 @@ jobs:
       # 昇格の判定は promote_model の 1 か所だけ：value_threshold（thresholds）かつ
       # change_threshold（現 champion より primary が良い）を満たすときだけ champion を更新する。版は手書きしない＝
       # 再学習 step の結果記録（results/metrics_<variant>.yaml の model.name/version）から結線する。
-      # 判定で却下されたら PromotionError（ValueError）で step が落ちる＝昇格なし（意図した停止。赤で残したくなければ
-      # continue-on-error: true をこの step に付ける）。
+      # 却下（緑）と故障（赤）を exit code の層で分ける：PromotionError（＝閾値未達の意図した却下）だけを握って
+      # 理由をログに出し exit 0（champion 据え置き・次の再学習は続く）。それ以外の例外（metrics 欠落・promote_model の
+      # バグ・依存破損）は握らず赤にする。`continue-on-error: true` は全故障を無音にするので使わない
+      # （当リポの audit ジョブでも fail-open として禁止＝test_guardrails。雛形は使い方を教える媒体なので逆を勧めない）。
       - name: 閾値を満たしたときだけ昇格（判定は promote_model）
         run: |
           uv run python - <<'PY'
+          import sys
           from pathlib import Path
 
           import yaml
 
           from harness.ds.models import promote_model
+          from harness.gates import PromotionError
 
           exp = Path("templates/experiment")  # ← 複製先が編集する箇所：自分の実験フォルダ（train.py と同じ場所）
           meta = yaml.safe_load((exp / "results" / "metrics_interaction.yaml").read_text())  # ← variant 名も合わせる
-          promotion = promote_model(
-              Path("."),
-              work="E-0001",  # ← 複製先が編集する箇所：train.py の WORK_ID と一致させる
-              name=meta["model"]["name"],  # 再学習 step が保存した名前（結果記録から結線）
-              version=meta["model"]["version"],  # 再学習 step が保存した版（結果記録から結線）
-              thresholds={"roc_auc": 0.85},  # ← 複製先が編集する箇所：合格ライン（eval.passes と同じ辞書。指標名は eval.METRICS に登録済みのものを使う）
-              primary="roc_auc",  # ← 複製先が編集する箇所：現 champion と比べる主要指標（同じく eval.METRICS に登録済みのものを使う）
-          )
+          try:
+              promotion = promote_model(
+                  Path("."),
+                  work="E-0001",  # ← 複製先が編集する箇所：train.py の WORK_ID と一致させる
+                  name=meta["model"]["name"],  # 再学習 step が保存した名前（結果記録から結線）
+                  version=meta["model"]["version"],  # 再学習 step が保存した版（結果記録から結線）
+                  thresholds={"roc_auc": 0.85},  # ← 複製先が編集する箇所：合格ライン（eval.passes と同じ辞書。指標名は eval.METRICS に登録済みのものを使う）
+                  primary="roc_auc",  # ← 複製先が編集する箇所：現 champion と比べる主要指標（同じく eval.METRICS に登録済みのものを使う）
+              )
+          except PromotionError as rejected:
+              # 閾値未達＝意図した却下。理由を残して緑で抜ける（故障ではないのでループを止めない）。
+              print(f"却下（champion 据え置き）: {rejected}")
+              sys.exit(0)
           print(promotion)
           PY

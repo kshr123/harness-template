@@ -22,6 +22,9 @@ uv run init-project                       # 案件領域を白紙化する（下
   として持つ。版記録ファイルは写し＝台帳であり、必ず古びる（作らない）。
 - `upstream` リモートの有無が「fork 済みか」の判定になる。`uv run init-project` はこれを見て、まだ fork して
   いない状態（テンプレート本体そのもの・`upstream` 未設定）では**拒否**する（本体を誤って初期化しない）。
+- CI 雛形（`templates/ci/.github/workflows/verify.yml`）をコピーしたら、`verify` を **required status check** に
+  し、PR レビュー必須（承認者 ≠ 作成者）を設定する。この 1 手順だけは作業ツリーの外＝唯一の不動点で、人が
+  行う（手順・gh CLI 例は `docs/ops.md` の「verify を required check にする」）。
 
 ## 2. 本体領域と案件領域（ファイルレベルで排他）
 
@@ -31,8 +34,9 @@ merge を機械的にする前提が、**どのファイルを誰が所有する
 **本体領域（upstream が所有。案件は編集しない）**
 
 - `src/harness/`・`tests/`・`.claude/skills/`・`templates/`
-- `docs/method.md`・`docs/DoD.md`・`docs/core.md`・`docs/ds.md`・`docs/serve.md`・`docs/agent.md`・
-  `docs/ops.md`・`docs/ds-code.md`・`docs/serve-code.md`・`docs/agent-code.md`（および本文書 `docs/template-copy.md`）
+- `docs/` 直下の説明文書（`docs/*.md`）＝下の「案件領域」に挙げる `docs/charter.md`・`docs/learnings.md` を**除く**すべて
+  （`method.md`・`core.md`・`template-copy.md`・各プロファイルの `<名>.md`／`<名>-code.md` など）。**規則で決めるので
+  一覧を持たない**：新しいプロファイルの正本 docs（例 `stats.md`）を足しても、この規則で自動的に本体領域になる。
 - `AGENTS.md`・`CLAUDE.md`・`checks.toml`・`.pre-commit-config.yaml`・`.github/`
 
 **案件領域（案件が所有。merge で競合しない）**

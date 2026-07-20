@@ -59,6 +59,27 @@ ci_lint（`src/harness/ops/ci_lint.py`。pm_checks 経由で `uv run verify` に
 欠落・必須 step・版/extras の検査が増える（下の retrain.yml も同じ表に載る）。`templates/ci/` が無い
 コピー先の案件では何も指摘しない（誤検知しない）。
 
+### verify を required check にする（複製後に一度だけ・人の手順）
+
+雛形をコピーしただけでは CI が**走る**だけで、赤でもマージできてしまう。AGENTS が「止まるのは差分の独立
+レビューと作業ツリーの外だけ」と言う**唯一の不動点**は、リポジトリの中の検査（この `checks.py` を書き換える
+手は `checks.toml` を書き換える手と同じ＝中に不動点は無い）ではなく、GitHub 側の branch protection である。
+複製後にこの 1 手順だけは人が行う（保証の 3 段階でいう (c)＝機械化できない・作業ツリーの外にあるため）：
+
+- 既定ブランチに branch protection を設定し、`verify` ジョブを **required status check** にする。
+- PR レビュー必須（**承認者 ≠ 作成者**）を有効にする（maker-checker を GitHub 側でも効かせる）。
+- gh CLI 例（`OWNER/REPO`・ブランチ名は複製先に合わせる。承認必須 1 名・required check は `verify`）：
+
+  ```sh
+  gh api -X PUT repos/OWNER/REPO/branches/main/protection \
+    -f 'required_status_checks[strict]=true' -f 'required_status_checks[contexts][]=verify' \
+    -f 'required_pull_request_reviews[required_approving_review_count]=1' \
+    -f 'enforce_admins=true'
+  ```
+
+required check 化そのものを CI から照会する仕組みは、そういう取り違えが観測されるまで作らない（機構を増やす
+根拠がまだ無い）。この手順は複製の入口（`docs/template-copy.md` の「1. fork する」）からも辿れる。
+
 ## リリース戦略（Blue-Green・Canary）
 
 新しい仕組みは持たない：既存の配信テンプレート `templates/serve/` の資産だけで実現する。
@@ -107,8 +128,11 @@ shadow deployment（新版を並走させ、応答は返さずログだけ残す
 - **採用**＝`harness.ds.models.promote_model` が唯一の合否判定：`value_threshold`
   （thresholds＝`eval.passes` と同じ合否の辞書。「本番に出してよい最低ライン」を書く）かつ `change_threshold`
   （現 champion より primary が良い）を満たすときだけ champion を更新する。版は手書きしない＝再学習 step の
-  結果記録（`results/metrics_<variant>.yaml` の `model.name`/`model.version`）から結線する。合否判定で不合格なら
-  step が落ちる＝採用なし（意図した停止）。
+  結果記録（`results/metrics_<variant>.yaml` の `model.name`/`model.version`）から結線する。**却下（緑）と故障（赤）を
+  exit code で分ける**：閾値未達の却下は `PromotionError` だけを握って理由をログに出し exit 0（champion 据え置き・
+  次の再学習は続く）。それ以外の例外（metrics 欠落・依存破損・`promote_model` のバグ）は握らず赤にする。
+  `continue-on-error: true` は使わない＝全故障を無音にする fail-open で、当リポの依存監査ジョブでも禁止
+  （`tests/test_guardrails.py` が検査）。雛形は使い方を教える媒体なので、逆の（fail-open な）やり方を勧めない。
 
 verify.yml と違い retrain.yml は**任意**の雛形：ci_lint は**不在を error にしない**（CT を回さない複製先を
 誤検知しない）。在るときだけ次を静的検査して陳腐化を止める（`_WORKFLOWS` の表の `required=False` の 1 行。
