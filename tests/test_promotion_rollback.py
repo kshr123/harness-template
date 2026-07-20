@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -20,7 +21,7 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
-from harness import gates
+from harness import gates, promotion
 from harness.agent import store as agent_store
 from harness.agent.spec import AgentSpec
 from harness.ds import data
@@ -267,3 +268,25 @@ def test_agent_foreign_yaml_in_promotions_fails_closed(
         agent_store.champion(proj.root, work="E-9001", name="helper")
     with pytest.raises(ValueError):
         agent_store.promotions(proj.root, work="E-9001", name="helper")
+
+
+# ---- 書き込み口の追記専用ガード（EP-39 T-0239）：読み側の徹底 fail-closed と対称にする ----
+#
+# 読み側（_promotion_files）は版の刻みでない yaml があれば全読み込みを止めるのに、書き側は無検査だった。
+# 呼び手のバグや stats.adopt の公開 decided 引数で、不正な記録名・既存記録の上書きが黙って通る穴を塞ぐ。
+
+
+def test_write_record_rejects_non_version_decided(tmp_path: Path) -> None:
+    # 版の刻み（VERSION_FORMAT）でない decided は発生源（書き込み）で拒否する
+    # （後で _promotion_files が全読み込みを ValueError で止めるより先に止める）。
+    with pytest.raises(ValueError):
+        promotion._write_record(tmp_path, "not-a-version", {"status": "approved", "version": "a"})
+
+
+def test_write_record_is_append_only(tmp_path: Path) -> None:
+    # 同じ decided への 2 度目の書き込みは監査記録の上書き＝拒否（証跡を黙って消さない）。
+    # decided は VERSION_FORMAT の刻みで組み立てる（実装の出力ではなく構成から導く）。
+    decided = datetime(2026, 7, 3, 9, 0, 0, tzinfo=UTC).strftime(promotion.VERSION_FORMAT)
+    promotion._write_record(tmp_path, decided, {"status": "approved", "version": "a"})
+    with pytest.raises(ValueError):
+        promotion._write_record(tmp_path, decided, {"status": "approved", "version": "b"})

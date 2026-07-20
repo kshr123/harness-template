@@ -141,9 +141,20 @@ def _version_metrics(entity_dir: Path, version: str) -> dict[str, float]:
 
 
 def _write_record(entity_dir: Path, decided: str, record: Mapping[str, object]) -> None:
+    # 監査記録は追記専用（書き側も読み側と同じ徹底 fail-closed にする）。
+    # (a) 版の刻みでない decided を書くと _promotion_files が後で全読み込みを ValueError で止める＝
+    #     劣る版を配るより先に、不正な記録名は発生源（書き込み）で拒否する（stats.adopt の公開 decided 引数が入口）。
+    # (b) 既存の記録ファイルへは書かない：同名 decided の上書きは監査記録を黙って消す（champion 解決の証跡が失われる）。
+    try:
+        datetime.strptime(decided, VERSION_FORMAT)
+    except ValueError:
+        raise ValueError(f"promotions の記録名 decided が版の刻み（{VERSION_FORMAT}）でない: {decided!r}") from None
     promo_dir = entity_dir / PROMOTIONS_DIR
     promo_dir.mkdir(parents=True, exist_ok=True)
-    storage.write_manifest(promo_dir / f"{decided}.yaml", dict(record))
+    target = promo_dir / f"{decided}.yaml"
+    if target.exists():
+        raise ValueError(f"promotions の記録が既にある（監査記録は上書きで消さない）: {target}")
+    storage.write_manifest(target, dict(record))
 
 
 def promote(
