@@ -100,7 +100,7 @@ judge:
   `exact_match` 等の純関数系の併用も ValueError（`expected` の意味が二重になるため）。
 - `parse_judge_score` は、judge の応答テキストが strip 後に裸の `0`〜`1`（小数可）の全文一致でなければ
   **NaN** を返す。散文からの数値抽出や範囲外の clamp はしない（応答ドリフトを隠さない）。NaN は
-  `eval.passes` の既存規約でそのまま不合格（fail-closed・L-009）。
+  `eval.passes` の既存規約でそのまま不合格（fail-closed）。
 - cassette フィクスチャの鍵は `cassette_key(model=…, system_prompt=JUDGE_SYSTEM_PROMPT,
   messages=judge_messages(rubric, candidate), tools=[])`。`JUDGE_SYSTEM_PROMPT`/`judge_user_text` は
   コード固定＝宣言では変えられない（テンプレを変えると鍵がずれて fail-closed になる）。

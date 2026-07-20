@@ -57,7 +57,7 @@ SECRETS_HOOK_ID = "gitleaks"
 # （実 workflow ではない＝GitHub Actions は `.github/` しか読まないため、templates/ 配下を明示的に覆う）。
 WORKFLOW_LINT_HOOK_IDS = ("actionlint", "check-jsonschema")
 # 実際にフックが走査すべきパス文字列（`files:` 正規表現がこの両方に re.search でマッチしなければ
-# vacuous pass＝L-015 の教訓）。k8s・compose はここに含めない（github-workflow スキーマの対象外）。
+# vacuous pass（空振りで緑になる失敗）の教訓）。k8s・compose はここに含めない（github-workflow スキーマの対象外）。
 WORKFLOW_LINT_TARGET_PATHS = (
     "templates/ci/.github/workflows/verify.yml",
     "templates/schedule/monitor.yml",
@@ -67,7 +67,7 @@ CHECK_JSONSCHEMA_BUILTIN_SCHEMA = "vendor.github-workflows"
 # フックの走査モードもポリシー：上流既定 `gitleaks git --staged`（ステージ差分のみ）は CI のクリーン
 # チェックアウト（差分ゼロ）で何も走査しない空振り＝fail-open。作業ツリー全走査（`gitleaks dir`）に
 # 上書きすることが「同一入口が実効を持つ」ための必須条件なので、接頭辞を正本化して entry を検査する
-# （entry が消えて上流既定に戻ったら赤くする＝L-014 の vacuous pass を配線テストで守る）。
+# （entry が消えて上流既定に戻ったら赤くする＝vacuous pass（空振りで緑）を配線テストで守る）。
 SECRETS_HOOK_ENTRY_PREFIX = "gitleaks dir"
 
 # 依存脆弱性監査（T-0102）。エージェントが自律的に extra を足す運用では、部分環境の監査は
@@ -133,7 +133,8 @@ def test_workflow_lint_wired() -> None:
 
     (a) 2 フックが存在、(b) それぞれの `files` 正規表現が実際のパス文字列（templates/ 配下の
     workflow 雛形 2 か所）の両方に `re.search` でマッチする（マッチしないと「緑だが何も走査していない」
-    vacuous pass＝L-015 の教訓）、(c) check-jsonschema が github-workflows の builtin schema を使う、を検査。
+    vacuous pass（空振りで緑になる失敗）の教訓）、(c) check-jsonschema が github-workflows の
+    builtin schema を使う、を検査。
     公式既定の `files: ^\\.github/workflows/` のままだと当リポ（実 workflow を持たない）では 1 件も
     マッチせず fail-open になるため、上書きが必須（設定が黙って templates/ を外したら RED）。
     """

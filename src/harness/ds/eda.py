@@ -271,7 +271,7 @@ def category_target_summary(
 
     分類なら target_mean＝そのカテゴリの陽性率・回帰なら平均。件数の多いカテゴリで target_mean が 0/1 に
     張り付いていたらリーク疑い（目安・門番にはしない）。リーク疑いをまとめて洗う入口は leakage_scan
-    （この表・correlations 等の合成。かつての「専用のリーク検出関数は作らない」方針は転換した＝L-011）。
+    （この表・correlations 等の合成。かつての「専用のリーク検出関数は作らない」方針は転換した）。
     """
     if target not in df.columns:
         raise ValueError(f"目的変数の列 '{target}' がテーブルに無い（列: {df.columns}）")
@@ -334,7 +334,7 @@ def leakage_scan(
     - duplicate_of_target：duplicate_columns で目的変数と同じ重複グループに属する列を**すべて**挙げる
       （重複は推移的＝target のコピーが複数あっても全部拾う。列の並び順どちら向きでも検出）。
     かつては「専用のリーク検出関数は作らない」（各表を個別に読む）方針だったが、読み合わせの見落としが出るため
-    入口 1 つの合成へ転換した（方針転換は即記録・docs/learnings.md L-011）。値は事実・門番にはしない
+    入口 1 つの合成へ転換した（方針転換は即記録）。値は事実・門番にはしない
     （除外や修正の判断はエージェント/実験側。挙がった列は仕組みの理解＝リークかどうかの確認をしてから使う）。
     """
     if target not in df.columns:

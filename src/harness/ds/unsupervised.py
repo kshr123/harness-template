@@ -35,7 +35,7 @@ class UnsupervisedEntry(Entry):
     fold ごとに fit → 未知行を transform/predict/score するので、inductive=False の手法（hdbscan・sklearn の
     tsne・lof の novelty=False）を (B) に繋ぐと実行時に黙って壊れる。この属性を持たせて接続を実行前に
     `ValueError` で止める（fail closed）。**属性の真偽は挙動で検証する**（帰納性テストが登録から導いた全
-    inductive=True の kind に新規行を通す＝申告漏れも嘘の申告も住人が増えた瞬間に検査対象になる。L-021）。
+    inductive=True の kind に新規行を通す＝申告漏れも嘘の申告も住人が増えた瞬間に検査対象になる）。
     """
 
     inductive: bool

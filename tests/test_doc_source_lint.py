@@ -138,6 +138,46 @@ def test_mutable_areas_are_not_scanned(tmp_path: Path) -> None:
     assert _errors(tmp_path) == []
 
 
+# --- 検出：気づき ID（L-###）参照も work/・ISS と同じく error ---
+
+
+@pytest.mark.unit
+def test_durable_doc_referencing_learning_id_is_error(tmp_path: Path) -> None:
+    _write(tmp_path, "docs/method.md", "この検査は `L-021` の教訓による。\n")
+    errors = _errors(tmp_path)
+    assert any("L-021" in m and "docs/method.md:1" in m and "気づき ID" in m for m in errors)
+    # 教訓を本文の 1 文に書き下すと消える（先例は本文で自足させる）。
+    _write(tmp_path, "docs/method.md", "この検査は、対象集合を機械的に導けるかを先に問う趣旨。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_learning_id_in_source_comment_is_error(tmp_path: Path) -> None:
+    # src/tests のコメント・docstring の L-### も拾う（複製先で宙に浮く根拠参照）。
+    _write(tmp_path, "src/harness/foo.py", '"""役割。fail closed（L-009）。"""\n')
+    assert any("src/harness/foo.py:1" in m and "L-009" in m for m in _errors(tmp_path))
+    # 文字列リテラルの気づき番号は合成データなので拾わない（learnings 白紙化テストが番号を入力に使う等）。
+    _write(tmp_path, "tests/test_x.py", 'def test_x() -> None:\n    write("## L-999 前案件の気づき")\n')
+    assert not any("L-999" in m for m in _errors(tmp_path))
+
+
+@pytest.mark.unit
+def test_learnings_md_itself_is_not_scanned(tmp_path: Path) -> None:
+    # 定義元の learnings.md は案件領域（fork で白紙化）＝走査対象でない。自身の L-### 定義・相互参照を誤検知しない。
+    _write(tmp_path, "docs/learnings.md", "## L-021 対象集合は機械導出\n関連 L-017・L-019。ISS-0007 起因。\n")
+    assert _errors(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_charter_md_is_case_area_and_not_scanned(tmp_path: Path) -> None:
+    # charter.md は案件領域（init-project で白紙化）＝案件が自分の作業単位・課題・気づきを参照するのは正当。
+    _write(tmp_path, "docs/charter.md", "設計は `work/EP-01-foo/item.md`（`ISS-0007`・`L-021`）に基づく。\n")
+    assert _errors(tmp_path) == []
+    # 一方、恒久資産の docs（method.md 等）は同じ参照で error になる（対比）。
+    _write(tmp_path, "docs/method.md", "設計は `work/EP-01-foo/item.md` に基づく。\n")
+    assert any("docs/method.md" in m and "work/EP-01-foo" in m for m in _errors(tmp_path))
+
+
 # --- 免除リストの規約：理由は空でない文字列が必須 ---
 
 

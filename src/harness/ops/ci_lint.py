@@ -20,7 +20,7 @@ GitHub Actions は実行しない・ネットワークも使わない。テン�
   リポの正を導出できない root（pyproject が無いコピー先）では版検査を行わない（誤検知しない）。
 - `uv sync` の step に `--all-extras` が無い＝error（プロファイルを使う案件の verify 環境は全部入り＝AGENTS の規約）。
   ただし中核のみの案件（`.harness/config.toml` の `profiles = []`）は optional 依存が無いので要求しない
-  （素の `uv sync` で足りる。依存監査＝L-016 は別ジョブで全部入りのまま）。
+  （素の `uv sync` で足りる。依存監査は別ジョブで全部入りのまま）。
 - `templates/ci/**/*.yml` の run が参照する「リポジトリ内の相対パスらしき .py」が実在しない＝error
   （複製時に消えた・移設先がずれた雛形。表 _WORKFLOWS に載っていない yml も対象＝全ワークフロー共通の検査）。
   抽出は保守的：トークン全体が英数字・`_`・`.`・`/`・`-` だけのものだけを見る（`$VAR`・`<...>` のような
@@ -190,7 +190,7 @@ def _check_run_order(problems: list[pm.Problem], spec: _WorkflowSpec, doc: Any) 
 
 def _check_uv_sync_extras(problems: list[pm.Problem], spec: _WorkflowSpec, doc: Any, profiles_enabled: bool) -> None:
     # 中核のみの案件（profiles=[]）は optional 依存が無い＝素の `uv sync` で十分。--all-extras 強制は
-    # プロファイル（DS 等）を使う案件の都合なので要求しない（依存監査＝L-016 は別ジョブで全部入りのまま）。
+    # プロファイル（DS 等）を使う案件の都合なので要求しない（依存監査は別ジョブで全部入りのまま）。
     if not profiles_enabled:
         return
     for run in _run_commands(doc):

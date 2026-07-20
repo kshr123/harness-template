@@ -1,7 +1,7 @@
 """採点器（exact_match）と合否ゲート（agent.eval.passes）の単体検査。
 
 期待値はすべて構成から導く（ハードコード期待値禁止）。passes は ds.eval.passes と同じ fail-closed 規約
-（NaN は不合格・未登録の閾値名は ValueError・向きはレジストリ）を持つことを固定する（L-009）。
+（NaN は不合格・未登録の閾値名は ValueError・向きはレジストリ）を持つことを固定する。
 """
 
 from __future__ import annotations

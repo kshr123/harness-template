@@ -71,7 +71,7 @@ def task_lint_main() -> None:
     if errors:
         typer.echo(f"問題 {errors} 件（失敗）")
         # console_script 入口（typer.run を通さない）なので sys.exit で綺麗に終える。
-        # typer.Exit を raise すると未捕捉で Traceback が出る（L-006）。
+        # typer.Exit を raise すると未捕捉で Traceback が出る。
         sys.exit(1)
     typer.echo("問題なし（未分解・未割り当ては許容）")
 

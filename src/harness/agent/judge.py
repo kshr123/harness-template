@@ -9,7 +9,7 @@
   （宣言では変えさせない＝`JUDGE_SYSTEM_PROMPT` はコード固定）。
 - `parse_judge_score` は裸の `[0, 1]` 数値への全文一致だけを許し、それ以外は NaN（散文からの数値抽出・
   範囲外の clamp をしない）。緩いパースは応答ドリフト（モデルが説明文を付け始めた等）を隠す。NaN は
-  `eval.passes` の既存規約でそのまま不合格になる（fail closed・L-009）＝0.0（明確な低評価）と欠測
+  `eval.passes` の既存規約でそのまま不合格になる（fail closed）＝0.0（明確な低評価）と欠測
   （パース不能）を区別する。
 - このモジュールは軽い（stdlib＋`harness.agent.{providers,spec}` のみ）。`anthropic` は import しない
   。`goal.py`/`eval.py` も import しない（循環回避＝eval.py が本モジュールを import する側）。
