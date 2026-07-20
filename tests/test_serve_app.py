@@ -107,6 +107,49 @@ def test_health_returns_status_and_model_version(make_project: Callable[..., Any
     assert body["model"] == {"work": "E-0001", "name": "baseline", "version": record.version}
 
 
+def test_health_reports_stale_503_when_champion_changed_under_running_server(
+    make_project: Callable[..., Any],
+) -> None:
+    # version 指定なしで起動＝現 champion を配る。起動後に別版が champion になったら、走行中のサーバは
+    # 古い版を配り続ける。/health はディスクの champion と載っている版を突き合わせ、食い違えば 503+stale。
+    # 期待値は構成から導ける：起動時 champion=v1、その後 v2 を昇格→現 champion=v2≠載っている v1。
+    proj = make_project()
+    v1 = _save_and_promote(proj.root, _fitted_binary(seed=0))
+    client = TestClient(create_app(proj.root, work="E-0001", name="baseline"))
+    assert client.get("/health").status_code == 200  # 起動直後は一致＝ok
+
+    # 走行中に別版を champion へ（rmse をはっきり改善させて昇格を通す）。
+    v2 = model_store.save_model(
+        proj.root, _fitted_binary(seed=1), name="baseline", work="E-0001", metrics={"rmse": 0.1}
+    )
+    model_store.promote_model(
+        proj.root, work="E-0001", name="baseline", version=v2.version, thresholds={"rmse": 1.0}, primary="rmse"
+    )
+    assert v2.version != v1.version
+
+    resp = client.get("/health")
+    assert resp.status_code == 503  # k8s readinessProbe / compose healthcheck がこの配信を自動で外せる
+    body = resp.json()
+    assert body["status"] == "stale"
+    assert body["model"]["version"] == v1.version  # 載っている（古い）版
+    assert body["champion"] == v2.version  # ディスク上の現 champion
+
+
+def test_health_pinned_version_does_not_flag_stale(make_project: Callable[..., Any]) -> None:
+    # version を明示して起動＝運用が意図して版を固定。後から別版が champion になっても stale 扱いにしない
+    # （固定は意図した状態なので、champion との食い違いを異常と見なさない）。
+    proj = make_project()
+    v1 = _save_and_promote(proj.root, _fitted_binary(seed=0))
+    client = TestClient(create_app(proj.root, work="E-0001", name="baseline", version=v1.version))
+    v2 = model_store.save_model(
+        proj.root, _fitted_binary(seed=1), name="baseline", work="E-0001", metrics={"rmse": 0.1}
+    )
+    model_store.promote_model(
+        proj.root, work="E-0001", name="baseline", version=v2.version, thresholds={"rmse": 1.0}, primary="rmse"
+    )
+    assert client.get("/health").status_code == 200  # 固定起動は突合しない
+
+
 def test_metadata_matches_saved_record(make_project: Callable[..., Any]) -> None:
     proj = make_project()
     record = _save_and_promote(proj.root, _fitted_binary())

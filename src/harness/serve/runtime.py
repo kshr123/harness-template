@@ -56,6 +56,18 @@ def load_champion(root: Path, *, work: str, name: str, version: str | None = Non
     return model_store.load_model(root, name=name, work=work, version=version)
 
 
+def current_champion_version(root: Path, *, work: str, name: str) -> str | None:
+    """現 champion の版だけを返す（モデル本体は読まない＝/health の軽い突合用）。昇格が無ければ None。
+
+    version 指定なしで起動した配信が、走行中に起きた昇格・切り戻しに気づくため（app.py の /health）。
+    実体解決の徹底 fail-closed（異物 yaml があれば ValueError 等）は champion 解決の規則をそのまま共有する。
+    """
+    from harness.ds import models as model_store
+
+    champ = model_store.champion(root, work=work, name=name)
+    return None if champ is None else champ.version
+
+
 def prediction_kind_of(model: object) -> str:
     """モデルの予測の種類（proba | multiclass_proba | value）。/metadata が起動時に確定して見せる。
 

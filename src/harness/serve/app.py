@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 if TYPE_CHECKING:  # 型だけ（実体は runtime.load_champion が返す）
@@ -73,12 +74,25 @@ def create_app(root: Path, *, work: str, name: str, version: str | None = None, 
     app.state.shadow_record = shadow_record
 
     @app.get("/health")
-    def health() -> dict[str, Any]:
-        """生存確認。何が載っているか（モデルの版）まで返す＝取り違えの早期発見。"""
-        return {
+    def health() -> Response:
+        """生存確認。何が載っているか（モデルの版）まで返す＝取り違えの早期発見。
+
+        version 指定なし（現 champion 配信）で起動した場合は、毎回ディスクの昇格記録と載っている版を突き合わせる：
+        食い違えば切り戻し・再昇格の後に劣る版を配り続けている＝status="stale" と HTTP 503 を返す。503 で
+        k8s readinessProbe / compose healthcheck がその配信を自動で外す＝切り戻しが「人が再起動を覚えている」(c)
+        でなく機構で配信の実体まで届く。version を明示して起動した場合（運用が意図して版を固定）は突合しない。
+        """
+        body: dict[str, Any] = {
             "status": "ok",
             "model": {"work": record.work, "name": record.name, "version": record.version},
         }
+        if version is None:
+            current = runtime.current_champion_version(root, work=work, name=name)
+            if current is not None and current != record.version:
+                body["status"] = "stale"
+                body["champion"] = current
+                return JSONResponse(status_code=503, content=body)
+        return JSONResponse(content=body)
 
     @app.get("/metadata")
     def metadata() -> dict[str, Any]:

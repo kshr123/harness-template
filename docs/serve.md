@@ -24,6 +24,11 @@ uv run serve --work E-0001 --name baseline [--version <版>] [--host 127.0.0.1] 
 ## エンドポイント（契約）
 
 - `GET /health` … `{"status": "ok", "model": {"work", "name", "version"}}`（何が載っているかまで返す）。
+  version 指定なし（現 champion 配信）で起動した場合は、毎回ディスクの昇格記録と載っている版を突き合わせる：
+  切り戻し・再昇格の後に載っている版が現 champion と食い違えば `status: "stale"`・`champion`（現 champion の版）
+  つきで **HTTP 503** を返す。503 で k8s の readinessProbe / compose の healthcheck がその配信を自動で外す
+  ＝切り戻しが「人が再起動を覚えている」でなく機構で配信の実体まで届く。version を明示して起動した場合
+  （運用が意図して版を固定）は突合しない（固定は意図した状態なので champion との食い違いを異常と見なさない）。
 - `GET /metadata` … モデル manifest（保存物に付く由来書き＝版・作成元データ・形式などのメタデータ 1 枚）の構造化（work/name/version/format/fingerprint/data_fingerprint/
   feature_names/metrics/python/dependencies/created）＋ `prediction_kind`。
 - `POST /predict` … 本文 `{"records": [{列名: 値}, ...]}`（全行同じ列）。応答は
