@@ -23,6 +23,9 @@ def _make_project(root: Path, *, profiles: str = 'profiles = ["harness.ds", "har
     (root / "work" / "EP-99-old").mkdir(parents=True)
     (root / "work" / "EP-99-old" / "item.md").write_text("---\nid: EP-99\nkind: epic\n---\n前案件\n", encoding="utf-8")
     (root / "work" / "T-9001-loose.md").write_text("---\nid: T-9001\nkind: task\n---\n前案件\n", encoding="utf-8")
+    (root / "work" / "INV-9002-probe.md").write_text(
+        "---\nid: INV-9002\nkind: investigation\n---\n前案件の調査\n", encoding="utf-8"
+    )
     (root / "issues").mkdir()
     (root / "issues" / "ISS-0099-old.md").write_text("---\nid: ISS-0099\n---\n前案件の課題\n", encoding="utf-8")
     (root / "docs" / "requirements").mkdir(parents=True)
@@ -50,6 +53,9 @@ def test_scrub_empties_project_area_and_keeps_core(tmp_path: Path) -> None:
     # 案件領域は消える／雛形に戻る
     assert list((tmp_path / "work").glob("EP-*")) == []
     assert list((tmp_path / "work").glob("T-*")) == []
+    assert (
+        list((tmp_path / "work").glob("INV-*")) == []
+    )  # 調査単位も白紙化する（取りこぼすと fork に前案件の調査が残る）
     assert list((tmp_path / "issues").glob("ISS-*")) == []
     assert list((tmp_path / "docs" / "requirements").glob("REQ-005*")) == []
     assert (tmp_path / "docs" / "requirements" / "REQ-001.md").is_file()  # 雛形が置かれる
@@ -61,6 +67,31 @@ def test_scrub_empties_project_area_and_keeps_core(tmp_path: Path) -> None:
     # 本体領域は不変
     assert (tmp_path / "src" / "harness" / "checks.py").read_text(encoding="utf-8") == "# 本体\n"
     assert (tmp_path / ".claude" / "skills" / "harvest" / "SKILL.md").read_text(encoding="utf-8") == "# harvest\n"
+
+
+def _under_case_area_root(rel: str) -> bool:
+    """rel（root からの相対）が案件領域の根の正本（CASE_AREA_ROOTS）のいずれかに属するか。
+
+    根はディレクトリ（`work` → `work/…` を含む）・ファイル（`docs/charter.md`）・glob
+    （`docs/structure-review-*.md`）のいずれか。scrub の宣言 glob（`work/EP-*` 等）も根の下に入る。
+    """
+    from fnmatch import fnmatch
+
+    for root in init_project.CASE_AREA_ROOTS:
+        if rel == root or rel.startswith(root + "/") or fnmatch(rel, root):
+            return True
+    return False
+
+
+def test_declared_scrub_targets_are_under_case_area_roots() -> None:
+    """scrub の**宣言**（declared_scrub_targets）が、すべて CASE_AREA_ROOTS の下にあること。
+
+    効果（fixture に何が在ったか）でなく宣言そのものを検査する＝真の (b)：scrub に新しい白紙化対象を足しても、
+    その根が CASE_AREA_ROOTS に無ければこのテストが必ず赤くなる（fixture にその実体が無くても検出する）。
+    根を定数に足せば、merge 復旧の AREAS 側検査（test_template_copy）も追随を強制する。
+    """
+    outside = [t for t in init_project.declared_scrub_targets() if not _under_case_area_root(t)]
+    assert outside == [], f"CASE_AREA_ROOTS の外を白紙化しようとしている（根を定数に足すこと）: {outside}"
 
 
 def test_scrub_sets_profiles_and_preserves_comments(tmp_path: Path) -> None:

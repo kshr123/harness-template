@@ -39,10 +39,15 @@ merge を機械的にする前提が、**どのファイルを誰が所有する
   一覧を持たない**：新しいプロファイルの正本 docs（例 `stats.md`）を足しても、この規則で自動的に本体領域になる。
 - `AGENTS.md`・`CLAUDE.md`・`checks.toml`・`.pre-commit-config.yaml`・`.github/`
 
-**案件領域（案件が所有。merge で競合しない）**
+**案件領域（案件が所有。案件だけが中身を決める）**
 
 - `work/`・`issues/`・`docs/charter.md`・`docs/requirements/`・`docs/learnings.md`・`docs/data/*.yaml`・
   `.harness/config.toml`・`data/`
+- 注意：この領域は「案件が編集しない本体領域」とは違い、**本体（upstream）も自分の開発履歴として
+  `work/EP-*`・`issues/ISS-*` 等を持つ**。テンプレートは自分自身を最初の案件として `work/` にコミットし続けるからだ。
+  したがって `git merge upstream/main` は、本体側で増えた作業単位を案件の `work/` に**黙って持ち込む**
+  （新規追加は競合すら出ずに流入し、案件が白紙化で消した単位を本体が変更していれば modify/delete で復活する）。
+  この経路の塞ぎ方は 4 節。
 
 **両者が所有を分け合う 2 ファイル（正直に規定）**
 
@@ -62,7 +67,7 @@ uv run init-project --force --profiles "harness.ds"   # DS 案件として初期
 
 `uv run init-project` がやること（案件領域だけ）:
 
-- `work/` の前案件の作業単位（`EP-*`・`T-*`・`E-*`）を消す。
+- `work/` の前案件の作業単位（`EP-*`・`T-*`・`INV-*`・`E-*`）を消す。
 - `issues/` の前案件の課題（`ISS-*`）を消す。
 - `docs/requirements/` の前案件の要件（`REQ-*`）を消し、雛形 `REQ-001.md` を置く。
 - `docs/charter.md`・`docs/learnings.md` を雛形に戻す。
@@ -85,13 +90,43 @@ uv run init-project --force --profiles "harness.ds"   # DS 案件として初期
 
 ## 4. 本体の改良を取り込む（本体 → 案件）
 
+本体領域（`src/harness/` 等）だけを取り込みたいが、素の `git merge upstream/main` は本体側の**案件領域**
+（`work/`・`issues/` 等＝本体の開発履歴）も一緒に持ち込む（2 節の注意）。そこで merge のあと、案件領域を
+**案件（fork）側の版へ統一して**から確定する。下の `AREAS` が覆うべき案件領域の根の正本は
+`src/harness/init_project.py` の `CASE_AREA_ROOTS`（1 か所）。**新しい案件領域の根を足すときはその定数に足す**と、
+`AREAS` がそれを覆うこと（`tests/test_template_copy.py`）と scrub がその根の外を触らないこと
+（`tests/test_init_project.py`）の両方が検査で強制される＝対象集合が実装の申告に依存しない。
+
 ```
 git fetch upstream
-git merge upstream/main
+# 前提：作業ツリーがクリーン（未コミットの案件変更が無い）。下の掃除が未追跡の案件ファイルも消すため。
+[ -z "$(git status --porcelain)" ] || { echo "作業ツリーが汚れている。先にコミット/退避してから merge する"; exit 1; }
+
+git merge --no-commit --no-ff upstream/main            # 本体領域も案件領域もいったん取り込む
+
+# 案件領域を fork（HEAD=自分）の版へ統一する（本体由来の作業単位の流入・削除済み単位の復活を捨てる）。
+AREAS="work issues docs/requirements docs/charter.md docs/learnings.md docs/structure-review-*.md docs/data .harness/config.toml data"
+for p in $AREAS; do
+  git rm -r --cached --ignore-unmatch -- $p >/dev/null 2>&1 || true   # index から外す（衝突・追加を解消）
+  git checkout HEAD -- $p 2>/dev/null || true                        # 自分の版に戻す（無ければ何もしない）
+done
+git ls-files --others --exclude-standard -- $AREAS | while IFS= read -r f; do rm -f -- "$f"; done  # 本体由来の未追跡を消す
+find work issues docs/requirements -type d -empty -delete 2>/dev/null || true
+
+# 案件領域の衝突・混入はこれで解消済み。残る競合は pyproject.toml・uv.lock だけ（2 節。案件の extra を
+# 残しつつ本体の更新を取り込む）。競合が残っていれば自動でコミットせず、人が解決してから add/commit する。
+if git ls-files -u | grep -q . ; then
+  echo "手で解決する競合が残っています："; git diff --name-only --diff-filter=U
+  echo "解決したら: git add -A && git commit"
+else
+  git add -A
+  git commit -m "merge upstream (案件領域は fork 側に統一)"
+fi
 ```
 
-本体領域と案件領域はファイルレベルで排他なので、この merge は案件のファイルに触れない。競合が起きうるのは
-`pyproject.toml`・`uv.lock` の 2 つだけ（2 節）。取り込んだら `uv run verify` で緑を確認する。
+取り込んだら `uv run verify` で緑を確認する。この「merge しても案件領域が本体側に汚染されない」性質は
+`tests/test_template_copy.py` が、**この文書のレシピをそのまま抜き出して** fork→本体前進→merge を実際に
+再生して検査する（保証 (b)＝ここの手順が退行すれば赤くなる）。
 
 ## 5. 案件の改良を本体へ戻す（案件 → 本体＝還流）
 
@@ -111,3 +146,13 @@ git merge upstream/main
   の間にも効かせる）。案件のエージェントが自分の改善を自分で本体に取り込んで完了、とはしない。
 - **回数で待たない**。「2 つ以上の案件で役立ったら還流する」という回数基準は使わない（AGENTS.md・method.md の
   「回数で待たず、一般性で判断」に統一）。1 案件目で一般的だと見えたものは、その時点で還流候補にする。
+- **還流し忘れを可視化する**。まだ本体へ戻していない本体領域の変更は、fork 分岐点からの git 履歴で洗える
+  （台帳・bot は作らない＝対象集合は git から導く）。pathspec は 2 節の本体領域＝案件領域の docs を除いたもの：
+
+  ```
+  git log --oneline upstream/main..HEAD -- \
+    src tests .claude/skills templates AGENTS.md CLAUDE.md checks.toml .pre-commit-config.yaml .github docs \
+    ':(exclude)docs/charter.md' ':(exclude)docs/learnings.md' ':(exclude)docs/requirements' ':(exclude)docs/data'
+  ```
+
+  ここに出るコミットが還流候補（本体領域に触れたコミット）。中身が一般的なら PR/cherry-pick を起こす。

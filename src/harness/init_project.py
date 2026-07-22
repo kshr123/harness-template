@@ -67,6 +67,25 @@ _LEARNINGS_TEMPLATE = """\
 """
 
 
+# 案件領域の「根」の正本（fork で白紙化され、`git merge upstream/main` の復旧レシピが fork 側へ戻す集合）。
+# これ 1 か所が正本＝(1) scrub が触るパスはすべてこの根の下（`test_init_project` が検査）、(2) merge 復旧の
+# AREAS はこの根を漏れなく覆う（`test_template_copy` が検査）。新しい案件領域の根を足すときはここに 1 行足す。
+# 各要素はディレクトリ・ファイル・glob のいずれか（`docs/structure-review-*.md` のような glob も可）。
+CASE_AREA_ROOTS: tuple[str, ...] = (
+    "work",
+    "issues",
+    "docs/requirements",
+    "docs/charter.md",
+    "docs/learnings.md",
+    "docs/structure-review-*.md",
+    "data",
+    ".harness/config.toml",
+)
+
+# scrub が `profiles` を書き換える設定ファイル（案件領域）。set_profiles と declared_scrub_targets が共有する 1 か所。
+_CONFIG_FILE = ".harness/config.toml"
+
+
 @dataclass
 class ScrubResult:
     """初期化で行った操作の記録（何を消し・何を雛形に戻し・どの profiles にしたか）。"""
@@ -127,7 +146,7 @@ def set_profiles(root: Path, profiles: list[str]) -> None:
 
     非 DS 案件は `[]`。行が無ければ末尾に足す。値は TOML の文字列配列として書く。
     """
-    path = root / ".harness" / "config.toml"
+    path = root / _CONFIG_FILE
     rendered = "profiles = [" + ", ".join(f'"{p}"' for p in profiles) + "]"
     if not path.is_file():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,10 +194,39 @@ def _reset_file(root: Path, rel: str, content: str, result: ScrubResult) -> None
     result.reset.append(rel)
 
 
+# 白紙化の宣言（案件領域だけ）。対象を**データとして 1 か所に**置く＝scrub の効果でなく宣言そのものを検査でき、
+# 対象集合が実装の申告に依存しない（`test_init_project` が各対象が CASE_AREA_ROOTS の下にあることを静的に検査）。
+_REMOVE_GLOBS: tuple[str, ...] = (
+    "work/EP-*",
+    "work/T-*",
+    "work/INV-*",
+    "work/E-*",
+    "issues/ISS-*",
+    "docs/requirements/REQ-*",
+    "docs/structure-review-*.md",
+)
+_REMOVE_DIRS: tuple[str, ...] = ("data",)
+_RESET_FILES: tuple[tuple[str, str], ...] = (
+    ("docs/requirements/REQ-001.md", _REQUIREMENT_TEMPLATE),
+    ("docs/charter.md", _CHARTER_TEMPLATE),
+    ("docs/learnings.md", _LEARNINGS_TEMPLATE),
+)
+
+
+def declared_scrub_targets() -> tuple[str, ...]:
+    """scrub が触る対象の宣言（消す glob／ディレクトリ・戻すファイル・設定を書く config）。効果でなく宣言を検査する用。
+
+    scrub が実際に触るパスをすべて列挙する（`_CONFIG_FILE` は set_profiles が書く先）＝
+    CASE_AREA_ROOTS の docstring「触るパスはすべて根の下」を厳密に真にする。
+    """
+    return (*_REMOVE_GLOBS, *_REMOVE_DIRS, *(rel for rel, _ in _RESET_FILES), _CONFIG_FILE)
+
+
 def scrub(root: Path, profiles: list[str]) -> ScrubResult:
     """案件領域を初期化する（本体領域には触れない）。何度呼んでも同じ状態になる（べき等）。
 
-    - `work/`：前案件の作業単位（`EP-*`・`T-*`・`E-*`）を消す。
+    対象は `_REMOVE_GLOBS`・`_REMOVE_DIRS`・`_RESET_FILES` の宣言（各対象は `CASE_AREA_ROOTS` の下）：
+    - `work/`：前案件の作業単位（`EP-*`・`T-*`・`INV-*`・`E-*`）を消す。
     - `issues/`：前案件の課題（`ISS-*`）を消す。
     - `docs/requirements/`：前案件の要件（`REQ-*`）を消し、雛形 `REQ-001.md` を置く。
     - `docs/charter.md`・`docs/learnings.md`：雛形に戻す。
@@ -188,20 +236,16 @@ def scrub(root: Path, profiles: list[str]) -> ScrubResult:
     """
     result = ScrubResult(profiles=list(profiles))
 
-    for pattern in ("EP-*", "T-*", "E-*"):
-        _remove_glob(root, "work", pattern, result)
-    _remove_glob(root, "issues", "ISS-*", result)
-    _remove_glob(root, "docs/requirements", "REQ-*", result)
-    _remove_glob(root, "docs", "structure-review-*.md", result)
-
-    # data/ の生成物（実体）を消す。ディレクトリごと消してよい（追跡対象は .gitignore で除外＝生成物のみ）。
-    data = root / "data"
-    if data.is_dir():
-        _remove_path(data, root, result)
-
-    _reset_file(root, "docs/requirements/REQ-001.md", _REQUIREMENT_TEMPLATE, result)
-    _reset_file(root, "docs/charter.md", _CHARTER_TEMPLATE, result)
-    _reset_file(root, "docs/learnings.md", _LEARNINGS_TEMPLATE, result)
+    for g in _REMOVE_GLOBS:
+        rel_dir, pattern = g.rsplit("/", 1)
+        _remove_glob(root, rel_dir, pattern, result)
+    for d in _REMOVE_DIRS:
+        # 生成物（実体）を消す。ディレクトリごと消してよい（追跡対象は .gitignore で除外＝生成物のみ）。
+        p = root / d
+        if p.is_dir():
+            _remove_path(p, root, result)
+    for rel, content in _RESET_FILES:
+        _reset_file(root, rel, content, result)
 
     set_profiles(root, profiles)
     return result
