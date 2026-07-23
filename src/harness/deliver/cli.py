@@ -16,7 +16,7 @@ from typing import Annotated, Any
 
 import typer
 
-from harness.deliver import render, stamp, wbs_lint
+from harness.deliver import baseline, render, stamp, wbs_lint
 from harness.deliver import wbs as wbs_mod
 
 # Windows コンソール（cp932）でも日本語・記号を出せるよう UTF-8 に固定（他プロファイルの CLI と同じ作法）。
@@ -40,6 +40,7 @@ def _fail(message: str) -> None:
 def _export(
     out: Annotated[Path | None, typer.Option(help=f"出力先（既定 {DEFAULT_OUT}）")] = None,
     today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
+    at: Annotated[str | None, typer.Option(help="この時点の WBS を出す（git のタグ・コミット）")] = None,
     draft: Annotated[bool, typer.Option("--draft", help="未コミットの変更を含んだまま下書きとして出す")] = False,
     root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
 ) -> None:
@@ -47,19 +48,31 @@ def _export(
 
     検査に失敗する状態・描く対象が 1 件も無い状態では出力しない（空の工程表を黙って渡さない）。
     未コミットの変更があるときも既定では出力しない（刻んだコミットが嘘になる）。`--draft` を付けたときだけ、
-    下書きと分かる表示で出す。
+    下書きと分かる表示で出す。`--at` に合意した時点（タグ・コミット）を渡すと、その時点の WBS を出し直す。
     """
     base = date.fromisoformat(today) if today else date.today()
+    if at is None:
+        _export_from(root, root, out=out, today=base, draft=draft, commit=None)
+        return
+    try:
+        with baseline.tree_at(root, at) as snapshot:
+            _export_from(root, snapshot, out=out, today=base, draft=False, commit=at)
+    except baseline.BaselineError as exc:
+        _fail(str(exc))
+
+
+def _export_from(root: Path, source: Path, *, out: Path | None, today: date, draft: bool, commit: str | None) -> None:
+    """`source` の中身から WBS を出す（`root` は出力先と git を見る先）。過去の時点も同じ道を通る。"""
     # 例外の種類ごとに節を分ける（ruff format が `except (A, B):` を壊す既知の不具合を踏まないため）。
     try:
-        built = wbs_mod.build(root, today=base)
+        built = wbs_mod.build(source, today=today)
     except ValueError as exc:  # 上書きの検証エラー（pydantic の ValidationError を含む）
         _fail(f"WBS を組み立てられない: {exc}")
         return
     except OSError as exc:  # ファイルが読めない
         _fail(f"WBS を組み立てられない: {exc}")
         return
-    errors = [p for p in wbs_lint.check(root, today=base) if p.level == "error"]
+    errors = [p for p in wbs_lint.check(source, today=today) if p.level == "error"]
     if errors:
         for problem in errors:
             typer.echo(f"error: {problem.message}", err=True)
@@ -71,7 +84,7 @@ def _export(
             "（work/ の単位に start・due を書くか、docs/wbs.yaml に手動行を足す）"
         )
         return
-    dirty = stamp.is_dirty(root)
+    dirty = commit is None and stamp.is_dirty(root)
     if dirty and not draft:
         _fail(
             "作業ツリーに未コミットの変更がある。このまま出すと生成物に刻むコミットが実際の中身と食い違う"
@@ -80,11 +93,36 @@ def _export(
         return
     target = out if out is not None else root / DEFAULT_OUT
     target.parent.mkdir(parents=True, exist_ok=True)
-    provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone())
+    provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone(), commit=commit)
     target.write_text(render.render_html(built, provenance=provenance, draft=dirty), encoding="utf-8")
     rows = len(built.walk())
     note = f"（未日程 {len(built.unscheduled)} 件）" if built.unscheduled else ""
     typer.echo(f"{target}: {rows} 行を出力した{note}　{provenance}")
+
+
+@wbs_app.command("diff")
+def _diff(
+    ref: Annotated[str, typer.Argument(help="合意した時点（git のタグ・コミット。例 v1.0-agreed）")],
+    today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
+    root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
+) -> None:
+    """合意した時点の計画と、いまの計画の差を並べる。
+
+    変化の理由は、その日程を動かしたコミットのメッセージをそのまま添える（理由の保管場所を新設しない）。
+    合意した時点そのものの WBS を出し直したいときは `uv run wbs export --at <参照>`。
+    """
+    base = date.fromisoformat(today) if today else date.today()
+    try:
+        changes = baseline.changes_since(root, ref, today=base)
+    except baseline.BaselineError as exc:
+        _fail(str(exc))
+        return
+    if not changes:
+        typer.echo(f"{ref} の時点から、計画は動いていない")
+        return
+    typer.echo(f"{ref} の時点からの差（{len(changes)} 件）")
+    for change in changes:
+        typer.echo(f"  {change.line()}")
 
 
 @wbs_app.command("lint")

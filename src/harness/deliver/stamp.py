@@ -71,7 +71,11 @@ def tree_fingerprint(wbs: Wbs) -> str:
     return input_fingerprint(payload)[:12]
 
 
-def stamp(root: Path, wbs: Wbs, *, generated_at: datetime) -> str:
-    """生成物の見出しに出す由来の 1 行。"""
-    commit = commit_of(root) or "不明"
-    return f"コミット {commit}　生成 {generated_at.strftime('%Y-%m-%d %H:%M')}　内容 {tree_fingerprint(wbs)}"
+def stamp(root: Path, wbs: Wbs, *, generated_at: datetime, commit: str | None = None) -> str:
+    """生成物の見出しに出す由来の 1 行。
+
+    `commit` を渡すとそれを使う（過去の時点を出し直すときは、いまの HEAD でなくその時点を刻む＝
+    刻んだコミットと中身が食い違わない）。
+    """
+    where = commit or commit_of(root) or "不明"
+    return f"コミット {where}　生成 {generated_at.strftime('%Y-%m-%d %H:%M')}　内容 {tree_fingerprint(wbs)}"
