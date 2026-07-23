@@ -77,9 +77,13 @@ def tree_at(root: Path, ref: str) -> Iterator[Path]:
 
     作業ツリーを切り替えない（いまの作業を邪魔しない）。取り出したものは抜けたときに消える。
     """
+    if _git(root, "rev-parse", "--git-dir").returncode != 0:
+        raise BaselineError(f"{root} は git リポジトリではない（合意した時点はタグで指すので git が要る）")
+    if _git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
+        raise BaselineError(f"'{ref}' という参照が無い（`git tag` で打った名前か確かめる）")
     paths = [p for p in _INPUT_PATHS if _exists_at(root, ref, p)]
     if not paths:
-        raise BaselineError(f"'{ref}' の時点に work/ が無い（参照が正しいか確かめる）")
+        raise BaselineError(f"'{ref}' の時点に work/ が無い（その時点にはまだ作業単位が無い）")
     proc = subprocess.run(
         ["git", "-C", str(root), "archive", "--format=tar", ref, *paths],
         capture_output=True,
