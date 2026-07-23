@@ -543,6 +543,79 @@ def test_missing_requirements_dir_is_ok(tmp_path: Path) -> None:
     assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
 
 
+def _write_dem(root: Path, dem_id: str) -> None:
+    """docs/demands/ に要求ファイルを 1 つ作る（既知の要求 ID の供給源）。"""
+    _write(
+        root / "docs" / "demands" / f"{dem_id}.md",
+        {"id": dem_id, "priority": "should", "status": "received"},
+        body=f"# {dem_id}",
+    )
+
+
+def test_req_satisfies_dangling_demand_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    _write_dem(tmp_path, "DEM-001")
+    # REQ が存在しない要求を satisfies＝上流の参照エラー＝失敗（要件→作業の参照検査と対称）。
+    _write(
+        tmp_path / "docs" / "requirements" / "REQ-050.md",
+        {"id": "REQ-050", "kind": "functional", "status": "accepted", "satisfies": ["DEM-999"]},
+        body="# REQ-050",
+    )
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("REQ-050" in p.message and "DEM-999" in p.message for p in errors)
+
+
+def test_req_satisfies_existing_demand_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    _write_dem(tmp_path, "DEM-001")
+    # 実在する要求への satisfies はエラーにしない。
+    _write(
+        tmp_path / "docs" / "requirements" / "REQ-051.md",
+        {"id": "REQ-051", "kind": "functional", "status": "accepted", "satisfies": ["DEM-001"]},
+        body="# REQ-051",
+    )
+    assert not any("DEM" in p.message for p in pm.lint(tmp_path) if p.level == "error")
+
+
+def test_missing_demands_dir_is_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 要求層（docs/demands/）を持たない案件で satisfies を書かなければ何も要求されない。
+    _write_req(tmp_path, "REQ-001")
+    assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
+
+
+def test_satisfies_without_demands_dir_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 要求層が無くても、satisfies を書けば実在を要求する（fail-closed。fork で空 dir が消えても黙って緑にしない）。
+    _write(
+        tmp_path / "docs" / "requirements" / "REQ-060.md",
+        {"id": "REQ-060", "kind": "functional", "status": "accepted", "satisfies": ["DEM-001"]},
+        body="# REQ-060",
+    )
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("REQ-060" in p.message and "DEM-001" in p.message for p in errors)
+
+
+def test_malformed_satisfies_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    _write_dem(tmp_path, "DEM-001")
+    # スカラー文字列（配列でない）＝不正な形＝失敗（既定を不合格側に置く）。
+    _write(
+        tmp_path / "docs" / "requirements" / "REQ-061.md",
+        {"id": "REQ-061", "kind": "functional", "status": "accepted", "satisfies": "DEM-001"},
+        body="# REQ-061",
+    )
+    # 配列だが DEM-<番号> の形でない要素＝失敗。
+    _write(
+        tmp_path / "docs" / "requirements" / "REQ-062.md",
+        {"id": "REQ-062", "kind": "functional", "status": "accepted", "satisfies": ["REQ-001"]},
+        body="# REQ-062",
+    )
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("REQ-061" in p.message for p in errors)
+    assert any("REQ-062" in p.message and "DEM-<番号> の形でない" in p.message for p in errors)
+
+
 def test_depends_on_cycle_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # A→B→A の循環。両端が実在するため既存の参照チェックでは通ってしまう。

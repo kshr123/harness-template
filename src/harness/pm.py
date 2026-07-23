@@ -19,6 +19,7 @@ from harness.models import Item, Kind, PlanMaturity, Status
 
 WORK_DIR = "work"
 REQUIREMENTS_DIR = "docs/requirements"
+DEMANDS_DIR = "docs/demands"  # 要求層（クライアントの言葉）。要件（REQ）の satisfies が参照する上流。
 MARKER = "item.md"
 # 軽い単位のファイル名の印。EP- / T- / INV- / E- で始まる .md を単位とみなす（notes.md 等の付属ファイルと区別する）。
 UNIT_FILE = re.compile(r"^(EP|T|INV|E)-\d+.*\.md$")
@@ -301,6 +302,36 @@ def lint(root: Path) -> list[Problem]:
         # どの単位からも参照されない要件＝未カバーの要件。計画中（未分解）は正常なので失敗にはしない。
         for req in sorted(known_reqs - referenced):
             problems.append(Problem("info", f"{req}: 未カバーの要件（どの単位からも参照されていない）"))
+
+    # 要求→要件のトレース：REQ の satisfies が実在する DEM（要求）を指すこと（要件→作業の参照検査と対称・上流側）。
+    # fail-closed：satisfies を書いたら実在 DEM-<番号> のみ許す。要求層（docs/demands/）が無くても
+    # （fork で空ディレクトリが git から消えても）非空の satisfies は参照エラーにする＝「書いても黙って緑」を作らない。
+    # satisfies を書かない案件は今までどおり何も要求されない。
+    if req_dir.is_dir():
+        dem_dir = root / DEMANDS_DIR
+        known_dems = (
+            {dm.group() for p in dem_dir.glob("DEM-*.md") if (dm := re.match(r"DEM-\d+", p.stem))}
+            if dem_dir.is_dir()
+            else set()
+        )
+        for rp in sorted(req_dir.glob("REQ-*.md")):
+            rm = re.match(r"REQ-\d+", rp.stem)
+            rid = rm.group() if rm else rp.name
+            try:
+                satisfies = frontmatter.load(rp).metadata.get("satisfies")
+            except Exception:  # noqa: BLE001  壊れた frontmatter はクラッシュでなく Problem にする（うるさく失敗）
+                problems.append(Problem("error", f"{rid}: frontmatter が読めない（satisfies の検査）"))
+                continue
+            if satisfies is None or satisfies == []:
+                continue
+            if not isinstance(satisfies, list):
+                problems.append(Problem("error", f"{rid}: satisfies は DEM-<番号> の配列にする（今の値は不正）"))
+                continue
+            for dem in satisfies:
+                if not (isinstance(dem, str) and re.fullmatch(r"DEM-\d+", dem)):
+                    problems.append(Problem("error", f"{rid}: satisfies の '{dem}' が DEM-<番号> の形でない"))
+                elif dem not in known_dems:
+                    problems.append(Problem("error", f"{rid}: satisfies の '{dem}' が見つからない（参照エラー）"))
 
     # 完了↔検証の結びつけ：done のタスクは、対応するテスト（verified_by）を持ち、それが存在すること。
     # これにより「テストを書かずに done にする」自己申告完了を機械的に防ぐ。

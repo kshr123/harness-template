@@ -80,6 +80,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   - 任意（顧客向けの WBS・ガントの材料）：`start`／`due`（予定開始・予定終了の日付）・`effort_days`（見積り工数＝人日）・`milestone`（`true` で節目）。すべて任意（無指定は正常）。**%完了・実績日付は持たない**＝進捗は木から、実績は `created`/`closed` から導出する（二重台帳を作らない）。検査：`start > due`・`milestone` なのに `due` 無しは失敗（task-lint）。
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。
 - **着手の提案は `uv run status --next`**：仕掛かり中（in-progress の末端＝再開の候補）→ いま着手できる（todo・依存充足）→ 依存待ち → 分解の候補、の順で出す。並びは `priority`→ID。門番ではない（時間経過で赤にはしない＝可視化のみ）。
+- **トレースの鎖（コンサル向け・任意）**：要求 `docs/demands/DEM-*`（クライアントの言葉・MoSCoW）→ 要件 `docs/requirements/REQ-*`（`satisfies: [DEM-…]` で上流参照・`kind` は functional/non-functional）→ 作業 `work/`（`requirements: [REQ-…]`）→ 検証（`verified_by`）。要求層を持たない案件は `satisfies` を書かなければ何も要求されない。検査：REQ の `satisfies` が実在 DEM を指すこと（task-lint。要件→作業の参照検査と対称）。雛形は `.harness/templates/demand.md`・`requirement.md`。
 
 ## 手順（1 タスク）
 1. その単位の `item.md`（またはファイル）と本ファイルだけを読む。全単位は読まない（読み込みすぎない）。

@@ -7,6 +7,7 @@
 id: REQ-xxx           # 一意・再利用しない
 kind: functional      # functional（機能）| non-functional（非機能：性能・信頼性・運用・セキュリティなど）
 status: draft         # draft（下書き）| accepted（合意済み）
+satisfies: []         # この要件が満たす要求 ID（docs/demands/DEM-xxx）。上流トレース。空でよい（要求層を持たない案件）
 ---
 # REQ-xxx：<要件の短い名前>
 

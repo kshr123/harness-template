@@ -49,6 +49,7 @@ _REQUIREMENT_TEMPLATE = """\
 id: REQ-001
 kind: functional
 status: draft
+satisfies: []
 ---
 # REQ-001：TODO（この案件が満たす最初の要件）
 
@@ -75,6 +76,7 @@ CASE_AREA_ROOTS: tuple[str, ...] = (
     "work",
     "issues",
     "docs/requirements",
+    "docs/demands",
     "docs/charter.md",
     "docs/learnings.md",
     "docs/structure-review-*.md",
@@ -203,6 +205,7 @@ _REMOVE_GLOBS: tuple[str, ...] = (
     "work/E-*",
     "issues/ISS-*",
     "docs/requirements/REQ-*",
+    "docs/demands/DEM-*",
     "docs/structure-review-*.md",
 )
 _REMOVE_DIRS: tuple[str, ...] = ("data",)
@@ -229,6 +232,7 @@ def scrub(root: Path, profiles: list[str]) -> ScrubResult:
     - `work/`：前案件の作業単位（`EP-*`・`T-*`・`INV-*`・`E-*`）を消す。
     - `issues/`：前案件の課題（`ISS-*`）を消す。
     - `docs/requirements/`：前案件の要件（`REQ-*`）を消し、雛形 `REQ-001.md` を置く。
+    - `docs/demands/`：前案件の要求（`DEM-*`）を消す。
     - `docs/charter.md`・`docs/learnings.md`：雛形に戻す。
     - `docs/structure-review-*.md`：基盤のレビュー記録（履歴）を消す。
     - `data/`：生成物（実データ・保存済みモデル）を消す。

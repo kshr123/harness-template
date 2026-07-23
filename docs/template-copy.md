@@ -41,7 +41,7 @@ merge を機械的にする前提が、**どのファイルを誰が所有する
 
 **案件領域（案件が所有。案件だけが中身を決める）**
 
-- `work/`・`issues/`・`docs/charter.md`・`docs/requirements/`・`docs/learnings.md`・`docs/data/*.yaml`・
+- `work/`・`issues/`・`docs/charter.md`・`docs/requirements/`・`docs/demands/`・`docs/learnings.md`・`docs/data/*.yaml`・
   `.harness/config.toml`・`data/`
 - 注意：この領域は「案件が編集しない本体領域」とは違い、**本体（upstream）も自分の開発履歴として
   `work/EP-*`・`issues/ISS-*` 等を持つ**。テンプレートは自分自身を最初の案件として `work/` にコミットし続けるからだ。
@@ -70,6 +70,7 @@ uv run init-project --force --profiles "harness.ds"   # DS 案件として初期
 - `work/` の前案件の作業単位（`EP-*`・`T-*`・`INV-*`・`E-*`）を消す。
 - `issues/` の前案件の課題（`ISS-*`）を消す。
 - `docs/requirements/` の前案件の要件（`REQ-*`）を消し、雛形 `REQ-001.md` を置く。
+- `docs/demands/` の前案件の要求（`DEM-*`）を消す。
 - `docs/charter.md`・`docs/learnings.md` を雛形に戻す。
 - `docs/structure-review-*.md`（基盤のレビュー記録＝履歴）を消す。
 - `data/` の生成物（実データ・保存済みモデル）を消す。
@@ -105,7 +106,7 @@ git fetch upstream
 git merge --no-commit --no-ff upstream/main            # 本体領域も案件領域もいったん取り込む
 
 # 案件領域を fork（HEAD=自分）の版へ統一する（本体由来の作業単位の流入・削除済み単位の復活を捨てる）。
-AREAS="work issues docs/requirements docs/charter.md docs/learnings.md docs/structure-review-*.md docs/data .harness/config.toml data"
+AREAS="work issues docs/requirements docs/demands docs/charter.md docs/learnings.md docs/structure-review-*.md docs/data .harness/config.toml data"
 for p in $AREAS; do
   git rm -r --cached --ignore-unmatch -- $p >/dev/null 2>&1 || true   # index から外す（衝突・追加を解消）
   git checkout HEAD -- $p 2>/dev/null || true                        # 自分の版に戻す（無ければ何もしない）
