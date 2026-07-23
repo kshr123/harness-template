@@ -75,6 +75,13 @@ class Item(BaseModel):
     closed: date | None = None
     priority: Priority | None = None  # 着手の優先度（人が置く）。status --next の並べ替えに使う。
     owner: str | None = None
+    # 顧客向けの WBS・スケジュール（ガント）の材料。すべて任意＝無指定は正常（全単位に日付を強制しない）。
+    # 語は PMBOK / MS Project / GitHub の標準に合わせる（造語しない）。%完了・実績日付は**保存しない**
+    # ＝進捗は木から（done 末端/総末端）、実績は created/closed から導出する（status と二重台帳にしない）。
+    start: date | None = None  # 予定開始（Start）
+    due: date | None = None  # 予定終了（Finish／GitHub の due date）
+    effort_days: float | None = Field(default=None, gt=0)  # 見積り工数（人日／Work）。正の値のみ（負・NaN は失敗）
+    milestone: bool = False  # マイルストーン（期間ゼロの節目。Milestone）
 
     @property
     def display(self) -> str:

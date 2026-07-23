@@ -64,6 +64,54 @@ def test_dangling_depends_on_is_error(tmp_path: Path) -> None:
     assert any("T-9999" in p.message for p in errors)
 
 
+def test_schedule_start_after_due_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 予定開始が予定終了より後＝矛盾＝失敗（日付は任意だが、置いたら整合を要求する）。
+    bad: dict[str, object] = {
+        "id": "T-0010",
+        "kind": "task",
+        "status": "todo",
+        "start": "2026-03-10",
+        "due": "2026-03-01",
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0010-bad.md", bad)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("T-0010" in p.message and "start" in p.message for p in errors)
+
+
+def test_schedule_valid_dates_are_ok(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    ok: dict[str, object] = {
+        "id": "T-0011",
+        "kind": "task",
+        "status": "todo",
+        "start": "2026-03-01",
+        "due": "2026-03-10",
+        "effort_days": 5,
+    }
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0011-ok.md", ok)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert not any("T-0011" in p.message for p in errors)
+
+
+def test_negative_effort_days_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # 見積り工数は正の値のみ（負の人日は矛盾）＝検証で失敗（保証 (a)。frontmatter 不正として error）。
+    bad: dict[str, object] = {"id": "T-0013", "kind": "task", "status": "todo", "effort_days": -3}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0013-neg.md", bad)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("T-0013" in p.message for p in errors)
+
+
+def test_milestone_without_due_is_error(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    # マイルストーン（節目）は期日を持つ＝due 無しは失敗（ガントに置けない・合意点にならない）。
+    ms: dict[str, object] = {"id": "T-0012", "kind": "task", "status": "todo", "milestone": True}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0012-ms.md", ms)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("T-0012" in p.message and "milestone" in p.message for p in errors)
+
+
 def test_done_task_without_verified_by_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # done なのに対応するテスト（verified_by）が無い＝失敗（自己申告完了を防ぐ）。

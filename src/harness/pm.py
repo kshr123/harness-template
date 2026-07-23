@@ -339,6 +339,16 @@ def lint(root: Path) -> list[Problem]:
             problems.append(Problem("info", f"{n.item.id}: plan=detailed だが子の単位が無い（分解し忘れの可能性）"))
         # outline で子が無い＝まだ分解していないだけ。何も言わない。
 
+    # 日程の整合（顧客向けの WBS・ガントの材料。日付は任意なので、置いたときだけ矛盾を咎める）。
+    for n in everything:
+        it = n.item
+        if it.start is not None and it.due is not None and it.start > it.due:
+            problems.append(
+                Problem("error", f"{it.id}: start（{it.start}）が due（{it.due}）より後（開始は終了以前にする）")
+            )
+        if it.milestone and it.due is None:
+            problems.append(Problem("error", f"{it.id}: milestone だが due（期日）が無い（節目は期日を持つ）"))
+
     # work/ の不可視領域・正体不明の .md（木をたどらずファイルシステムから対象集合を導く）。
     problems += work_tree_lint(root)
 
