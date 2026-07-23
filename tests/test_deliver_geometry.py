@@ -116,13 +116,18 @@ def test_a_milestone_is_centred_on_its_day(tmp_path: Path) -> None:
         {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-12", "milestone": True},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    match = re.search(r'<polygon class="ms" points="[\d.]+,7 ([\d.]+),1', _row_markup(html, "T-9003"))
+    match = re.search(r'<span class="ms" style="left:([\d.]+)%"', _row_markup(html, "T-9003"))
     assert match is not None
-    assert float(match.group(1)) == pytest.approx(9 * PER_DAY + PER_DAY / 2, abs=0.01)
+    days = (WINDOW[1] - WINDOW[0]).days + 1
+    assert float(match.group(1)) == pytest.approx((9 + 0.5) / days * 100, abs=0.01)
 
 
-def test_the_progress_overlay_is_as_wide_as_the_share_done(tmp_path: Path) -> None:
-    """子 2 件のうち 1 件 done の親は、棒の半分だけ進捗の帯が乗る。"""
+def test_a_parent_row_is_drawn_as_a_summary_not_a_bar(tmp_path: Path) -> None:
+    """まとめの行（子を持つ行）は、末端と同じ太さの棒で塗らない。
+
+    全部同じ太さの帯が並ぶと階層が図から読めず「ただの帯」に見える。工程表の慣習どおり、
+    細い帯と両端の脚で表す。
+    """
     epic = tmp_path / "work" / "EP-90-alpha"
     _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
     _write(
@@ -134,11 +139,14 @@ def test_the_progress_overlay_is_as_wide_as_the_share_done(tmp_path: Path) -> No
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    markup = _row_markup(html, "EP-90")
-    _, bar_width = _rect(markup, "plan")
-    _, progress_width = _rect(markup, "prog")
-    assert bar_width == pytest.approx(10 * PER_DAY, abs=0.01)  # 08-03〜08-12 の全体
-    assert progress_width == pytest.approx(bar_width / 2, abs=0.01)  # 末端 2 件のうち 1 件 done
+    parent = _row_markup(html, "EP-90")
+    leaf = _row_markup(html, "T-9001")
+    _, summary_width = _rect(parent, "sum")
+    assert summary_width == pytest.approx(10 * PER_DAY, abs=0.01)  # 08-03〜08-12 の全体
+    assert not re.search(r'<rect class="(plan|done|late)"', parent)  # 親は棒で塗らない
+    assert re.search(r'<rect class="done"', leaf)  # 末端は従来どおりの棒
+    _, progress_width = _rect(leaf, "prog")
+    assert progress_width == pytest.approx(_rect(leaf, "done")[1], abs=0.01)  # 末端は 1/1 完了
 
 
 def test_a_task_due_exactly_today_is_not_late_yet(tmp_path: Path) -> None:
@@ -154,18 +162,14 @@ def test_a_task_due_exactly_today_is_not_late_yet(tmp_path: Path) -> None:
     assert "is-late" in _row_markup(html_next_day, "T-9001")
 
 
-def test_the_axis_thins_out_for_long_projects() -> None:
-    """短い案件は週ごと、長い案件は月・四半期ごとに間引く（目盛が重なって読めなくなるのを防ぐ）。"""
-    short = render.axis_ticks((date(2026, 8, 3), date(2026, 9, 30)))  # 8/3 は月曜＝格子と揃う
-    assert all((later - earlier).days == 7 for earlier, later in zip(short[:-1], short[1:], strict=True))
-
-    year = render.axis_ticks((date(2026, 1, 5), date(2026, 12, 31)))
-    assert all(day.day == 1 for day in year[1:])  # 先頭（期間の頭）を除き月ごと（月の頭）
-    assert len(year) <= 13
-
-    long_run = render.axis_ticks((date(2026, 1, 5), date(2029, 6, 30)))
-    assert len(long_run) <= 17  # 3 年半でも読める数に収まる
-    assert all(day.month in {1, 4, 7, 10} for day in long_run[1:])  # 四半期ごと
+def test_each_unit_has_its_own_ticks() -> None:
+    """日・週・月・年のそれぞれに目盛の並びがある（単位を切り替えると下段の中身が変わる）。"""
+    span = (date(2026, 8, 3), date(2026, 9, 30))
+    assert len(render.day_ticks(span)) == (span[1] - span[0]).days + 1
+    weeks = render.week_ticks(span)
+    assert all((later - earlier).days == 7 for earlier, later in zip(weeks[:-1], weeks[1:], strict=True))
+    assert [d.day for d in render.month_ticks(span)[1:]] == [1]  # 9/1 だけ
+    assert render.year_ticks((date(2026, 5, 1), date(2027, 5, 1)))[1:] == [date(2027, 1, 1)]
 
 
 def test_the_output_is_a_complete_document(tmp_path: Path) -> None:
@@ -247,11 +251,15 @@ def test_the_axis_shows_the_year_where_it_matters(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2027-01-04", "due": "2027-02-26"},
     )
     html = _render(tmp_path, date(2026, 12, 1))
-    labels = re.findall(r'<span class="axis-lab[^"]*"[^>]*>(.*?)</span>', html)
-    assert labels[0].startswith("2026/")  # 先頭は年つき
-    assert any(label.startswith("2027/") for label in labels)  # 年が変わったところにも出す
-    # 週と月の 2 組を出すので、年つきは各組の先頭と年替わりだけ（毎回は出さない）。
-    assert sum(1 for label in labels if label.count("/") == 2) <= 4
+    labels = re.findall(r'<span class="axis-lab lab-(\w+)"[^>]*>(.*?)</span>', html)
+    plain = [text for kind, text in labels if kind == "m"]  # 下段に出す月（年を付けない）
+    with_year = [text for kind, text in labels if kind == "my"]  # 上段に出す月（年を添える）
+    years = [text for kind, text in labels if kind == "y"]
+    assert with_year[0].startswith("2026年")  # 先頭は年つき
+    assert any(text.startswith("2027年") for text in with_year)  # 年が変わったところにも出す
+    assert sum(1 for text in with_year if "年" in text) <= 2  # 毎回は出さない
+    assert all("年" not in text for text in plain)  # 上下で年が二重に出ない
+    assert years == ["2026年", "2027年"]
 
 
 def test_a_finished_row_is_toned_down(tmp_path: Path) -> None:
@@ -276,8 +284,7 @@ def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    assert 'id="fold"' in html and 'id="unfold"' in html
-    assert "全部閉じる" in html and "全部展開" in html
+    assert "すべて折りたたむ" in html and "すべて展開" in html
 
 
 def test_the_header_states_the_period_in_full_dates(tmp_path: Path) -> None:
@@ -290,16 +297,6 @@ def test_the_header_states_the_period_in_full_dates(tmp_path: Path) -> None:
     assert "期間 2026-08-03 〜 2026-08-07" in html
 
 
-def test_a_short_project_still_gets_dates_on_the_axis() -> None:
-    """数日しかない工程でも軸に日付が出る（週や月の格子だけに任せると目盛が 1 つも落ちない）。"""
-    one_day = render.axis_ticks((date(2026, 7, 23), date(2026, 7, 23)))
-    assert one_day == [date(2026, 7, 23)]
-
-    few_days = render.axis_ticks((date(2026, 7, 23), date(2026, 7, 27)))  # 木曜〜月曜（間に月曜が 1 つ）
-    assert few_days[0] == date(2026, 7, 23)
-    assert len(few_days) >= 1
-
-
 def test_the_first_tick_is_always_the_start_of_the_period() -> None:
     """どの粒度でも、期間の頭に目盛がある（軸の左端が何日か分からない、を無くす）。"""
     for span in (
@@ -307,7 +304,8 @@ def test_the_first_tick_is_always_the_start_of_the_period() -> None:
         (date(2026, 1, 5), date(2026, 12, 31)),
         (date(2026, 1, 5), date(2029, 6, 30)),
     ):
-        assert render.axis_ticks(span)[0] == span[0]
+        for ticks in (render.week_ticks(span), render.month_ticks(span), render.year_ticks(span)):
+            assert ticks[0] == span[0]
 
 
 def test_the_drawing_window_snaps_to_weeks_and_has_a_floor() -> None:
@@ -388,6 +386,7 @@ def test_the_view_offers_the_gantt_units(tmp_path: Path) -> None:
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    for unit in ("auto", "m", "w", "d"):
+    for unit in ("m", "w", "d"):
         assert f'data-zoom="{unit}"' in html
-    assert "data-days=" in html  # 幅の計算に使う日数を画面が持っている
+    assert 'data-zoom="auto"' not in html  # 「自動」は状態ではなく初期値の決め方なので選択肢に出さない
+    assert "data-days=" in html and "data-unit=" in html  # 幅の計算と初期の単位を画面が持っている

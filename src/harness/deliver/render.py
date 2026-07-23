@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import html
 import json
+from collections.abc import Callable
 from datetime import date, timedelta
 
 from harness.deliver.calendar import WorkCalendar
@@ -72,6 +73,8 @@ def _x_of(day: date, span: tuple[date, date]) -> float:
 _MIN_WINDOW_DAYS = 14
 # 非稼働日の帯を敷く上限（これより長い期間では点になって潰れるだけなので敷かない）。
 _MAX_SHADED_DAYS = 200
+# 日の目盛を出す上限（これを超えると 1 行あたりの図形が増えすぎてファイルが太る）。
+_MAX_DAY_TICKS = 400
 
 
 def drawing_window(span: tuple[date, date]) -> tuple[date, date]:
@@ -109,15 +112,22 @@ def backdrop(span: tuple[date, date], calendar: WorkCalendar, today: date) -> st
                 parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{_x_of(day, span) - x:.2f}" height="14" />')
                 run_start = None
             day += timedelta(days=1)
-    for kind, ticks in (("w", week_ticks(span)), ("m", month_ticks(span))):
+    for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
+        if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
+            continue
         for tick in ticks:
             if tick == first:  # 先頭は列の左端なので線を引かない
                 continue
             x = _x_of(tick, span)
-            parts.append(f'<line class="grid g-{kind}" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="14" />')
+            parts.append(
+                f'<line class="grid g-{kind}" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="14"'
+                f' vector-effect="non-scaling-stroke" />'
+            )
     if first <= today <= last:
         tx = _x_of(today, span) + scale / 2
-        parts.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
+        parts.append(
+            f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" vector-effect="non-scaling-stroke" />'
+        )
     return "".join(parts)
 
 
@@ -130,17 +140,37 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
         back,
     ]
     if row.milestone and row.due is not None:
-        cx = _x_of(row.due, span) + scale / 2
-        parts.append(f'<polygon class="ms" points="{cx - 6:.2f},7 {cx:.2f},1 {cx + 6:.2f},7 {cx:.2f},13" />')
+        pass  # 節目は図形を引き伸ばすと潰れるので、SVG でなく割合の位置に置く HTML で描く（_milestone）
     elif row.start is not None and row.due is not None:
         x = _x_of(row.start, span)
         width = max(_x_of(row.due, span) + scale - x, 2.0)
         kind = "late" if row.late else ("done" if row.status is Status.done else "plan")
-        parts.append(f'<rect class="{kind}" x="{x:.2f}" y="3" width="{width:.2f}" height="8" rx="2" />')
-        if row.done_leaves:
-            parts.append(f'<rect class="prog" x="{x:.2f}" y="5" width="{width * row.progress:.2f}" height="4" />')
+        if row.children:
+            # まとめの行（節・子を持つ単位）は、末端の棒と同じ太さで塗らない。全部同じ太さの帯が並ぶと
+            # 階層が図から読めず「ただの帯」に見える。工程表の慣習どおり、細い帯と両端の脚で表す。
+            parts.append(f'<rect class="sum" x="{x:.2f}" y="2" width="{width:.2f}" height="4" />')
+            for leg in (x, x + width):
+                parts.append(
+                    f'<line class="leg" x1="{leg:.2f}" y1="2" x2="{leg:.2f}" y2="11"'
+                    f' vector-effect="non-scaling-stroke" />'
+                )
+        else:
+            parts.append(f'<rect class="{kind}" x="{x:.2f}" y="3" width="{width:.2f}" height="8" rx="2" />')
+            if row.done_leaves:
+                parts.append(f'<rect class="prog" x="{x:.2f}" y="5" width="{width * row.progress:.2f}" height="4" />')
     parts.append("</svg>")
     return "".join(parts)
+
+
+def day_ticks(span: tuple[date, date]) -> list[date]:
+    """日の目盛（1 日ごと）。"""
+    first, last = span
+    out: list[date] = []
+    day = first
+    while day <= last:
+        out.append(day)
+        day += timedelta(days=1)
+    return out
 
 
 def week_ticks(span: tuple[date, date]) -> list[date]:
@@ -176,69 +206,78 @@ def month_ticks(span: tuple[date, date]) -> list[date]:
     return out
 
 
-def axis_ticks(span: tuple[date, date]) -> list[date]:
-    """時間軸に打つ目盛の日付。**期間の長さで間引く**（案件が長いほど粗くする）。
-
-    週ごとに固定すると、2 年を超える案件で 100 個以上の日付が重なって読めなくなる（実際に起きる）。
-    軸は「いつ頃か」が読めればよいので、目安として 30 個程度に収まる粒度へ落とす。
-    """
+def year_ticks(span: tuple[date, date]) -> list[date]:
+    """年の目盛（年の頭）。期間の頭は必ず入れる。"""
     first, last = span
-    days = (last - first).days + 1
-    out: list[date] = []
-    if days <= 120:  # 4 か月まで＝週ごと（月曜）
-        day = first - timedelta(days=first.weekday())
-        while day <= last:
-            if day >= first:
-                out.append(day)
-            day += timedelta(days=7)
-    else:
-        step = 1 if days <= 900 else 3  # 2 年半までは月ごと、それを超えたら四半期ごと
-        year, month = first.year, first.month
-        while True:
-            current = date(year, month, 1)
-            if current > last:
-                break
-            if current >= first:
-                out.append(current)
-            month += step
-            while month > 12:
-                year, month = year + 1, month - 12
-    # 期間の頭には必ず目盛を打つ。週や月の格子だけに任せると、**短い期間で目盛が 1 つも落ちない**
-    # （数日の工程は、格子の線がその期間の外にしか無い）＝軸から日付が消える。
+    out = [date(y, 1, 1) for y in range(first.year, last.year + 1) if date(y, 1, 1) >= first]
     if not out or out[0] != first:
-        crowded = bool(out) and (out[0] - first).days * (_CANVAS / days) < 40  # 近すぎる目盛は片方だけ残す
-        out = [first, *out[1:]] if crowded else [first, *out]
+        out = [first, *out]
     return out
 
 
-def _axis_svg(span: tuple[date, date], today: date) -> str:
-    """時間軸の見出し。表の見出し行に入るので、印刷時は各ページに再掲される。
+def _intervals(ticks: list[date], span: tuple[date, date]) -> list[tuple[date, float, float]]:
+    """目盛を「区間」にする（その日・左端の割合・幅の割合）。ラベルは区間の真ん中に置く。
 
-    目盛の線は棒と同じ引き伸ばし（`preserveAspectRatio="none"`）で位置を合わせるが、**日付の文字は
-    SVG に入れない**。引き伸ばすと文字まで横に潰れる／伸びるため、文字は HTML の要素として割合の位置に
-    重ねる（列の実幅がいくつでも読める）。
+    目盛の線の右に文字を寄せると、どの線の分の文字なのかが読めない。区間の中央に置けば対応が一目で分かる。
     """
     first, last = span
-    ticks: list[str] = []
-    labels: list[str] = []
     total = (last - first).days + 1
-    for kind, days, monthly in (("w", week_ticks(span), False), ("m", month_ticks(span), True)):
-        shown_year: int | None = None
-        for day in days:
-            x = _x_of(day, span)
-            ticks.append(f'<line class="g-{kind}" x1="{x:.2f}" y1="7" x2="{x:.2f}" y2="14" />')
-            # 書式指定子の `%-m` は Windows で例外になるので、数を直に組む（Windows も想定）。
-            # 年は、先頭と年が変わるところに出す（毎回出すと重なって読めない・出さないと何年か分からない）。
-            stem = f"{day.month}" if monthly else f"{day.month}/{day.day}"
-            text = f"{day.year}/{stem}" if day.year != shown_year else stem
-            shown_year = day.year
-            left = (day - first).days / total * 100
-            labels.append(f'<span class="axis-lab lab-{kind}" style="left:{left:.3f}%">{text}</span>')
+    out: list[tuple[date, float, float]] = []
+    for i, tick in enumerate(ticks):
+        nxt = ticks[i + 1] if i + 1 < len(ticks) else last + timedelta(days=1)
+        left = (tick - first).days / total * 100
+        width = (nxt - tick).days / total * 100
+        out.append((tick, left, width))
+    return out
+
+
+def _labels(ticks: list[date], span: tuple[date, date], kind: str, text: Callable[[date, bool], str]) -> str:
+    """区間の真ん中に置くラベルの並び（年が変わるところだけ年を添える）。"""
+    parts: list[str] = []
+    shown_year: int | None = None
+    for day, left, width in _intervals(ticks, span):
+        label = text(day, day.year != shown_year)
+        shown_year = day.year
+        parts.append(f'<span class="axis-lab lab-{kind}" style="left:{left:.3f}%;width:{width:.3f}%">{label}</span>')
+    return "".join(parts)
+
+
+def _axis_svg(span: tuple[date, date], today: date) -> str:
+    """時間軸の見出し（2 段）。上段＝大きい単位・下段＝選んだ単位。
+
+    単位（月・週・日）を切り替えると**下段の中身が変わり、上段はその親の単位になる**。段数は常に 2 で
+    固定する（切り替えのたびに高さが跳ねない）。線は SVG・文字は HTML の要素で、どちらも同じ割合の座標に
+    乗せる（引き伸ばしても文字が潰れない）。
+    """
+    first, last = span
+    days = (last - first).days + 1
+    ticks = f'<svg class="axis" viewBox="0 0 {_CANVAS:.0f} 40" preserveAspectRatio="none" role="img">'
+    lines: list[str] = []
+    for kind, series in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
+        if kind == "d" and days > _MAX_DAY_TICKS:
+            continue
+        for tick in series:
+            if tick == first:
+                continue
+            x = _x_of(tick, span)
+            lines.append(
+                f'<line class="g-{kind}" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="40" vector-effect="non-scaling-stroke" />'
+            )
     if first <= today <= last:
-        tx = _x_of(today, span)
-        ticks.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
-    head = f'<svg class="axis" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">'
-    return f'<div class="axis-wrap">{head}{"".join(ticks)}</svg>{"".join(labels)}</div>'
+        tx = _x_of(today, span) + _CANVAS / days / 2
+        lines.append(
+            f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="40" vector-effect="non-scaling-stroke" />'
+        )
+    text = "".join(
+        (
+            _labels(year_ticks(span), span, "y", lambda d, _: f"{d.year}年"),
+            _labels(month_ticks(span), span, "m", lambda d, _: f"{d.month}月"),
+            _labels(month_ticks(span), span, "my", lambda d, y: f"{d.year}年{d.month}月" if y else f"{d.month}月"),
+            _labels(week_ticks(span), span, "w", lambda d, _: f"{d.month}/{d.day}w"),
+            _labels(day_ticks(span), span, "d", lambda d, _: str(d.day)) if days <= _MAX_DAY_TICKS else "",
+        )
+    )
+    return f'<div class="axis-wrap">{ticks}{"".join(lines)}</svg>{text}</div>'
 
 
 def _editable_fields(row: WbsRow) -> dict[str, str]:
@@ -316,7 +355,7 @@ def _row_html(
     name = _esc(row.name)
     if unscheduled:
         name += '<span class="tag">未日程</span>'
-    if row.ref:
+    if row.ref and row.ref != row.name:  # 題を書いていない単位は ID がそのまま名前なので、2 回出さない
         name += f'<span class="ref">{_esc(row.ref)}</span>'
     fields = _editable_fields(row) if editable else {}
     digest = _digest_of(row) if fields else ""
@@ -347,12 +386,12 @@ def _row_html(
         f'<td class="d">{_day_label(row.actual_start)}</td>',
         f'<td class="d">{_day_label(row.actual_finish)}</td>',
         f'<td class="n">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
-        f'<td class="gantt">{_bar_svg(row, span, back) if span else ""}</td>',
+        f'<td class="gantt">{_bar_svg(row, span, back) if span else ""}{_milestone(row, span)}</td>',
     ]
     holder = _esc(row.ref) if can_add else ""
     return (
         f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}" data-ref="{_esc(row.ref or "")}"'
-        f' data-name="{_esc(row.name)}" data-level="{depth + 1}"'
+        f' data-name="{_esc(row.name)}" data-level="{depth + 1}" data-kids="{1 if row.children else 0}"'
         f' data-holder="{holder}" data-parent="{_esc(parent)}">{"".join(cells)}</tr>'
     )
 
@@ -368,6 +407,16 @@ def _holders(rows: list[WbsRow], holder: str) -> dict[str, str]:
         mine = row.ref if row.path is not None and row.path.name == "item.md" and row.ref else holder
         out.update(_holders(row.children, mine))
     return out
+
+
+def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
+    """節目の印。引き伸ばす図形の中に置くと横に潰れるので、割合の位置に重ねる要素として描く。"""
+    if span is None or not row.milestone or row.due is None:
+        return ""
+    first, last = span
+    total = (last - first).days + 1
+    left = ((row.due - first).days + 0.5) / total * 100
+    return f'<span class="ms" style="left:{left:.3f}%">◆</span>'
 
 
 def _digest_of(row: WbsRow) -> str:
@@ -413,6 +462,7 @@ h1 { font-size:17px; margin:0 0 2px; }
 /* 罫線はセルの右下だけに引く（sticky を効かせるため collapse を使わない）。 */
 table { border-collapse:separate; border-spacing:0; width:100%; min-width:900px; }
 thead { display:table-header-group; }
+thead th { position:sticky; top:0; z-index:4; }
 th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
          padding:2px 5px; vertical-align:middle; white-space:nowrap; }
 thead th { border-top:1px solid var(--line); }
@@ -428,14 +478,21 @@ th.n, td.n { width:34px; }
 td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
 th.name, td.name { white-space:normal; min-width:150px; }
 th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; }
-/* 自動のときは期間の長さで粒度を選ぶ。拡大縮小（日・週・月）はこれを上書きする。 */
-.scroll.auto-w .g-m, .scroll.auto-w .lab-m { display:none; }
-.scroll.auto-m .g-w, .scroll.auto-m .lab-w { display:none; }
-.scroll.zoom-d .g-m, .scroll.zoom-d .lab-m { display:none; }
-.scroll.zoom-w .g-m, .scroll.zoom-w .lab-m { display:none; }
-.scroll.zoom-m .g-w, .scroll.zoom-m .lab-w { display:none; }
-.scroll.zoomed th.gantt, .scroll.zoomed td.gantt { width:var(--gw); min-width:var(--gw); max-width:var(--gw); }
-.scroll.zoomed table { min-width:0; }
+/* 時間軸の単位。上段＝大きい単位・下段＝選んだ単位で、段数は常に 2（切り替えで高さが跳ねない）。 */
+.axis-lab { display:none; }
+/* 上段＝大きい単位・下段＝選んだ単位。年は上段に来る見出しだけが持つ（上下で年が二重に出ない）。 */
+.scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
+.scroll.u-w .lab-my, .scroll.u-w .lab-w { display:block; }
+.scroll.u-d .lab-my, .scroll.u-d .lab-d { display:block; }
+.scroll.u-m .lab-y, .scroll.u-w .lab-my, .scroll.u-d .lab-my { top:0; font-size:11px; font-weight:600; }
+.scroll.u-m .lab-m, .scroll.u-w .lab-w, .scroll.u-d .lab-d { top:20px; }
+.g-d, .g-w, .g-m { display:none; }
+.scroll.u-m .g-m, .scroll.u-w .g-w, .scroll.u-w .g-m, .scroll.u-d .g-d, .scroll.u-d .g-m { display:block; }
+/* 非稼働日の帯は、1 日が細くなる月表示では出さない（縞模様になって棒が埋もれる）。 */
+.scroll.u-m rect.off { display:none; }
+/* 単位ごとの列幅。1 日あたりの幅を決めるだけで、棒も格子も同じ表の中で伸び縮みする。 */
+.scroll.wide th.gantt, .scroll.wide td.gantt { width:var(--gw); min-width:var(--gw); }
+.scroll.wide table { min-width:0; }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 th.code, td.code { left:0; }
@@ -458,16 +515,33 @@ tr.is-done rect.done { opacity:.55; }
               border:1px solid var(--line); border-radius:3px; padding:1px 8px; }
 .ops button:hover { background:var(--sec); }
 .ops .sep { color:var(--muted); font-size:11px; margin-left:10px; }
-.ops button.zoom[aria-pressed="true"] { background:var(--plan); color:#fff; border-color:var(--plan); }
-svg.bar, svg.axis { display:block; width:100%; height:14px; }
-svg.axis line { stroke:var(--line); stroke-width:1; }
-rect.off { fill:var(--ink); opacity:.07; }
+.ops { justify-content:space-between; }
+.ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
+.ops button.zoom { border-radius:0; margin-left:-1px; }
+.ops button.zoom:first-of-type { border-radius:3px 0 0 3px; margin-left:0; }
+.ops button.zoom:last-of-type { border-radius:0 3px 3px 0; }
+.ops button.zoom[aria-pressed="true"] { background:var(--plan); color:#08121d; border-color:var(--plan);
+                                        font-weight:600; }
+svg.bar { display:block; width:100%; height:14px; }
+svg.axis { display:block; width:100%; }
+rect.off { fill:var(--ink); opacity:.13; }
 line.grid { stroke:var(--line); stroke-width:.7; }
-.axis-wrap { position:relative; height:14px; }
-.axis-lab { position:absolute; top:0; margin-left:2px; font-size:8px; font-weight:400; color:var(--muted);
-            white-space:nowrap; line-height:1; }
+.axis-wrap { position:relative; height:40px; }
+svg.axis { height:40px; }
+/* 文字は区間の真ん中に置く（線の右に寄せると、どの線の分か読めない）。8px は提出物として読めないので 10px 以上。 */
+.axis-lab { position:absolute; height:20px; line-height:20px; font-size:10px; color:var(--ink);
+            text-align:center; white-space:nowrap; overflow:hidden; }
+line.g-d { stroke:var(--line); stroke-width:.5; }
+line.g-w { stroke:var(--line); stroke-width:1; }
+line.g-m { stroke:var(--ink); stroke-width:1.4; opacity:.32; }
 rect.plan { fill:var(--plan); } rect.done { fill:var(--done); } rect.late { fill:var(--late); }
-rect.prog { fill:var(--prog); opacity:.75; } polygon.ms { fill:var(--ink); }
+rect.prog { fill:var(--prog); opacity:.75; }
+rect.sum { fill:var(--ink); opacity:.62; }
+line.leg { stroke:var(--ink); stroke-width:2; opacity:.62; }
+/* 節目は引き伸ばす図形の外に置く（潰れない）。 */
+td.gantt { position:relative; }
+.ms { position:absolute; top:0; height:14px; line-height:14px; margin-left:-4px; font-size:11px;
+      color:var(--ink); pointer-events:none; }
 line.today { stroke:var(--today); stroke-width:1.2; stroke-dasharray:2 2; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
@@ -496,6 +570,8 @@ button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
   th.code, td.code, th.name, td.name { position:static; }
   /* 操作のボタンは紙に出さない。 */
   .ops { display:none; }
+  /* 単位を広げたまま印刷すると紙からはみ出して右が切れるので、紙では必ず全期間を収める。 */
+  .scroll.wide th.gantt, .scroll.wide td.gantt { width:auto !important; min-width:0 !important; }
 }
 """
 
@@ -529,33 +605,42 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
 #menu button { display:block; width:100%; text-align:left; font:inherit; font-size:12px; color:var(--ink);
                background:none; border:0; padding:5px 14px; cursor:pointer; }
 #menu button:hover { background:var(--sec); }
-#menu .mhead { padding:5px 14px 6px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--line);
-               margin-bottom:3px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#menu { min-width:240px; }
+#menu button { padding:6px 14px; }
+#menu .mhead { display:flex; gap:8px; align-items:center; justify-content:space-between;
+               padding:7px 14px 8px; border-bottom:1px solid var(--line); margin-bottom:3px; }
+#menu .mname { font-size:12px; max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#menu .lv { flex:none; background:var(--sec); color:var(--muted); font-size:10px; padding:1px 6px;
+            border-radius:2px; }
+#menu .mgroup { padding:6px 14px 2px; font-size:10px; color:var(--muted); }
 #menu .mrule { border-top:1px solid var(--line); margin:3px 0; }
+#menu button.danger { color:var(--late-ink); }
 """
 
 # 折りたたみ（閲覧・編集の両方に付く）。行を DOM から消さずに隠すだけにして、印刷では CSS が必ず戻す
 # ＝畳んだまま刷って白紙のフェーズを渡す事故が、そもそも起こらない形にする。
 _VIEW_SCRIPT = """
 (function(){
-  // ガントの単位（日・週・月）。1 日あたりの幅を変えるだけ＝棒も格子も同じ表の中で伸び縮みするので、
-  // 行と棒がずれない（表ごと横にスクロールする）。
-  var PX={d:22,w:7,m:2.2};
+  // 時間軸の単位（月・週・日）。1 日あたりの幅を変えるだけ＝棒も格子も同じ表の中で伸び縮みするので、
+  // 行と棒がずれない（表ごと横にスクロールする）。状態は必ずこの 3 つのどれかで、「自動」という状態は持たない
+  // （自動は初期値の決め方であって、利用者が選ぶ状態ではない）。
+  var PX={d:22,w:7,m:2.6};
   var scroll=document.querySelector('.scroll');
-  function zoom(kind){
+  function unit(kind){
     if(!scroll) return;
     var days=Number(scroll.dataset.days||0);
-    ['zoom-d','zoom-w','zoom-m','zoomed'].forEach(function(c){ scroll.classList.remove(c); });
-    if(kind!=='auto' && days>0){
-      scroll.style.setProperty('--gw', Math.max(Math.round(days*PX[kind]),240)+'px');
-      scroll.classList.add('zoomed','zoom-'+kind);
-    }
+    ['u-d','u-w','u-m','wide'].forEach(function(c){ scroll.classList.remove(c); });
+    scroll.classList.add('u-'+kind);
+    var want=Math.round(days*PX[kind]);
+    if(days>0 && want>420){ scroll.style.setProperty('--gw', want+'px'); scroll.classList.add('wide'); }
     document.querySelectorAll('.zoom').forEach(function(b){
       b.setAttribute('aria-pressed', String(b.dataset.zoom===kind)); });
+    try{ sessionStorage.setItem('wbs-unit', kind); }catch(e){}
   }
   document.querySelectorAll('.zoom').forEach(function(b){
-    b.addEventListener('click',function(){ zoom(b.dataset.zoom); }); });
-  zoom('auto');
+    b.addEventListener('click',function(){ unit(b.dataset.zoom); }); });
+  var saved=null; try{ saved=sessionStorage.getItem('wbs-unit'); }catch(e){}
+  unit(saved || (scroll ? scroll.dataset.unit : 'w'));
   function toggles(){ return document.querySelectorAll('.tw'); }
   function setAll(open){
     toggles().forEach(function(b){ b.setAttribute('aria-expanded', open?'true':'false');
@@ -683,8 +768,14 @@ _EDIT_SCRIPT = """
     b.addEventListener('click',function(){ hideMenu(); fn(); });
     return b;
   }
-  function head(text){
-    var h=document.createElement('div'); h.className='mhead'; h.textContent=text; return h;
+  function head(code,name,level){
+    var h=document.createElement('div'); h.className='mhead';
+    var t=document.createElement('span'); t.className='mname'; t.textContent=code+' '+name;
+    var b=document.createElement('span'); b.className='lv'; b.textContent='Lv'+level;
+    h.appendChild(t); h.appendChild(b); return h;
+  }
+  function group(text){
+    var g=document.createElement('div'); g.className='mgroup'; g.textContent=text; return g;
   }
   function rule(){ var r=document.createElement('div'); r.className='mrule'; return r; }
   document.addEventListener('contextmenu',function(e){
@@ -693,23 +784,29 @@ _EDIT_SCRIPT = """
     e.preventDefault();
     menu.textContent='';
     var ref=tr.dataset.ref, holder=tr.dataset.holder;
-    var code=tr.dataset.code, name=tr.dataset.name||'', level=tr.dataset.level;
-    // どの行のどの階層を触っているのかを、操作の前に見せる。
-    menu.appendChild(head(code+' '+name+'　（第'+level+'階層）'));
-    menu.appendChild(item('第'+level+'階層　この行の上に足す',function(){ add(ref,'above'); }));
-    menu.appendChild(item('第'+level+'階層　この行の下に足す',function(){ add(ref,'below'); }));
-    if(holder) menu.appendChild(item('第'+(Number(level)+1)+'階層　この行の中に足す',function(){ add(ref,'child'); }));
+    var code=tr.dataset.code, name=tr.dataset.name||'', lv=Number(tr.dataset.level);
+    menu.appendChild(head(code,name,lv));
+    menu.appendChild(group('行を追加'));
+    menu.appendChild(item('上に追加（同じ Lv'+lv+'）',function(){ add(ref,'above'); }));
+    menu.appendChild(item('下に追加（同じ Lv'+lv+'）',function(){ add(ref,'below'); }));
+    if(holder) menu.appendChild(item('子として追加（1 つ下の Lv'+(lv+1)+'）',function(){ add(ref,'child'); }));
     menu.appendChild(rule());
-    menu.appendChild(item('第1階層　いちばん上の階層に足す',function(){ add(null,'top'); }));
-    menu.appendChild(rule());
-    menu.appendChild(item('名前を変える',function(){
+    menu.appendChild(item('名前を変更',function(){
       var cell=tr.querySelector('td.edit.name'); if(cell) open(cell); }));
-    menu.appendChild(item('消す',function(){
-      if(window.confirm(code+' '+name+'（'+ref+'）を消す。よろしいか？')) del(ref); }));
+    menu.appendChild(rule());
+    var kids=tr.dataset.kids==='1';
+    var danger=item('この行を削除…',function(){
+      var msg='「'+code+' '+name+'」（'+ref+'）を削除します。';
+      if(kids) msg+='\n配下の行も一緒に削除されます。';
+      if(window.confirm(msg+'\nよろしいですか？')) del(ref); });
+    danger.className='danger';
+    menu.appendChild(danger);
     menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
   });
   document.addEventListener('click',hideMenu);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
+  var addtop=document.getElementById('addtop');
+  if(addtop) addtop.addEventListener('click',function(){ add(null,'top'); });
   document.addEventListener('click',function(e){
     var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
   document.addEventListener('keydown',function(e){
@@ -744,8 +841,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css in COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
     days = ((span[1] - span[0]).days + 1) if span else 0
-    # 自動のときは期間の長さで粒度を選ぶ（短い案件は週・長い案件は月）。拡大縮小はこれを上書きする。
-    auto = "auto-m" if days > 120 else "auto-w"
+    # 初期の単位は期間の長さで決める（短い案件は週・長い案件は月）。以後は利用者が選んだ単位が状態。
+    unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
     body = "".join(
@@ -761,15 +858,19 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         notes = f"<h2>未日程（{len(unscheduled)} 件）</h2><p>予定を置いていない作業: {ids}</p>"
     period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
-    ops = [
-        '<button id="fold" type="button">全部閉じる</button>',
-        '<button id="unfold" type="button">全部展開</button>',
-        '<span class="sep">ガントの単位</span>',
-        '<button class="zoom" data-zoom="auto" type="button">自動</button>',
+    left = [
+        '<button id="fold" type="button">すべて折りたたむ</button>',
+        '<button id="unfold" type="button">すべて展開</button>',
+    ]
+    if editable:
+        left.append('<button id="addtop" type="button">行を追加</button>')
+    right = [
+        '<span class="sep">時間軸</span>',
         '<button class="zoom" data-zoom="m" type="button">月</button>',
         '<button class="zoom" data-zoom="w" type="button">週</button>',
         '<button class="zoom" data-zoom="d" type="button">日</button>',
     ]
+    ops = [f'<div class="left">{"".join(left)}</div>', f'<div class="right">{"".join(right)}</div>']
     edit_bits = ""
     if editable:
         banner += (
@@ -784,7 +885,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div></header>'
-        f'<div class="scroll {auto}" data-days="{days}">'
+        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}">'
         f"<table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>"
         f"<footer>{_legend()}{notes}</footer><script>{_VIEW_SCRIPT}</script>{edit_bits}"
     )
