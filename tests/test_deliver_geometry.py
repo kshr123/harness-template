@@ -3,9 +3,10 @@
 要素が「有る」ことだけを見るテストでは、棒の位置・幅・今日の線がずれても緑のままになる（提出物の
 いちばん目立つ部分が黙って間違う）。ここでは**座標を数値で**突き合わせる。
 
-期待値はテストデータの構成から導ける。データの期間 08-03〜08-12 は、描画の窓として週の境目まで広げられる
-（月曜 08-03 〜 日曜 08-16 の 14 日）ので、内部座標 1000 に対して 1 日は 1000/14。棒は「開始日の左端」から
+期待値はテストデータの構成から導ける。データの期間 08-03〜08-12 は、描画の窓として**月の境目**まで広げられる
+（08-01〜08-31 の 31 日）ので、内部座標 1000 に対して 1 日は 1000/31。棒は「開始日の左端」から
 「終了日の右端」まで＝終了日を**含む**幅になる。今日の線と節目は、その日の帯の**真ん中**に置く。
+窓の頭からの日数を `_at(日)` で数える。
 """
 
 from __future__ import annotations
@@ -27,6 +28,11 @@ pytestmark = pytest.mark.unit
 DATA_SPAN = (date(2026, 8, 3), date(2026, 8, 12))  # 月曜〜水曜（10 日）
 WINDOW = render.drawing_window(DATA_SPAN)  # 週の境目まで広げた描画の窓
 PER_DAY = 1000.0 / ((WINDOW[1] - WINDOW[0]).days + 1)
+
+
+def _at(day: date) -> float:
+    """窓の頭からその日の左端までの内部座標。"""
+    return (day - WINDOW[0]).days * PER_DAY
 
 
 def _write(path: Path, meta: dict[str, Any]) -> None:
@@ -66,7 +72,7 @@ def test_a_bar_starts_at_its_start_day_and_covers_its_end_day(tmp_path: Path) ->
     )
     html = _render(tmp_path, date(2026, 8, 5))
     x, width = _rect(_row_markup(html, "T-9001"), "plan")
-    assert x == pytest.approx(0.0, abs=0.01)
+    assert x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)
     assert width == pytest.approx(5 * PER_DAY, abs=0.01)
 
 
@@ -79,7 +85,7 @@ def test_a_later_bar_is_offset_by_the_elapsed_days(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     x, width = _rect(_row_markup(html, "T-9002"), "plan")
-    assert x == pytest.approx(7 * PER_DAY, abs=0.01)
+    assert x == pytest.approx(_at(date(2026, 8, 10)), abs=0.01)
     assert width == pytest.approx(3 * PER_DAY, abs=0.01)
 
 
@@ -91,7 +97,7 @@ def test_a_one_day_bar_is_one_day_wide(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 3))  # 遅れの色にならない基準日にする（色でなく幅を見たいので）
     x, width = _rect(_row_markup(html, "T-9001"), "plan")
-    assert x == pytest.approx(0.0, abs=0.01)
+    assert x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)
     assert width == pytest.approx(PER_DAY, abs=0.01)
 
 
@@ -105,7 +111,7 @@ def test_the_today_line_sits_on_the_day_it_names(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 5))
     match = re.search(r'<line class="today" x1="([\d.]+)"', _row_markup(html, "T-9001"))
     assert match is not None
-    assert float(match.group(1)) == pytest.approx(2 * PER_DAY + PER_DAY / 2, abs=0.01)  # その日の帯の真ん中
+    assert float(match.group(1)) == pytest.approx(_at(date(2026, 8, 5)) + PER_DAY / 2, abs=0.01)  # 帯の真ん中
 
 
 def test_a_milestone_is_centred_on_its_day(tmp_path: Path) -> None:
@@ -119,7 +125,8 @@ def test_a_milestone_is_centred_on_its_day(tmp_path: Path) -> None:
     match = re.search(r'<span class="ms" style="left:([\d.]+)%"', _row_markup(html, "T-9003"))
     assert match is not None
     days = (WINDOW[1] - WINDOW[0]).days + 1
-    assert float(match.group(1)) == pytest.approx((9 + 0.5) / days * 100, abs=0.01)
+    offset = (date(2026, 8, 12) - WINDOW[0]).days
+    assert float(match.group(1)) == pytest.approx((offset + 0.5) / days * 100, abs=0.01)
 
 
 def test_a_parent_row_is_drawn_as_a_summary_not_a_bar(tmp_path: Path) -> None:
@@ -308,19 +315,16 @@ def test_the_first_tick_is_always_the_start_of_the_period() -> None:
             assert ticks[0] == span[0]
 
 
-def test_the_drawing_window_snaps_to_weeks_and_has_a_floor() -> None:
-    """描画の窓は週の境目に揃え、最低 2 週間を確保する。
+def test_the_drawing_window_snaps_to_whole_months() -> None:
+    """描画の窓は月の境目に揃える（日を数字で並べたとき 1 から月末までになる）。"""
+    one_day = render.drawing_window((date(2026, 7, 23), date(2026, 7, 23)))
+    assert one_day == (date(2026, 7, 1), date(2026, 7, 31))
 
-    データの期間をそのまま使うと、数日の案件で棒が列の端から端まで伸びて「ただの帯」になる。
-    """
-    one_day = render.drawing_window((date(2026, 7, 23), date(2026, 7, 23)))  # 木曜 1 日だけ
-    assert one_day[0].weekday() == 0 and one_day[1].weekday() == 6  # 月曜〜日曜
-    assert (one_day[1] - one_day[0]).days + 1 >= 14
-    assert one_day[0] <= date(2026, 7, 23) <= one_day[1]
+    across = render.drawing_window((date(2026, 8, 3), date(2026, 12, 18)))
+    assert across == (date(2026, 8, 1), date(2026, 12, 31))
 
-    long_run = render.drawing_window((date(2026, 8, 3), date(2026, 12, 18)))
-    assert long_run[0] == date(2026, 8, 3)  # 既に月曜なので動かない
-    assert long_run[1].weekday() == 6
+    february = render.drawing_window((date(2026, 1, 15), date(2026, 2, 3)))
+    assert february == (date(2026, 1, 1), date(2026, 2, 28))  # 末日は月ごとに違う
 
 
 def test_a_one_day_project_does_not_fill_the_whole_column(tmp_path: Path) -> None:
@@ -331,7 +335,7 @@ def test_a_one_day_project_does_not_fill_the_whole_column(tmp_path: Path) -> Non
     )
     html = _render(tmp_path, date(2026, 7, 23))
     _, width = _rect(_row_markup(html, "T-9001"), "done")
-    assert width < 1000.0 / 10  # 窓は最低 14 日あるので、1 日の棒は全体の 1/14 以下
+    assert width < 1000.0 / 28  # 窓は 1 か月（28 日以上）あるので、1 日の棒はその 1/28 以下
 
 
 def test_every_row_carries_the_time_grid(tmp_path: Path) -> None:
@@ -359,9 +363,9 @@ def test_non_working_days_are_shaded(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 5))
     row = _row_markup(html, "T-9001")
     bands = [(float(x), float(w)) for x, w in re.findall(r'<rect class="off" x="([\d.]+)"[^>]*width="([\d.]+)"', row)]
-    # 窓は 08-03（月）〜08-16（日）。土日は 08-08〜08-09 と 08-15〜08-16 の 2 か所。
-    assert len(bands) == 2
-    assert bands[0][0] == pytest.approx(5 * PER_DAY, abs=0.01)  # 最初の土曜＝5 日後
+    # 窓は 08-01〜08-31。土日は 1-2・8-9・15-16・22-23・29-30 の 5 か所。
+    assert len(bands) == 5
+    assert bands[0][0] == pytest.approx(_at(date(2026, 8, 1)), abs=0.01)  # 08-01 は土曜
     assert bands[0][1] == pytest.approx(2 * PER_DAY, abs=0.01)  # 土日の 2 日分
 
 

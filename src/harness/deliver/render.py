@@ -69,8 +69,6 @@ def _x_of(day: date, span: tuple[date, date]) -> float:
     return (day - first).days * (_CANVAS / total)
 
 
-# 描画の窓の最小の長さ（日）。これより短い案件でも、棒が列いっぱいに広がって「ただの帯」にならないようにする。
-_MIN_WINDOW_DAYS = 14
 # 非稼働日の帯を敷く上限（これより長い期間では点になって潰れるだけなので敷かない）。
 _MAX_SHADED_DAYS = 200
 # 日の目盛を出す上限（これを超えると 1 行あたりの図形が増えすぎてファイルが太る）。
@@ -78,17 +76,24 @@ _MAX_DAY_TICKS = 400
 
 
 def drawing_window(span: tuple[date, date]) -> tuple[date, date]:
-    """図を描く期間。データの期間を**週の境目に合わせて広げる**（月曜始まり・日曜終わり）。
+    """図を描く期間。データの期間を**月の境目に合わせて広げる**（1 日始まり・月末終わり）。
 
-    データの期間をそのまま使うと、数日しかない案件で棒が列の端から端まで伸びて「ただの帯」になり、
-    図表として読めない。週に揃えると土日の帯とも位置が合う。最低 2 週間は確保する。
+    月に揃えるのは、日を数字で並べたときに「1 から月末まで」になるため（途中の日から始まると、
+    何月の何日を見ているのか読みにくい）。月の見出しの区切りとも位置が合う。データの期間をそのまま使うと、
+    数日しかない案件で棒が列の端から端まで伸びて「ただの帯」になる、という問題もこれで解ける
+    （1 か月は必ず 28 日以上あるため）。
     """
     first, last = span
-    first -= timedelta(days=first.weekday())
-    last += timedelta(days=6 - last.weekday())
-    while (last - first).days + 1 < _MIN_WINDOW_DAYS:
-        last += timedelta(days=7)
+    first = first.replace(day=1)
+    last = _month_end(last)
     return first, last
+
+
+def _month_end(day: date) -> date:
+    """その月の末日。"""
+    if day.month == 12:
+        return date(day.year, 12, 31)
+    return date(day.year, day.month + 1, 1) - timedelta(days=1)
 
 
 def backdrop(span: tuple[date, date], calendar: WorkCalendar, today: date) -> str:
@@ -617,9 +622,11 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
 #menu button.danger { color:var(--late-ink); }
 """
 
+# JS は**生の文字列**（r"""）で持つ。ふつうの文字列にすると Python が `\n` を本物の改行に変えてしまい、
+# JS の文字列リテラルが途中で切れて構文エラーになる（＝画面の機能が丸ごと死ぬ）。
 # 折りたたみ（閲覧・編集の両方に付く）。行を DOM から消さずに隠すだけにして、印刷では CSS が必ず戻す
 # ＝畳んだまま刷って白紙のフェーズを渡す事故が、そもそも起こらない形にする。
-_VIEW_SCRIPT = """
+_VIEW_SCRIPT = r"""
 (function(){
   // 時間軸の単位（月・週・日）。1 日あたりの幅を変えるだけ＝棒も格子も同じ表の中で伸び縮みするので、
   // 行と棒がずれない（表ごと横にスクロールする）。状態は必ずこの 3 つのどれかで、「自動」という状態は持たない
@@ -679,7 +686,7 @@ _VIEW_SCRIPT = """
 
 # 保存に成功したら画面を作り直す（部分更新しない）。日数・ロールアップ・進捗・遅れは導出値なので、
 # 1 か所直すと他の行の値も動く。画面側で導出をやり直すと計算が 2 か所になるため、再読込で全部やり直す。
-_EDIT_SCRIPT = """
+_EDIT_SCRIPT = r"""
 (function(){
   var token=document.currentScript.dataset.token, say=document.getElementById('say'), busy=false;
   function tell(msg,bad){ say.textContent=msg; say.className=bad?'bad':''; say.style.display='block';
