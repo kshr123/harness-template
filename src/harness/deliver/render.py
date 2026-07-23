@@ -122,12 +122,35 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date) -> str:
     return f'<tr class="{" ".join(classes)}">{"".join(cells)}</tr>'
 
 
+# 配色は「紙に刷った工程表」を基準に、画面で見るとき用に暗い地の版も持つ（印刷は常に紙の版に固定）。
+# 灰は中立の灰でなく、棒の青へわずかに寄せた寒色寄りにして、地と棒が同じ絵に見えるようにする。
+# 和文の書体はファイルに埋め込めない（数 MB になる）ので、日本語の業務文書で確実に出る系統だけを並べる。
 _STYLE = """
-:root { --line:#d8dbe0; --ink:#1b1f24; --muted:#6b7280; --plan:#7ba7d7; --done:#59b37a; --late:#d9736a;
-        --prog:#2f6f4f; --today:#d9736a; --sec:#eef2f7; }
+:root {
+  --paper:#fbfbfa; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
+  --plan:#5b87b8; --done:#4f9d72; --late:#c8635a; --prog:#2f6f4f; --today:#c8635a;
+  --tag-bg:#fdf1d6; --tag-ink:#8a6116; --late-ink:#a8352a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:#16181c; --ink:#e6e8ea; --muted:#98a1ad; --line:#333941; --sec:#1f242b;
+    --plan:#6f9fd0; --done:#5fb587; --late:#dd7d72; --prog:#8ed7ae; --today:#dd7d72;
+    --tag-bg:#3a3020; --tag-ink:#e3c07a; --late-ink:#f0958b;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#16181c; --ink:#e6e8ea; --muted:#98a1ad; --line:#333941; --sec:#1f242b;
+  --plan:#6f9fd0; --done:#5fb587; --late:#dd7d72; --prog:#8ed7ae; --today:#dd7d72;
+  --tag-bg:#3a3020; --tag-ink:#e3c07a; --late-ink:#f0958b;
+}
+:root[data-theme="light"] {
+  --paper:#fbfbfa; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
+  --plan:#5b87b8; --done:#4f9d72; --late:#c8635a; --prog:#2f6f4f; --today:#c8635a;
+  --tag-bg:#fdf1d6; --tag-ink:#8a6116; --late-ink:#a8352a;
+}
 * { box-sizing:border-box; }
-body { margin:0; padding:16px 20px; color:var(--ink); background:#fff;
-       font:13px/1.5 "Hiragino Sans","Yu Gothic",Meiryo,system-ui,sans-serif; }
+body { margin:0; padding:16px 20px; color:var(--ink); background:var(--paper);
+       font:13px/1.5 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif; }
 header { border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:12px; }
 h1 { font-size:17px; margin:0 0 2px; }
 .meta { color:var(--muted); font-size:11px; }
@@ -142,12 +165,13 @@ td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:12px
 td.name { white-space:normal; min-width:220px; }
 td.gantt { width:45%; min-width:340px; padding:0 2px; }
 .ref { color:var(--muted); font-size:10px; margin-left:6px; }
-.tag { background:#fdf1d6; color:#8a6116; font-size:10px; padding:0 4px; margin-left:6px; border-radius:2px; }
+.tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; padding:0 4px; margin-left:6px;
+       border-radius:2px; }
 tr.lv0 > td { background:var(--sec); font-weight:600; }
 tr.lv1 td.name { padding-left:18px; }
 tr.lv2 td.name { padding-left:34px; }
 tr.lv3 td.name { padding-left:50px; }
-tr.is-late td.d, tr.is-late td.name { color:#a8352a; }
+tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
 svg.bar, svg.axis { display:block; width:100%; height:14px; }
 svg.axis text { font-size:7px; fill:var(--muted); }
 svg.axis line { stroke:var(--line); stroke-width:1; }
@@ -159,6 +183,12 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .legend span { margin-right:14px; }
 .legend i { display:inline-block; width:16px; height:8px; border-radius:2px; vertical-align:middle; margin-right:4px; }
 @media print {
+  /* 印刷は常に紙の版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
+  :root {
+    --paper:#fff; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
+    --plan:#5b87b8; --done:#4f9d72; --late:#c8635a; --prog:#2f6f4f; --today:#c8635a;
+    --tag-bg:#fdf1d6; --tag-ink:#8a6116; --late-ink:#a8352a;
+  }
   @page { size:A3 landscape; margin:8mm; }
   body { padding:0; font-size:10px; }
   .scroll { overflow:visible; }
