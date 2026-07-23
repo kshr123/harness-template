@@ -81,6 +81,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。
 - **着手の提案は `uv run status --next`**：仕掛かり中（in-progress の末端＝再開の候補）→ いま着手できる（todo・依存充足）→ 依存待ち → 分解の候補、の順で出す。並びは `priority`→ID。門番ではない（時間経過で赤にはしない＝可視化のみ）。
 - **トレースの鎖（コンサル向け・任意）**：要求 `docs/demands/DEM-*`（クライアントの言葉・MoSCoW）→ 要件 `docs/requirements/REQ-*`（`satisfies: [DEM-…]` で上流参照・`kind` は functional/non-functional）→ 作業 `work/`（`requirements: [REQ-…]`）→ 検証（`verified_by`）。要求層を持たない案件は `satisfies` を書かなければ何も要求されない。検査：REQ の `satisfies` が実在 DEM を指すこと（task-lint。要件→作業の参照検査と対称）。雛形は `.harness/templates/demand.md`・`requirement.md`。
+- **顧客向けの WBS・工程表（コンサル向け・任意）**：作業単位の木からの**生成ビュー**として出す（`uv run wbs export`）。日程・階層・状態の正本は `work/` の frontmatter ひとつで、WBS 側に第 2 の台帳を作らない（WBS 番号・営業日数・進捗率・親の日程は**書く欄が無い**＝毎回導出する）。案件固有の上書き `docs/wbs.yaml`（雛形 `.harness/templates/wbs.yaml`）に書くのは、暦・顧客向けの節の構成・`work/` に置けない行（クライアントの承認待ち・定例会議）だけ。手順は wbs スキル、正本は `docs/deliver.md`。
 
 ## 手順（1 タスク）
 1. その単位の `item.md`（またはファイル）と本ファイルだけを読む。全単位は読まない（読み込みすぎない）。

@@ -101,6 +101,20 @@ def test_missing_overlay_file_gives_empty_overlay(tmp_path: Path) -> None:
     assert over.calendar.country is None
 
 
+def test_the_shipped_template_loads_as_is(tmp_path: Path) -> None:
+    """案件を始めるときの雛形が、コピーしただけの状態で読めること（初手で検査に落ちない）。
+
+    雛形は本体領域（複製しても残る資産）なので、その実在を前提にしてよい。
+    """
+    template = Path(__file__).resolve().parents[1] / ".harness" / "templates" / "wbs.yaml"
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "wbs.yaml").write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    over = load_overlay(tmp_path)
+    assert over.calendar.country == "JP"
+    assert over.sections == []  # 節の構成は既定で空＝木をそのまま使う
+    assert over.rows == []
+
+
 def test_overlay_file_is_read(tmp_path: Path) -> None:
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "wbs.yaml").write_text(

@@ -4,7 +4,8 @@
 WBS（Work Breakdown Structure＝作業を分解した一覧）とガント（工程を横棒で表した図）を出すプロファイル。
 コンサル案件で顧客に提出する人と、その提出物がどの正本から出ているかを確かめたい人が読む Reference。
 
-実装は `src/harness/deliver/`。作業手順の案内は `.claude/skills/` の該当スキル。
+実装は `src/harness/deliver/`。場面ごとの作業手順（提案・定例・引き直し・最終報告）は
+`.claude/skills/wbs/SKILL.md`。案件を始めるときの上書きの雛形は `.harness/templates/wbs.yaml`。
 
 ## 考え方（これだけは先に読む）
 
