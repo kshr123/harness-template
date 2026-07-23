@@ -62,6 +62,9 @@ stats = ["pymc>=6.0", "nutpie>=0.16", "arviz>=1.2", "h5netcdf>=1.0", "h5py>=3.0"
 # holidays（vacanza・MIT）は営業日計算の祝日。自前の祝日表を持たない（業界標準を再発明しない）。
 # 編集面のローカルサーバは fastapi/uvicorn（serve と同じピン）。導入例: uv sync --extra deliver
 deliver = ["holidays>=0.100", "fastapi>=0.139", "uvicorn>=0.50"]
+# 表計算の出力（先方の様式指定がある案件だけ）。入れれば `wbs formats` に xlsx が増える（条件登録）。
+# 取り込みは作らない（返送された表を読む口は二重台帳への入口）。導入例: uv sync --extra deliver --extra openpyxl
+openpyxl = ["openpyxl>=3.1"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -99,6 +102,8 @@ dev = [
     "pre-commit>=4.0",
     # FastAPI の TestClient（starlette）が使う。配信プロファイルのテスト用（ランタイム extra には入れない）。
     "httpx>=0.28",
+    # openpyxl の型スタブ（別配布）。スタブがある以上、mypy の ignore_missing_imports 一覧には入れない。
+    "types-openpyxl>=3.1",
 ]
 # ty（Astral の高速型チェッカー）は beta のため任意・ローカル用。
 # 使う場合のみ: uv add --dev --prerelease=allow ty

@@ -10,14 +10,16 @@ import socket
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
-from harness.deliver import baseline, render, stamp, wbs_lint
+from harness.deliver import baseline, formats, stamp, wbs_lint
 from harness.deliver import wbs as wbs_mod
+from harness.registry import render_catalog
 
 # Windows コンソール（cp932）でも日本語・記号を出せるよう UTF-8 に固定（他プロファイルの CLI と同じ作法）。
 for _stream in (sys.stdout, sys.stderr):
@@ -27,7 +29,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 wbs_app = typer.Typer(help="作業単位の木から顧客向けの WBS・ガントを出す（deliver プロファイル）", add_completion=False)
 
-DEFAULT_OUT = "artifacts/wbs/WBS.html"
+DEFAULT_OUT = "artifacts/wbs/WBS"  # 拡張子は形式が決める（formats.SUFFIX）
 
 
 def _fail(message: str) -> None:
@@ -41,6 +43,7 @@ def _export(
     out: Annotated[Path | None, typer.Option(help=f"出力先（既定 {DEFAULT_OUT}）")] = None,
     today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
     at: Annotated[str | None, typer.Option(help="この時点の WBS を出す（git のタグ・コミット）")] = None,
+    fmt: Annotated[str, typer.Option("--format", help="出力形式（一覧は `uv run wbs formats`）")] = "html",
     draft: Annotated[bool, typer.Option("--draft", help="未コミットの変更を含んだまま下書きとして出す")] = False,
     root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
 ) -> None:
@@ -51,17 +54,38 @@ def _export(
     下書きと分かる表示で出す。`--at` に合意した時点（タグ・コミット）を渡すと、その時点の WBS を出し直す。
     """
     base = date.fromisoformat(today) if today else date.today()
+    try:
+        writer = formats.RENDERERS.resolve(fmt).factory
+    except ValueError as exc:
+        _fail(str(exc))
+        return
     if at is None:
-        _export_from(root, root, out=out, today=base, draft=draft, commit=None)
+        _export_from(root, root, out=out, today=base, draft=draft, commit=None, fmt=fmt, writer=writer)
         return
     try:
         with baseline.tree_at(root, at) as snapshot:
-            _export_from(root, snapshot, out=out, today=base, draft=False, commit=at)
+            _export_from(root, snapshot, out=out, today=base, draft=False, commit=at, fmt=fmt, writer=writer)
     except baseline.BaselineError as exc:
         _fail(str(exc))
 
 
-def _export_from(root: Path, source: Path, *, out: Path | None, today: date, draft: bool, commit: str | None) -> None:
+@wbs_app.command("formats")
+def _formats() -> None:
+    """出せる形式の一覧（入れていない依存の形式はここに出ない＝選べる形式が使える形式）。"""
+    render_catalog(formats.RENDERERS)
+
+
+def _export_from(
+    root: Path,
+    source: Path,
+    *,
+    out: Path | None,
+    today: date,
+    draft: bool,
+    commit: str | None,
+    fmt: str,
+    writer: Callable[..., None],
+) -> None:
     """`source` の中身から WBS を出す（`root` は出力先と git を見る先）。過去の時点も同じ道を通る。"""
     # 例外の種類ごとに節を分ける（ruff format が `except (A, B):` を壊す既知の不具合を踏まないため）。
     try:
@@ -91,10 +115,10 @@ def _export_from(root: Path, source: Path, *, out: Path | None, today: date, dra
             "（先にコミットする。下書きとして出すなら --draft を付ける）"
         )
         return
-    target = out if out is not None else root / DEFAULT_OUT
+    target = out if out is not None else root / (DEFAULT_OUT + formats.SUFFIX.get(fmt, ""))
     target.parent.mkdir(parents=True, exist_ok=True)
     provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone(), commit=commit)
-    target.write_text(render.render_html(built, provenance=provenance, draft=dirty), encoding="utf-8")
+    writer(built, target, provenance=provenance, draft=dirty)
     rows = len(built.walk())
     note = f"（未日程 {len(built.unscheduled)} 件）" if built.unscheduled else ""
     typer.echo(f"{target}: {rows} 行を出力した{note}　{provenance}")

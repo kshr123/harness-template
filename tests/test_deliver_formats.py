@@ -1,0 +1,140 @@
+"""出力形式の登録簿と、表計算の写しのテスト。
+
+既定が 1 形式のままであること（成果物が勝手に 2 つ並ばない）と、増やした形式が正本と食い違わないこと
+（書いた表を読み戻して木から導いた値と突き合わせる）を見る。
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+import frontmatter
+import pytest
+from openpyxl import load_workbook
+from typer.testing import CliRunner
+
+from harness.deliver import formats
+from harness.deliver import wbs as wbs_mod
+from harness.deliver.cli import wbs_app
+from harness.deliver.overlay import Overlay
+
+pytestmark = pytest.mark.integration
+
+TODAY = date(2026, 8, 20)
+
+
+def _write(path: Path, meta: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    post = frontmatter.Post("")
+    post.metadata.update(meta)
+    path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+
+def _scaffold(root: Path) -> None:
+    alpha = root / "work" / "EP-90-alpha"
+    _write(alpha / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    _write(
+        alpha / "T-9001-a.md",
+        {"id": "T-9001", "kind": "task", "status": "done", "title": "設計", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    _write(
+        alpha / "T-9002-b.md",
+        {"id": "T-9002", "kind": "task", "status": "todo", "title": "実装", "start": "2026-08-10", "due": "2026-08-12"},
+    )
+
+
+def test_html_is_always_available(tmp_path: Path) -> None:
+    assert "html" in formats.RENDERERS
+
+
+def test_the_spreadsheet_branch_appears_only_with_its_dependency() -> None:
+    """依存が入っている環境では一覧に出る（入れていなければ出ない＝選べる形式が使える形式）。"""
+    assert "xlsx" in formats.RENDERERS  # 開発環境は全部入り（uv sync --all-extras）
+    assert formats.RENDERERS.extras_hint["xlsx"] == "openpyxl"
+
+
+def test_every_registered_format_explains_itself() -> None:
+    """一覧に出る以上、説明文がある（登録簿が説明文を必須にしている）。"""
+    for kind in formats.RENDERERS:
+        assert formats.RENDERERS[kind].description.strip()
+
+
+def test_an_unknown_format_fails_with_the_candidates(tmp_path: Path) -> None:
+    _scaffold(tmp_path)
+    result = CliRunner().invoke(
+        wbs_app, ["export", "--root", str(tmp_path), "--format", "pdf", "--today", TODAY.isoformat()]
+    )
+    assert result.exit_code == 1
+    assert "html" in result.output  # 候補を出す
+
+
+def test_the_default_format_is_html_and_the_suffix_follows_it(tmp_path: Path) -> None:
+    """形式を指定しなければ HTML 1 つだけが出る（成果物が勝手に 2 つ並ばない）。"""
+    _scaffold(tmp_path)
+    result = CliRunner().invoke(wbs_app, ["export", "--root", str(tmp_path), "--today", TODAY.isoformat()])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "artifacts" / "wbs" / "WBS.html").is_file()
+    assert not (tmp_path / "artifacts" / "wbs" / "WBS.xlsx").exists()
+
+
+def test_the_spreadsheet_matches_the_tree(tmp_path: Path) -> None:
+    """書いた表を読み戻し、木から導いた値と突き合わせる（書式の崩れを人の目に頼らない）。"""
+    _scaffold(tmp_path)
+    out = tmp_path / "WBS.xlsx"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["export", "--root", str(tmp_path), "--out", str(out), "--format", "xlsx", "--today", TODAY.isoformat()],
+    )
+    assert result.exit_code == 0, result.output
+
+    built = wbs_mod.build(tmp_path, today=TODAY, overlay=Overlay())
+    sheet = load_workbook(out).active
+    assert sheet is not None
+    header = 5
+
+    def _as_date(value: object) -> date | None:
+        """表計算のセルから日付を取り出す（日付として書けていなければ None＝突き合わせで落ちる）。"""
+        return value.date() if isinstance(value, datetime) else None
+
+    read = {
+        str(sheet.cell(row=header + i + 1, column=1).value): (
+            _as_date(sheet.cell(row=header + i + 1, column=6).value),
+            _as_date(sheet.cell(row=header + i + 1, column=7).value),
+            sheet.cell(row=header + i + 1, column=8).value,
+        )
+        for i in range(len(built.walk()))
+    }
+    for row in built.walk():
+        start, due, days = read[row.code]
+        assert start == row.start
+        assert due == row.due
+        assert days == row.workdays
+
+
+def test_the_spreadsheet_says_it_is_a_copy(tmp_path: Path) -> None:
+    """編集を誘う道具なので、取り込まれない写しであることを本文に書く（黙って捨てない）。"""
+    _scaffold(tmp_path)
+    out = tmp_path / "WBS.xlsx"
+    CliRunner().invoke(
+        wbs_app,
+        ["export", "--root", str(tmp_path), "--out", str(out), "--format", "xlsx", "--today", TODAY.isoformat()],
+    )
+    sheet = load_workbook(out).active
+    assert sheet is not None
+    assert "取り込まれません" in str(sheet.cell(row=3, column=1).value)
+
+
+def test_the_spreadsheet_folds_by_depth(tmp_path: Path) -> None:
+    """階層は表計算側の折りたたみ（アウトライン）で表す＝先方が畳んで読める。"""
+    _scaffold(tmp_path)
+    out = tmp_path / "WBS.xlsx"
+    CliRunner().invoke(
+        wbs_app,
+        ["export", "--root", str(tmp_path), "--out", str(out), "--format", "xlsx", "--today", TODAY.isoformat()],
+    )
+    sheet = load_workbook(out).active
+    assert sheet is not None
+    assert sheet.row_dimensions[6].outlineLevel == 0  # 親（1）
+    assert sheet.row_dimensions[7].outlineLevel == 1  # 子（1.1）
