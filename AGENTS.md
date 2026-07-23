@@ -76,6 +76,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。
   - `id`（例 `EP-01` / `T-0007` / `E-0003`。一意・再利用しない）／`kind`（epic | task | experiment）／`status`／`plan`（epic・実験）／`requirements`（REQ-…）／`depends_on`（先行する単位の ID）。
+  - 任意：`owner`（担当 1 名）・`team`（担当チーム）。顧客向けの WBS では `docs/wbs.yaml` の名簿（`members`・`teams`）から選ぶ。
   - 任意：`priority`（`high | normal | low`。**人が置く判断**を `uv run status --next` の並べ替えに運ぶ＝機械は決めず順位を執行するだけ。未指定は normal と同じ＝並びは既定の ID 順のまま。列挙なのでタイポは検証で失敗する）。
   - 任意（顧客向けの WBS・ガントの材料）：`start`／`due`（予定開始・予定終了の日付）・`effort_days`（見積り工数＝人日）・`milestone`（`true` で節目）。すべて任意（無指定は正常）。**%完了・実績日付は持たない**＝進捗は木から、実績は `created`/`closed` から導出する（二重台帳を作らない）。検査：`start > due`・`milestone` なのに `due` 無しは失敗（task-lint）。
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。

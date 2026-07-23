@@ -74,7 +74,8 @@ class Item(BaseModel):
     created: date | None = None
     closed: date | None = None
     priority: Priority | None = None  # 着手の優先度（人が置く）。status --next の並べ替えに使う。
-    owner: str | None = None
+    owner: str | None = None  # 担当（1 名）。顧客向けの WBS では名簿から選ぶ。
+    team: str | None = None  # 担当チーム。顧客向けの WBS の区分に使う（owner と対称の任意欄）。
     # 顧客向けの WBS・スケジュール（ガント）の材料。すべて任意＝無指定は正常（全単位に日付を強制しない）。
     # 語は PMBOK / MS Project / GitHub の標準に合わせる（造語しない）。%完了・実績日付は**保存しない**
     # ＝進捗は木から（done 末端/総末端）、実績は created/closed から導出する（status と二重台帳にしない）。

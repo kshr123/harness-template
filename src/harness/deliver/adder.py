@@ -19,8 +19,8 @@ from datetime import date
 from pathlib import Path
 
 from harness import pm
-from harness.deliver import wbs_lint
 from harness.deliver.editor import LOCK, EditRejected, find_item_path, walk_nodes
+from harness.deliver.wbs_lint import all_problems
 
 # 足す単位の ID の形（作業単位の既定）。番号は既存の最大＋1 で、再利用しない。
 _ID_PREFIX = "T-"
@@ -64,7 +64,7 @@ def _add(root: Path, parent_ref: str | None, *, today: date) -> str:
     nodes, problems = pm.load_tree(root)
     if any(p.level == "error" for p in problems):
         raise EditRejected("work/ の読み取りに失敗している状態では足せない（先に指摘を直す）")
-    before = {p.message for p in wbs_lint.check(root, today=today) if p.level == "error"}
+    before = {p.message for p in all_problems(root, today=today) if p.level == "error"}
     new_id = _next_id(nodes)
     restore: tuple[Path, str] | None = None
 
@@ -109,7 +109,7 @@ def _add(root: Path, parent_ref: str | None, *, today: date) -> str:
         "",
     ]
     target.write_text("\n".join(lines), encoding="utf-8")
-    introduced = [p for p in wbs_lint.check(root, today=today) if p.level == "error" and p.message not in before]
+    introduced = [p for p in all_problems(root, today=today) if p.level == "error" and p.message not in before]
     if introduced:  # 足した結果として検査に落ちる状態を、正本に残さない
         target.unlink()
         if restore is not None:

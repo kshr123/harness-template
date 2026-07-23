@@ -3,6 +3,7 @@
 ここに載るのは、作業単位（`work/`）に属さない情報**だけ**：
 
 - `calendar` … 営業日の暦（国・案件の非稼働日・振替出勤）。
+- `teams`・`members` … 案件の名簿（画面で選ぶ先）。
 - `sections` … 顧客向けの節の構成と表示順（顧客の言葉とエンジニアリング上の構造がずれる場合の翻訳層）。
 - `rows` … `work/` に置けない手動行（クライアントの承認待ち・定例会議・先方の作業など）。これらを `work/` に
   置くと `status --next` の着手候補を汚し、done に検証の場所（`verified_by`）を要求する検査と衝突するため、
@@ -132,6 +133,10 @@ class Overlay(BaseModel):
     # 顧客向けの WBS に**載せない**作業単位の ID（社内都合の作業など）。節構成が木を覆っていない単位は
     # 既定で検査に失敗する（黙って消えるのを止める）ので、外すなら差分に残る形でここに明示する。
     exclude: list[str] = Field(default_factory=list)
+    # 案件の名簿。画面ではここから選ぶ（毎回打つと表記ゆれが起きる＝同じ人が別人として集計される）。
+    # 画面で新しい名前を入れると、ここにも足される（選ぶ先と実際に使われている名前がずれない）。
+    teams: list[str] = Field(default_factory=list)
+    members: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _unique_row_ids(self) -> Overlay:

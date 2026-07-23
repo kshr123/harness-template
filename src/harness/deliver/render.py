@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import html
+import json
 from datetime import date, timedelta
 
 from harness.deliver.calendar import WorkCalendar
@@ -218,28 +219,48 @@ def _editable_fields(row: WbsRow) -> dict[str, str]:
     fields["status"] = "status"
     fields["start"] = "start"
     fields["due"] = "due"
-    if manual:
-        fields["team"] = "team"
-    else:
-        fields["assignees"] = "owner"
+    fields["team"] = "team"
+    fields["assignees"] = "assignees" if manual else "owner"
     return fields
 
 
-def _cell(column: str, inner: str, raw: str, row: WbsRow, fields: dict[str, str], digest: str, *, css: str = "") -> str:
-    """1 つのセル。直せる欄なら、書き戻し先（ID・キー・読んだ時点の指紋）を持たせる。"""
+def _cell(
+    column: str,
+    inner: str,
+    raw: str,
+    row: WbsRow,
+    fields: dict[str, str],
+    digest: str,
+    *,
+    css: str = "",
+    choices: list[str] | None = None,
+) -> str:
+    """1 つのセル。直せる欄なら、書き戻し先（ID・キー・読んだ時点の指紋）を持たせる。
+
+    `choices` を渡した欄は、自由入力でなく**名簿から選ぶ**（毎回打つと表記ゆれが起きるため）。
+    名簿に無い名前を入れる口も残し、入れたらその名簿にも足す。
+    """
     field = fields.get(column)
     klass = f' class="{css}"' if css else ""
     if field is None or row.ref is None:
         return f"<td{klass}>{inner}</td>"
+    picks = f' data-choices="{_esc(json.dumps(choices, ensure_ascii=False))}"' if choices is not None else ""
     attrs = (
         f' class="edit{" " + css if css else ""}" data-ref="{_esc(row.ref)}" data-field="{_esc(field)}"'
-        f' data-value="{_esc(raw)}" data-base="{_esc(digest)}"'
+        f' data-value="{_esc(raw)}" data-base="{_esc(digest)}"{picks}'
     )
     return f'<td{attrs} tabindex="0">{inner or '<span class="blank">＋</span>'}</td>'
 
 
 def _row_html(
-    row: WbsRow, span: tuple[date, date] | None, today: date, back: str = "", *, editable: bool = False
+    row: WbsRow,
+    span: tuple[date, date] | None,
+    today: date,
+    back: str = "",
+    *,
+    editable: bool = False,
+    rosters: dict[str, list[str]] | None = None,
+    parent: str = "",
 ) -> str:
     """WBS の 1 行。節・作業単位・手動行を同じ描き方で出す（行の描き方は 1 つだけ）。
 
@@ -262,6 +283,7 @@ def _row_html(
         name += f'<span class="ref">{_esc(row.ref)}</span>'
     fields = _editable_fields(row) if editable else {}
     digest = _digest_of(row) if fields else ""
+    names = rosters or {"teams": [], "members": []}
     status_label = STATUS_LABEL[row.status] if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
     toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
@@ -275,8 +297,17 @@ def _row_html(
     cells = [
         f'<td class="code">{toggle if row.children else ""}{add}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
-        _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="who"),
-        _cell("assignees", _esc("、".join(row.assignees)), "、".join(row.assignees), row, fields, digest, css="who"),
+        _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="who", choices=names["teams"]),
+        _cell(
+            "assignees",
+            _esc("、".join(row.assignees)),
+            "、".join(row.assignees),
+            row,
+            fields,
+            digest,
+            css="who",
+            choices=names["members"],
+        ),
         _cell("status", _esc(status_label), row.status.value if row.status else "", row, fields, digest, css="st"),
         _cell("start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d"),
         _cell("due", _day_label(row.due), row.due.isoformat() if row.due else "", row, fields, digest, css="d"),
@@ -286,7 +317,24 @@ def _row_html(
         f'<td class="n">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
         f'<td class="gantt">{_bar_svg(row, span, back) if span else ""}</td>',
     ]
-    return f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}">{"".join(cells)}</tr>'
+    holder = _esc(row.ref) if can_add else ""
+    return (
+        f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}" data-ref="{_esc(row.ref or "")}"'
+        f' data-holder="{holder}" data-parent="{_esc(parent)}">{"".join(cells)}</tr>'
+    )
+
+
+def _holders(rows: list[WbsRow], holder: str) -> dict[str, str]:
+    """各行の「同じ階層に足すときの足し先」（＝いちばん近い、子を置けるフォルダの単位）を集める。
+
+    右クリックの「同じ階層に作業を足す」がどこへ足すかを、画面側で組み立て直さないための対応。
+    """
+    out: dict[str, str] = {}
+    for row in rows:
+        out[row.code] = holder
+        mine = row.ref if row.path is not None and row.path.name == "item.md" and row.ref else holder
+        out.update(_holders(row.children, mine))
+    return out
 
 
 def _digest_of(row: WbsRow) -> str:
@@ -434,6 +482,12 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
        line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
 #say.bad { background:var(--late-ink); }
 .hint { color:var(--muted); font-size:11px; }
+#menu { position:absolute; display:none; z-index:20; min-width:180px; padding:4px 0;
+        background:var(--paper); border:1px solid var(--line); border-radius:4px;
+        box-shadow:0 6px 20px rgba(0,0,0,.22); }
+#menu button { display:block; width:100%; text-align:left; font:inherit; font-size:12px; color:var(--ink);
+               background:none; border:0; padding:5px 14px; cursor:pointer; }
+#menu button:hover { background:var(--sec); }
 """
 
 # 折りたたみ（閲覧・編集の両方に付く）。行を DOM から消さずに隠すだけにして、印刷では CSS が必ず戻す
@@ -500,6 +554,18 @@ _EDIT_SCRIPT = """
       ['todo','in-progress','in-review','blocked','done'].forEach(function(v){
         var o=document.createElement('option'); o.value=v; o.textContent=v; box.appendChild(o); });
       box.value=old;
+    } else if(td.dataset.choices){
+      // 名簿から選ぶ欄。名簿に無い名前も入れられ、入れたら名簿にも足される。
+      var list=JSON.parse(td.dataset.choices);
+      if(old && list.indexOf(old)<0) list=[old].concat(list);
+      box=document.createElement('select');
+      var blank=document.createElement('option'); blank.value=''; blank.textContent='（なし）';
+      box.appendChild(blank);
+      list.forEach(function(v){
+        var o=document.createElement('option'); o.value=v; o.textContent=v; box.appendChild(o); });
+      var fresh=document.createElement('option'); fresh.value='\u0000new'; fresh.textContent='＋ 新しく入力…';
+      box.appendChild(fresh);
+      box.value=old;
     } else {
       box=document.createElement('input');
       box.type=(td.dataset.field==='start'||td.dataset.field==='due')?'date':'text';
@@ -507,11 +573,26 @@ _EDIT_SCRIPT = """
     }
     td.textContent=''; td.appendChild(box); box.focus();
     var done=false;
-    function commit(){ if(done) return; done=true;
+    function commit(){
+      if(done) return;
+      if(box.value==='\u0000new') return;   // 新しく入力へ切り替える最中は保存しない
+      done=true;
       if(box.value===old){ location.reload(); return; } send(td,box.value); }
     function cancel(){ if(done) return; done=true; location.reload(); }
+    function swapToText(){
+      var text=document.createElement('input'); text.type='text'; text.value='';
+      td.textContent=''; td.appendChild(text); text.focus();
+      box=text;
+      text.addEventListener('blur',commit);
+      text.addEventListener('keydown',function(e){
+        if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
+    }
     box.addEventListener('blur',commit);
-    box.addEventListener('change',function(){ if(box.tagName==='SELECT') commit(); });
+    box.addEventListener('change',function(){
+      if(box.tagName!=='SELECT') return;
+      if(box.value==='\u0000new'){ swapToText(); return; }
+      commit();
+    });
     box.addEventListener('keydown',function(e){
       if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
   }
@@ -524,6 +605,38 @@ _EDIT_SCRIPT = """
                          else { busy=false; tell(r.body.detail||'足せなかった',true); } })
       .catch(function(e){ busy=false; tell('足せなかった: '+e,true); });
   }
+  function del(ref){
+    if(busy) return; busy=true;
+    fetch('remove',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:ref})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('消した: '+ref); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'消せなかった',true); } })
+      .catch(function(e){ busy=false; tell('消せなかった: '+e,true); });
+  }
+  var menu=document.getElementById('menu');
+  function hideMenu(){ if(menu) menu.style.display='none'; }
+  function item(label,fn){
+    var b=document.createElement('button'); b.type='button'; b.textContent=label;
+    b.addEventListener('click',function(){ hideMenu(); fn(); });
+    return b;
+  }
+  document.addEventListener('contextmenu',function(e){
+    var tr=e.target.closest && e.target.closest('tr[data-ref]');
+    if(!tr || !menu || !tr.dataset.ref) return;
+    e.preventDefault();
+    menu.textContent='';
+    var ref=tr.dataset.ref, holder=tr.dataset.holder, parent=tr.dataset.parent;
+    if(holder) menu.appendChild(item('この下に作業を足す',function(){ add(holder); }));
+    if(parent) menu.appendChild(item('同じ階層に作業を足す',function(){ add(parent); }));
+    menu.appendChild(item('名前を変える',function(){
+      var cell=tr.querySelector('td.edit.name'); if(cell) open(cell); }));
+    menu.appendChild(item('消す',function(){
+      if(window.confirm(ref+' を消す。よろしいか？')) del(ref); }));
+    menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
+  });
+  document.addEventListener('click',hideMenu);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
   document.addEventListener('click',function(e){
     var plus=e.target.closest && e.target.closest('button.add');
     if(plus){ e.preventDefault(); add(plus.dataset.ref); return; }
@@ -561,7 +674,12 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     back = backdrop(span, wbs.overlay.calendar.to_calendar(), wbs.today) if span else ""
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css in COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
-    body = "".join(_row_html(row, span, wbs.today, back, editable=editable) for row in wbs.walk())
+    rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
+    parents = _holders(wbs.rows, "")
+    body = "".join(
+        _row_html(row, span, wbs.today, back, editable=editable, rosters=rosters, parent=parents.get(row.code, ""))
+        for row in wbs.walk()
+    )
     title = wbs.overlay.project or "WBS"
     client = f"<div>提出先: {_esc(wbs.overlay.client)}</div>" if wbs.overlay.client else ""
     unscheduled = wbs.unscheduled
@@ -580,7 +698,9 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             '<div class="hint">セルをクリックすると直せる（Enter で保存・Esc で取り消し）。'
             "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
         )
-        edit_bits = f'<div id="say"></div><script data-token="{_esc(token)}">{_EDIT_SCRIPT}</script>'
+        edit_bits = (
+            f'<div id="say"></div><div id="menu"></div><script data-token="{_esc(token)}">{_EDIT_SCRIPT}</script>'
+        )
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"

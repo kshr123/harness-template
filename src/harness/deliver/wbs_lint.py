@@ -187,3 +187,12 @@ def _dependency_order(built: wbs_mod.Wbs) -> list[pm.Problem]:
 def run_checks(root: Path) -> list[pm.Problem]:
     """verify から呼ばれる入口。基準日は実行日（この検査の合否は基準日に依らない）。"""
     return check(root, today=date.today())
+
+
+def all_problems(root: Path, *, today: date) -> list[pm.Problem]:
+    """書き換えの前後で見る指摘の全部（作業単位の検査＋WBS の検査）。
+
+    WBS の検査だけを見ると、参照が切れた `depends_on` のような**作業単位の側の**壊れ方を通してしまう
+    （画面から消した単位を他が指したまま、になる）。書き込む口は必ずこちらを見る。
+    """
+    return pm.lint(root) + check(root, today=today)

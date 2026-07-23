@@ -119,7 +119,7 @@ def _from_work(node: pm.Node, code: str, calendar: WorkCalendar, today: date) ->
         source="work",
         ref=item.id,
         path=node.path / pm.MARKER if node.path.is_dir() else node.path,
-        team=None,  # 作業単位はチーム欄を持たない（顧客向けの区分は節の team で表す）
+        team=item.team,
         assignees=[item.owner] if item.owner else [],
         milestone=item.milestone,
         effort_days=item.effort_days,

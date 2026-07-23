@@ -33,8 +33,14 @@ from harness.deliver.overlay import OVERLAY_PATH, Overlay
 from harness.models import Item, Status
 
 # 画面から直せる欄。ここに無いものは編集の対象にしない（導出値には元から欄が無い）。
-EDITABLE_WORK_FIELDS: frozenset[str] = frozenset({"title", "status", "owner", "start", "due", "effort_days"})
-EDITABLE_MANUAL_FIELDS: frozenset[str] = frozenset({"name", "status", "team", "start", "due", "effort_days"})
+EDITABLE_WORK_FIELDS: frozenset[str] = frozenset({"title", "status", "owner", "team", "start", "due", "effort_days"})
+EDITABLE_MANUAL_FIELDS: frozenset[str] = frozenset(
+    {"name", "status", "team", "assignees", "start", "due", "effort_days"}
+)
+
+# 名簿（`docs/wbs.yaml` の teams/members）へ入れる欄 → その名簿のキー。
+# 画面で新しい名前を入れたら名簿にも足す＝選ぶ先と実際に使われている名前がずれない。
+ROSTER_OF: dict[str, str] = {"team": "teams", "owner": "members", "assignees": "members"}
 
 # 読み取り〜書き込みを囲う錠（1 人用の道具なので 1 つで足りる）。書き込む口はすべてこれを取る。
 LOCK = threading.Lock()
@@ -105,7 +111,7 @@ def _frontmatter_bounds(lines: list[str]) -> tuple[int, int]:
     raise EditRejected("frontmatter が閉じていない")
 
 
-def _row_bounds(lines: list[str], row_id: str) -> tuple[int, int, str]:
+def row_bounds(lines: list[str], row_id: str) -> tuple[int, int, str]:
     """手動行 `- id: <row_id>` の塊の範囲と、その中のキーの字下げを返す。
 
     塊の終わりは「空でもコメントでもなく、キーの字下げで始まらない行」。**コメント行を透かす**のが要点で、
@@ -190,6 +196,46 @@ def _check_readback(actual: str | None, expected: str | None, field: str) -> Non
         )
 
 
+def add_to_roster(root: Path, key: str, value: str) -> None:
+    """名簿（`docs/wbs.yaml` の teams/members）に名前を 1 つ足す（既にあれば何もしない）。
+
+    毎回打つと表記ゆれが起きる（同じ人が別人として並ぶ）ので、画面では名簿から選ぶ。新しい名前を入れたら
+    ここにも足して、**選ぶ先と実際に使われている名前をずらさない**。
+    書き方は人が書いたものに合わせる（1 行の並び `teams: [a, b]` はその行を、箇条書きは末尾に 1 行を足す）。
+    ここでも全体を書き出し直さない＝コメント・並びを保つ。
+    """
+    path = root / OVERLAY_PATH
+    rendered = _scalar(value)
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{key}: [{rendered}]\n", encoding="utf-8")
+        return
+    text = path.read_text(encoding="utf-8")
+    current = Overlay.model_validate(yaml.safe_load(text) or {})
+    if value in getattr(current, key):
+        return
+    lines = text.splitlines()
+    head = re.compile(rf"^{re.escape(key)}\s*:(.*)$")
+    for i, line in enumerate(lines):
+        match = head.match(line)
+        if match is None:
+            continue
+        rest = match.group(1).strip()
+        if rest.startswith("[") and rest.endswith("]"):  # 1 行の並び
+            inner = rest[1:-1].strip()
+            lines[i] = f"{key}: [{inner + ', ' if inner else ''}{rendered}]"
+        elif rest:  # 想定外の書き方（単一の値など）は触らずに諦める
+            return
+        else:  # 箇条書き（項目が 1 つも無ければ、この行の直後に 1 つ目を作る）
+            end = i + 1
+            while end < len(lines) and lines[end].lstrip().startswith("-"):
+                end += 1
+            lines.insert(end, f"  - {rendered}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
+    path.write_text(text.rstrip("\n") + f"\n{key}: [{rendered}]\n", encoding="utf-8")
+
+
 def find_item_path(root: Path, item_id: str) -> Path:
     """作業単位 ID からその単位のファイルを引く。"""
     nodes, _ = pm.load_tree(root)
@@ -230,6 +276,8 @@ def _check_value(field: str, value: str) -> str | None:
                 raise EditRejected(f"見積り工数は正の数で書く（受け取った値: {text}）")
         except ValueError as exc:
             raise EditRejected(f"見積り工数は数で書く（受け取った値: {text}）") from exc
+    if field == "assignees":  # 一覧の欄。画面からは 1 人ずつ選ぶので、1 つの並びとして書く。
+        return f"[{_scalar(text)}]"
     return _scalar(text)
 
 
@@ -239,7 +287,7 @@ def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str
     `base_digest` は画面がその行を読んだ時点のファイルの指紋。現在と違えば書かずに拒否する。
     成功時に新しい指紋を返すのは、続けて 2 回目を保存するときに古い指紋で誤って拒否されないため。
     """
-    from harness.deliver import wbs_lint  # 検査は書いた後に呼ぶだけ（相互 import を避けて局所に置く）
+    from harness.deliver.wbs_lint import all_problems  # 検査は書いた後に呼ぶだけ（相互 import を避ける）
 
     with LOCK:
         manual = ref.startswith("W-")
@@ -260,7 +308,7 @@ def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str
         rendered = _check_value(field, value)
         lines = original.splitlines()
         if manual:
-            start, end, indent = _row_bounds(lines, ref)
+            start, end, indent = row_bounds(lines, ref)
             new_lines = _replace_in_block(lines, start, end, field, rendered, indent)
         else:
             start, end = _frontmatter_bounds(lines)
@@ -275,10 +323,13 @@ def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str
         # 書く前から出ている指摘は、この編集のせいではない（別のところが直っていない状態）。それで保存を
         # 断ると、画面から直せない指摘が 1 つあるだけで他の行も一切保存できなくなる。**増えた指摘だけ**を
         # 拒否の理由にする。
-        before = {p.message for p in wbs_lint.check(root, today=today) if p.level == "error"}
+        before = {p.message for p in all_problems(root, today=today) if p.level == "error"}
         path.write_text(new_text, encoding="utf-8")
-        introduced = [p for p in wbs_lint.check(root, today=today) if p.level == "error" and p.message not in before]
+        introduced = [p for p in all_problems(root, today=today) if p.level == "error" and p.message not in before]
         if introduced:
             path.write_text(original, encoding="utf-8")  # 検査に落ちる状態を正本に残さない
             raise EditRejected("　/　".join(p.message for p in introduced))
+        roster = ROSTER_OF.get(field)
+        if roster is not None and value.strip():
+            add_to_roster(root, roster, value.strip())
         return file_digest(path)

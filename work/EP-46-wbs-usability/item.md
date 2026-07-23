@@ -1,9 +1,10 @@
 ---
 id: EP-46
 kind: epic
-status: in-progress
+status: done
 plan: detailed
 created: 2026-07-23
+closed: 2026-07-23
 requirements: []
 depends_on: [EP-45]
 priority: high

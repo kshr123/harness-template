@@ -33,6 +33,7 @@ from harness.deliver import render
 from harness.deliver import wbs as wbs_mod
 from harness.deliver.adder import add_child
 from harness.deliver.editor import EditRejected, apply_edit
+from harness.deliver.remover import remove
 
 # 名乗ってよいホスト（ポートは切り落として比べる）。これ以外は拒否する。
 ALLOWED_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
@@ -66,6 +67,14 @@ class Idle:
     def expired(self, now: float) -> bool:
         with self._lock:
             return now - self._last >= self.timeout_seconds
+
+
+class RemoveRequest(BaseModel):
+    """`POST /remove` の本文。ref は消す行（作業単位 ID または手動行 ID）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str
 
 
 class AddRequest(BaseModel):
@@ -129,5 +138,16 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"id": new_id}
+
+    @app.post("/remove")
+    def _remove(payload: RemoveRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
+        """行を 1 つ消す（正本から取り除く）。配下を持つ単位はまとめて消さない。"""
+        if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
+            raise HTTPException(status_code=403, detail="合言葉が違う")
+        try:
+            remove(root, payload.ref, today=today)
+        except EditRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"ref": payload.ref}
 
     return app
