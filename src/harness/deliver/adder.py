@@ -132,6 +132,7 @@ def _add(root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool 
     before = {p.message for p in all_problems(root, today=today) if p.level == "error"}
     new_id = _next_id(nodes)
     restore: tuple[Path, str] | None = None
+    moved: tuple[Path, Path] | None = None  # 分解でファイルをフォルダへ移したときの元と先
 
     if parent_ref is None:
         directory = root / pm.WORK_DIR
@@ -140,10 +141,15 @@ def _add(root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool 
     else:
         parent_path = find_item_path(root, parent_ref)
         if parent_path.name != pm.MARKER:
-            raise EditRejected(
-                f"'{parent_ref}' はファイル 1 つの単位なので、この下には足せない"
-                f"（下に置くならフォルダの単位にする＝分解の作業として行う）"
-            )
+            # ファイル 1 つで表していた単位に子を足す＝**分解する**。親はフォルダで表す決まりなので、
+            # そのファイルを同名のフォルダの `item.md` へ移し、下に置けるようにする。
+            folder = parent_path.parent / parent_path.stem
+            if folder.exists():
+                raise EditRejected(f"'{parent_ref}' を分解しようとしたが {folder.name} が既にある")
+            folder.mkdir()
+            parent_path.rename(folder / pm.MARKER)
+            moved = (parent_path, folder / pm.MARKER)
+            parent_path = folder / pm.MARKER
         directory = parent_path.parent
         parent_text = parent_path.read_text(encoding="utf-8")
         has_children = any(node.children for node in walk_nodes(nodes) if node.item.id == parent_ref)
@@ -179,5 +185,8 @@ def _add(root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool 
         target.unlink()
         if restore is not None:
             restore[0].write_text(restore[1], encoding="utf-8")
+        if moved is not None:  # 分解も元に戻す（フォルダへ移したファイルをファイルへ戻す）
+            moved[1].rename(moved[0])
+            moved[1].parent.rmdir()
         raise EditRejected("　/　".join(p.message for p in introduced))
     return new_id

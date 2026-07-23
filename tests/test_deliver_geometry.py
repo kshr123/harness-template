@@ -213,8 +213,9 @@ def test_the_gantt_is_the_last_column_right_of_progress(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     header = html.split("<thead>")[1].split("</thead>")[0]
-    labels = [re.sub("<[^>]+>", "", cell) for cell in re.findall(r"<th[^>]*>(.*?)</th>", header, re.S)]
-    assert labels[-2] == "進捗"  # ガントの 1 つ手前が進捗
+    columns = header.split("</tr>")[1]  # 2 段目＝列名の段
+    labels = [re.sub("<[^>]+>", "", cell) for cell in re.findall(r"<th[^>]*>(.*?)</th>", columns, re.S)]
+    assert labels[-1] == "進捗"  # 列名の最後が進捗（ガントは 2 段ぶちぬきで 1 段目にある）
     assert 'class="gantt"' in header
     row = _row_markup(html, "T-9001")
     assert row.rindex('class="gantt"') > row.rindex('class="n"')  # 本文でも進捗の右
@@ -279,7 +280,7 @@ def test_a_finished_row_is_toned_down(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 11))
     assert "is-done" in _row_markup(html, "T-9001")
     assert "is-done" not in _row_markup(html, "T-9002")
-    assert "tr.is-done > td { color:var(--muted); }" in html
+    assert "tr.is-done > td { color:var(--muted); background:var(--done-row); }" in html
 
 
 def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:

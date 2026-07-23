@@ -32,22 +32,27 @@ STATUS_LABEL: dict[Status, str] = {
     Status.done: "完了",
 }
 
-# 表の列（見出しと、幅・寄せを決める区分）。見出しの並びは形式に依らないので、表計算もここから引く。
-COLUMNS: tuple[tuple[str, str], ...] = (
-    ("WBS", "code"),
-    ("作業", "name"),
-    ("チーム", "who"),
-    ("担当", "who"),
-    ("状態", "st"),
-    ("予定開始", "d"),
-    ("予定終了", "d"),
-    ("日数", "n"),
-    ("実績開始", "d"),
-    ("実績終了", "d"),
-    ("進捗", "n"),
+# 表の列（見出し・幅と寄せを決める区分・意味のまとまり）。見出しの並びは形式に依らないので、表計算もここから引く。
+# **まとまりごとに見出しをもう 1 段置く**（作業／予定／実績）。11 列が同じ重みで並んでいると、どこまでが
+# 予定でどこからが実績なのかを列名だけで読み分けることになる。まとまりの先頭には強い縦罫（`gs`）を引く。
+COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("WBS", "code", "work"),
+    ("作業", "name", "work"),
+    ("チーム", "team", "work"),
+    ("担当", "who", "work"),
+    ("状態", "st", "work"),
+    ("予定開始", "d gs", "plan"),
+    ("予定終了", "d", "plan"),
+    ("日数", "n", "plan"),
+    ("実績開始", "d gs", "act"),
+    ("実績終了", "d", "act"),
+    ("進捗", "n", "act"),
 )
 
-COLUMN_LABELS: tuple[str, ...] = tuple(label for label, _ in COLUMNS)
+# まとまりの見出し（列の意味を 1 段上でまとめる）。
+COLUMN_GROUPS: tuple[tuple[str, str], ...] = (("work", "作業"), ("plan", "予定"), ("act", "実績"))
+
+COLUMN_LABELS: tuple[str, ...] = tuple(label for label, _, _ in COLUMNS)
 
 # ガントの SVG の内部座標の幅（viewBox の幅）。実際の表示幅は CSS が決める（preserveAspectRatio="none"）。
 _CANVAS = 1000.0
@@ -290,10 +295,16 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
         )
     text = "".join(
         (
-            _labels(year_ticks(span), span, "y", lambda d, _: f"{d.year}年"),
-            _labels(month_ticks(span), span, "m", lambda d, _: f"{d.month}月"),
-            _labels(month_ticks(span), span, "my", lambda d, y: f"{d.year}年{d.month}月" if y else f"{d.month}月"),
-            _labels(week_ticks(span), span, "w", lambda d, _: f"{d.month}/{d.day}w"),
+            _labels(year_ticks(span), span, "y", lambda d, _: f"{d.year}年", min_days=40),
+            _labels(month_ticks(span), span, "m", lambda d, _: f"{d.month}月", min_days=10),
+            _labels(
+                month_ticks(span),
+                span,
+                "my",
+                lambda d, y: f"{d.year}年{d.month}月" if y else f"{d.month}月",
+                min_days=10,
+            ),
+            _labels(week_ticks(span), span, "w", lambda d, _: f"{d.month}/{d.day}w", min_days=4),
             _labels(day_ticks(span), span, "d", lambda d, _: str(d.day)) if days <= _MAX_DAY_TICKS else "",
         )
     )
@@ -373,8 +384,6 @@ def _row_html(
     if unscheduled:
         classes.append("is-unscheduled")
     name = _esc(row.name)
-    if unscheduled:
-        name += '<span class="tag">未日程</span>'
     if row.ref and row.ref != row.name:  # 題を書いていない単位は ID がそのまま名前なので、2 回出さない
         name += f'<span class="ref">{_esc(row.ref)}</span>'
     fields = _editable_fields(row) if editable else {}
@@ -383,12 +392,12 @@ def _row_html(
     status_label = STATUS_LABEL[row.status] if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
     toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
-    # 下の階層を持てるのは「フォルダの単位」だけ（親はフォルダで表すので、ファイル 1 つの単位の下には置けない）。
-    can_add = editable and row.path is not None and row.path.name == "item.md"
+    # 下の階層はどの作業単位にも足せる（ファイル 1 つの単位は、足すときにフォルダの単位へ変わる＝分解）。
+    can_add = editable and row.source == "work" and row.ref is not None
     cells = [
         f'<td class="code">{toggle if row.children else ""}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
-        _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="who", choices=names["teams"]),
+        _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="team", choices=names["teams"]),
         _cell(
             "assignees",
             _esc("、".join(row.assignees)),
@@ -400,10 +409,12 @@ def _row_html(
             choices=names["members"],
         ),
         _cell("status", _esc(status_label), row.status.value if row.status else "", row, fields, digest, css="st"),
-        _cell("start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d"),
+        _cell(
+            "start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d gs"
+        ),
         _cell("due", _day_label(row.due), row.due.isoformat() if row.due else "", row, fields, digest, css="d"),
         f'<td class="n">{"" if row.workdays is None else row.workdays}</td>',
-        f'<td class="d">{_day_label(row.actual_start)}</td>',
+        f'<td class="d gs">{_day_label(row.actual_start)}</td>',
         f'<td class="d">{_day_label(row.actual_finish)}</td>',
         f'<td class="n">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
         f'<td class="gantt">{_bar_svg(row, span, back) if span else ""}{_milestone(row, span)}</td>',
@@ -424,9 +435,15 @@ def _holders(rows: list[WbsRow], holder: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for row in rows:
         out[row.code] = holder
-        mine = row.ref if row.path is not None and row.path.name == "item.md" and row.ref else holder
+        mine = row.ref if row.source == "work" and row.ref else holder
         out.update(_holders(row.children, mine))
     return out
+
+
+def _view_script() -> str:
+    """閲覧の仕掛け（まとまりごとの列数を JS に渡す）。"""
+    sizes = {key: sum(1 for _, _, group in COLUMNS if group == key) for key, _ in COLUMN_GROUPS}
+    return _VIEW_SCRIPT.replace("__COLS__", json.dumps(sizes))
 
 
 def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
@@ -458,7 +475,7 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
-  --tag-bg:#fbe9e6; --tag-ink:#a02718;
+  --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
 @media (prefers-color-scheme: dark) {
@@ -468,7 +485,7 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
-  --tag-bg:#3a2420; --tag-ink:#f0a396;
+  --tag-bg:#3a2420; --tag-ink:#f0a396; --done-row:#1b1f25;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
 }
@@ -478,7 +495,7 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
-  --tag-bg:#3a2420; --tag-ink:#f0a396;
+  --tag-bg:#3a2420; --tag-ink:#f0a396; --done-row:#1b1f25;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
 :root[data-theme="light"] {
@@ -487,7 +504,7 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
-  --tag-bg:#fbe9e6; --tag-ink:#a02718;
+  --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
 * { box-sizing:border-box; }
@@ -501,6 +518,13 @@ h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 table { border-collapse:separate; border-spacing:0; width:100%; min-width:900px; }
 thead { display:table-header-group; }
 thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
+/* 見出しは 2 段（上＝列の意味のまとまり・下＝列名）。ガントは 2 段ぶちぬきで、時間軸の 2 段と高さが揃う。 */
+.grp th { height:22px; padding:0 8px; text-align:center; font-size:10px; letter-spacing:.08em;
+          border-bottom:1px solid var(--line); }
+thead tr:last-child th { height:22px; padding:0 8px; top:23px; }
+thead th.gantt { top:0; padding:0 2px; vertical-align:top; }
+/* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
+.gs { border-left:1px solid var(--line-strong) !important; }
 th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
          padding:5px 8px; vertical-align:middle; white-space:nowrap; }
 th:first-child, td:first-child { border-left:0; }
@@ -509,7 +533,10 @@ th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
      letter-spacing:.02em; text-align:left; }
 tr { break-inside:avoid; }
 th.code, td.code { width:48px; color:var(--muted); font-variant-numeric:tabular-nums; }
-th.who, td.who { width:74px; overflow:hidden; text-overflow:ellipsis; }
+th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:ellipsis; }
+/* 要らない列は消せる（案件によってはチームも担当も無い）。まとまりの見出しの幅は JS が数え直す。 */
+.scroll.hide-team th.team, .scroll.hide-team td.team { display:none; }
+.scroll.hide-who th.who, .scroll.hide-who td.who { display:none; }
 th.st, td.st { width:46px; }
 th.d, td.d { width:46px; }
 th.n, td.n { width:34px; }
@@ -535,7 +562,9 @@ tr.lv3 td.name { padding-left:52px; }
 tbody tr:hover > td { background:var(--hover); }
 tr.is-sel > td { background:var(--sel); }
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
-tr.is-done > td { color:var(--muted); }
+/* 終わった行は面ごと落とす（残っている作業に目が行くように）。 */
+tr.is-done > td { color:var(--muted); background:var(--done-row); }
+tr.is-done.lv0 > td { background:var(--sec); }
 .ref { color:var(--muted); font-size:10px; margin-left:6px; }
 .tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; font-weight:600;
        padding:0 5px; margin-left:6px; border-radius:3px; }
@@ -543,8 +572,9 @@ tr.is-done > td { color:var(--muted); }
 .axis-wrap { position:relative; height:44px; }
 svg.axis { display:block; width:100%; height:44px; }
 .axis-wrap::before { content:""; position:absolute; top:22px; left:0; right:0; border-top:1px solid var(--line); }
+/* 日付は区間の**左**に寄せる（線の右すぐ＝その区間の始まりの日、と読める）。 */
 .axis-lab { display:none; position:absolute; height:22px; line-height:22px; font-size:10px;
-            color:var(--muted); text-align:center; white-space:nowrap; overflow:hidden;
+            color:var(--muted); text-align:left; padding-left:4px; white-space:nowrap; overflow:hidden;
             border-left:1px solid var(--line); }
 .lab-y, .lab-m, .lab-my { border-left-color:var(--line-strong); color:var(--ink); }
 .scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
@@ -584,8 +614,9 @@ td.gantt { position:relative; }
 .ops button.zoom { border-radius:0; margin-left:-1px; }
 .ops button.zoom:first-of-type { border-radius:6px 0 0 6px; margin-left:0; }
 .ops button.zoom:last-of-type { border-radius:0 6px 6px 0; }
-.ops button.zoom[aria-pressed="true"] { background:var(--btn-on-bg); color:var(--btn-on-ink);
-                                        border-color:var(--btn-on-bg); font-weight:600; }
+.ops button.zoom[aria-pressed="true"], .ops button.col[aria-pressed="true"] {
+  background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); font-weight:600; }
+.ops button.col[aria-pressed="false"] { color:var(--muted); text-decoration:line-through; }
 button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
             padding:0 4px 0 0; line-height:1; }
 button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
@@ -605,7 +636,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
-  --tag-bg:#fbe9e6; --tag-ink:#a02718;
+  --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
   @page { size:A3 landscape; margin:8mm; }
@@ -679,6 +710,7 @@ _VIEW_SCRIPT = r"""
   // 行と棒がずれない（表ごと横にスクロールする）。状態は必ずこの 3 つのどれかで、「自動」という状態は持たない
   // （自動は初期値の決め方であって、利用者が選ぶ状態ではない）。
   var PX={d:22,w:7,m:2.6};
+  var COLS=__COLS__;
   var scroll=document.querySelector('.scroll');
   function unit(kind){
     if(!scroll) return;
@@ -693,6 +725,30 @@ _VIEW_SCRIPT = r"""
   }
   document.querySelectorAll('.zoom').forEach(function(b){
     b.addEventListener('click',function(){ unit(b.dataset.zoom); }); });
+  // 列の表示・非表示。まとまりの見出しは残った列の数だけ幅を持つので、消したら数え直す。
+  function recount(){
+    var order=['work','plan','act'], counts={work:0,plan:0,act:0};
+    var sizes=[COLS.work,COLS.plan,COLS.act], g=0, seen=0;
+    document.querySelectorAll('thead tr:last-child th').forEach(function(c){
+      if(seen>=sizes[g]){ g++; seen=0; }
+      seen++;
+      if(getComputedStyle(c).display!=='none') counts[order[g]]++;
+    });
+    order.forEach(function(k){
+      var th=document.querySelector('.grp th[data-group="'+k+'"]');
+      if(th) th.colSpan = Math.max(counts[k],1); });
+  }
+  document.querySelectorAll('.col').forEach(function(b){
+    b.addEventListener('click',function(){
+      var on=scroll.classList.toggle('hide-'+b.dataset.col);
+      b.setAttribute('aria-pressed', String(!on));
+      try{ sessionStorage.setItem('wbs-col-'+b.dataset.col, on?'off':'on'); }catch(e){}
+      recount(); });
+    var saved=null; try{ saved=sessionStorage.getItem('wbs-col-'+b.dataset.col); }catch(e){}
+    if(saved==='off') scroll.classList.add('hide-'+b.dataset.col);
+    b.setAttribute('aria-pressed', String(saved!=='off'));
+  });
+  recount();
   var saved=null; try{ saved=sessionStorage.getItem('wbs-unit'); }catch(e){}
   unit(saved || (scroll ? scroll.dataset.unit : 'w'));
   function toggles(){ return document.querySelectorAll('.tw'); }
@@ -897,8 +953,13 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     data_span = wbs.span
     span = drawing_window(data_span) if data_span else None
     back = backdrop(span, wbs.overlay.calendar.to_calendar(), wbs.today) if span else ""
-    head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css in COLUMNS)
-    axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
+    groups = "".join(
+        f'<th class="grp-{key}{" gs" if key != "work" else ""}" data-group="{key}"'
+        f' colspan="{sum(1 for _, _, g in COLUMNS if g == key)}">{_esc(label)}</th>'
+        for key, label in COLUMN_GROUPS
+    )
+    axis = f'<th class="gantt" rowspan="2">{_axis_svg(span, wbs.today) if span else ""}</th>'
+    head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css, _ in COLUMNS)
     days = ((span[1] - span[0]).days + 1) if span else 0
     # 初期の単位は期間の長さで決める（短い案件は週・長い案件は月）。以後は利用者が選んだ単位が状態。
     unit = "m" if days > 120 else "w"
@@ -920,6 +981,9 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     left = [
         '<button id="fold" type="button">すべて折りたたむ</button>',
         '<button id="unfold" type="button">すべて展開</button>',
+        '<span class="sep">列</span>',
+        '<button class="col" data-col="team" type="button">チーム</button>',
+        '<button class="col" data-col="who" type="button">担当</button>',
     ]
     if editable:
         left.append('<button id="addtop" type="button">行を追加</button>')
@@ -945,7 +1009,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div></header>'
         f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}">'
-        f"<table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>"
-        f"<footer>{_legend()}{notes}</footer><script>{_VIEW_SCRIPT}</script>{edit_bits}"
+        f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
+        f"<tbody>{body}</tbody></table></div>"
+        f"<footer>{_legend()}{notes}</footer><script>{_view_script()}</script>{edit_bits}"
     )
     return _DOCUMENT.format(title=_esc(title), body=inner)

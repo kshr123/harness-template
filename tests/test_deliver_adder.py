@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from harness import pm
 from harness.deliver import wbs_lint
 from harness.deliver.adder import add_child, add_sibling
-from harness.deliver.editor import EditRejected
 from harness.deliver.server import create_app
 from harness.models import Kind, Status
 
@@ -121,12 +120,35 @@ def test_a_top_level_unit_can_be_added(tmp_path: Path) -> None:
     assert (tmp_path / "work" / f"{new_id}-新しい作業.md").is_file()
 
 
-def test_a_file_unit_cannot_take_children(tmp_path: Path) -> None:
-    """ファイル 1 つで表した軽い単位の下には置けない（親はフォルダで表すため）。理由を出して断る。"""
-    _write(tmp_path / "work" / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
-    with pytest.raises(EditRejected) as caught:
-        add_child(tmp_path, "T-0001", today=TODAY)
-    assert "フォルダ" in str(caught.value)
+def test_a_file_unit_becomes_a_folder_when_it_gets_a_child(tmp_path: Path) -> None:
+    """ファイル 1 つで表した単位に子を足す＝分解する。親はフォルダで表す決まりなので、フォルダへ移す。
+
+    どの階層でも子を足せる必要がある（ファイルの単位だから足せない、では使えない）。
+    """
+    _write(
+        tmp_path / "work" / "T-0001-sekkei.md",
+        {"id": "T-0001", "kind": "task", "status": "todo", "title": "設計", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    child = add_child(tmp_path, "T-0001", today=TODAY)
+    assert (tmp_path / "work" / "T-0001-sekkei" / "item.md").is_file()  # フォルダの単位になった
+    assert not (tmp_path / "work" / "T-0001-sekkei.md").exists()
+    items = _items(tmp_path)
+    assert items[child].start == date(2026, 8, 3)  # 日程は最初の子へ移る
+    assert items["T-0001"].start is None
+    assert _order(tmp_path) == ["T-0001", child]
+
+
+def test_the_edit_page_lets_any_work_row_take_a_child(tmp_path: Path) -> None:
+    """どの作業単位の行にも「中に足す」先が載っている（Lv1 だけ、にならない）。"""
+    epic = tmp_path / "work" / "EP-90-alpha"
+    _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(
+        epic / "T-0001-a.md",
+        {"id": "T-0001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    page = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1").get("/").text
+    task_row = next(part for part in page.split("<tr") if "T-0001" in part)
+    assert 'data-holder="T-0001"' in task_row
 
 
 def test_adding_through_the_server_needs_the_token(tmp_path: Path) -> None:
@@ -160,7 +182,7 @@ def test_the_edit_page_carries_what_the_menu_needs(tmp_path: Path) -> None:
     epic_row = next(part for part in page.text.split("<tr") if "EP-90" in part)
     task_row = next(part for part in page.text.split("<tr") if "T-0001" in part)
     assert 'data-level="1"' in epic_row and 'data-holder="EP-90"' in epic_row
-    assert 'data-level="2"' in task_row and 'data-holder=""' in task_row  # ファイルの単位は中に持てない
+    assert 'data-level="2"' in task_row and 'data-holder="T-0001"' in task_row  # どの単位も中に持てる
     assert 'id="menu"' in page.text
 
 

@@ -160,5 +160,5 @@ def test_rows_carry_what_the_menu_needs(tmp_path: Path) -> None:
     assert 'data-ref="EP-90"' in epic_row and 'data-holder="EP-90"' in epic_row
     assert 'data-ref="T-9001"' in task_row
     assert 'data-parent="EP-90"' in task_row  # 同じ階層＝EP-90 の下
-    assert 'data-holder=""' in task_row  # ファイルの単位なので、この下には足せない
+    assert 'data-holder="T-9001"' in task_row  # どの作業単位にも中に足せる（足すときに分解される）
     assert 'id="menu"' in page
