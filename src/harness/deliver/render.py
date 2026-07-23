@@ -91,8 +91,47 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
     return head + "".join(ticks) + "</svg>"
 
 
-def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date) -> str:
-    """WBS の 1 行。節・作業単位・手動行を同じ描き方で出す（行の描き方は 1 つだけ）。"""
+def _editable_fields(row: WbsRow) -> dict[str, str]:
+    """その行で直せる欄（表示上の列 → 正本のキー）。導出値・節の行はここに出てこない。
+
+    表題は親でも直せる（保存された値だから）。日程・状態・担当は末端だけ＝親の値は子から導くので、
+    直す先が無い（画面に編集の口を作らないことで、そもそも矛盾を入力できない）。
+    """
+    if row.path is None:
+        return {}
+    manual = row.source == "manual"
+    fields = {"name": "name" if manual else "title"}
+    if row.children:
+        return fields
+    fields["status"] = "status"
+    fields["start"] = "start"
+    fields["due"] = "due"
+    if manual:
+        fields["team"] = "team"
+    else:
+        fields["assignees"] = "owner"
+    return fields
+
+
+def _cell(column: str, inner: str, raw: str, row: WbsRow, fields: dict[str, str], digest: str, *, css: str = "") -> str:
+    """1 つのセル。直せる欄なら、書き戻し先（ID・キー・読んだ時点の指紋）を持たせる。"""
+    field = fields.get(column)
+    klass = f' class="{css}"' if css else ""
+    if field is None or row.ref is None:
+        return f"<td{klass}>{inner}</td>"
+    attrs = (
+        f' class="edit{" " + css if css else ""}" data-ref="{_esc(row.ref)}" data-field="{_esc(field)}"'
+        f' data-value="{_esc(raw)}" data-base="{_esc(digest)}"'
+    )
+    return f'<td{attrs} tabindex="0">{inner or '<span class="blank">＋</span>'}</td>'
+
+
+def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, editable: bool = False) -> str:
+    """WBS の 1 行。節・作業単位・手動行を同じ描き方で出す（行の描き方は 1 つだけ）。
+
+    編集できる状態でも描き方は変えない（直せる欄に書き戻し先の目印が増えるだけ）＝閲覧用と編集用で
+    2 つの描き方を持たない。
+    """
     depth = row.code.count(".")
     classes = [f"lv{depth}", f"src-{row.source}"]
     if row.late:
@@ -105,14 +144,17 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date) -> str:
         name += '<span class="tag">未日程</span>'
     if row.ref:
         name += f'<span class="ref">{_esc(row.ref)}</span>'
+    fields = _editable_fields(row) if editable else {}
+    digest = _digest_of(row) if fields else ""
+    status_label = _STATUS_LABEL[row.status] if row.status is not None else ""
     cells = [
         f'<td class="code">{_esc(row.code)}</td>',
-        f'<td class="name">{name}</td>',
-        f"<td>{_esc(row.team)}</td>",
-        f"<td>{_esc('、'.join(row.assignees))}</td>",
-        f"<td>{_esc(_STATUS_LABEL[row.status]) if row.status is not None else ''}</td>",
-        f'<td class="d">{_day_label(row.start)}</td>',
-        f'<td class="d">{_day_label(row.due)}</td>',
+        _cell("name", name, row.name, row, fields, digest, css="name"),
+        _cell("team", _esc(row.team), row.team or "", row, fields, digest),
+        _cell("assignees", _esc("、".join(row.assignees)), "、".join(row.assignees), row, fields, digest),
+        _cell("status", _esc(status_label), row.status.value if row.status else "", row, fields, digest),
+        _cell("start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d"),
+        _cell("due", _day_label(row.due), row.due.isoformat() if row.due else "", row, fields, digest, css="d"),
         f'<td class="n">{"" if row.workdays is None else row.workdays}</td>',
         f'<td class="d">{_day_label(row.actual_start)}</td>',
         f'<td class="d">{_day_label(row.actual_finish)}</td>',
@@ -120,6 +162,13 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date) -> str:
         f'<td class="gantt">{_bar_svg(row, span, today) if span else ""}</td>',
     ]
     return f'<tr class="{" ".join(classes)}">{"".join(cells)}</tr>'
+
+
+def _digest_of(row: WbsRow) -> str:
+    """その行の値が入っているファイルの指紋（保存時の競合検出に使う）。"""
+    from harness.deliver.editor import file_digest
+
+    return file_digest(row.path) if row.path is not None else ""
 
 
 # 配色は「紙に刷った工程表」を基準に、画面で見るとき用に暗い地の版も持つ（印刷は常に紙の版に固定）。
@@ -209,16 +258,81 @@ def _legend() -> str:
     )
 
 
-def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False) -> str:
-    """WBS 一式を自己完結 HTML（本文）に描く。
+_EDIT_STYLE = """
+td.edit { cursor:text; }
+td.edit:hover { background:color-mix(in srgb, var(--plan) 14%, transparent); }
+td.edit:focus-visible { outline:2px solid var(--plan); outline-offset:-2px; }
+td.edit .blank { color:var(--muted); opacity:.45; }
+td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); background:var(--paper);
+                               border:1px solid var(--plan); border-radius:2px; padding:1px 3px; }
+#say { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); max-width:min(720px,92vw);
+       background:var(--ink); color:var(--paper); padding:8px 14px; border-radius:4px; font-size:12px;
+       line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
+#say.bad { background:var(--late-ink); }
+.hint { color:var(--muted); font-size:11px; }
+"""
+
+# 保存に成功したら画面を作り直す（部分更新しない）。日数・ロールアップ・進捗・遅れは導出値なので、
+# 1 か所直すと他の行の値も動く。画面側で導出をやり直すと計算が 2 か所になるため、再読込で全部やり直す。
+_EDIT_SCRIPT = """
+(function(){
+  var token=document.currentScript.dataset.token, say=document.getElementById('say'), busy=false;
+  function tell(msg,bad){ say.textContent=msg; say.className=bad?'bad':''; say.style.display='block';
+    if(!bad) setTimeout(function(){ say.style.display='none'; },1600); }
+  function send(td,value){
+    if(busy) return; busy=true;
+    fetch('edit',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:td.dataset.ref,field:td.dataset.field,value:value,base:td.dataset.base})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('保存した'); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'保存できなかった',true); } })
+      .catch(function(e){ busy=false; tell('保存できなかった: '+e,true); });
+  }
+  function open(td){
+    if(td.querySelector('input,select')) return;
+    var old=td.dataset.value, box;
+    if(td.dataset.field==='status'){
+      box=document.createElement('select');
+      ['todo','in-progress','in-review','blocked','done'].forEach(function(v){
+        var o=document.createElement('option'); o.value=v; o.textContent=v; box.appendChild(o); });
+      box.value=old;
+    } else {
+      box=document.createElement('input');
+      box.type=(td.dataset.field==='start'||td.dataset.field==='due')?'date':'text';
+      box.value=old;
+    }
+    td.textContent=''; td.appendChild(box); box.focus();
+    var done=false;
+    function commit(){ if(done) return; done=true;
+      if(box.value===old){ location.reload(); return; } send(td,box.value); }
+    function cancel(){ if(done) return; done=true; location.reload(); }
+    box.addEventListener('blur',commit);
+    box.addEventListener('change',function(){ if(box.tagName==='SELECT') commit(); });
+    box.addEventListener('keydown',function(e){
+      if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
+  }
+  document.addEventListener('click',function(e){
+    var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Enter') return;
+    var td=document.activeElement;
+    if(td&&td.classList&&td.classList.contains('edit')){ e.preventDefault(); open(td); } });
+})();
+"""
+
+
+def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable: bool = False, token: str = "") -> str:
+    """WBS 一式を自己完結 HTML（本文）に描く。閲覧用と編集用で同じ描き方を使う。
 
     `provenance` は生成物の由来（どのコミット・いつ・どの木から出たか）を 1 行で表した文字列。
     `draft` を立てると下書きと分かる表示にする（未コミットの変更を含む生成物を、そうと分かる形でだけ許す）。
+    `editable` を立てると、直せる欄に書き戻し先の目印と入力の仕掛けが付く（編集サーバから配るときだけ）。
+    ファイルに書き出す生成物は常に `editable=False`＝保存の口が無いので、渡した先で編集はできない。
     """
     span = wbs.span
     head = "".join(f"<th>{_esc(c)}</th>" for c in _COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
-    body = "".join(_row_html(row, span, wbs.today) for row in wbs.walk())
+    body = "".join(_row_html(row, span, wbs.today, editable=editable) for row in wbs.walk())
     title = wbs.overlay.project or "WBS"
     client = f"<div>提出先: {_esc(wbs.overlay.client)}</div>" if wbs.overlay.client else ""
     unscheduled = wbs.unscheduled
@@ -226,11 +340,18 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False) -> str:
     if unscheduled:
         ids = "、".join(_esc(r.ref or r.name) for r in unscheduled)
         notes = f"<h2>未日程（{len(unscheduled)} 件）</h2><p>予定を置いていない作業: {ids}</p>"
-    banner = '<div class="meta" style="color:#a8352a">下書き（未コミットの変更を含む）</div>' if draft else ""
+    banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
+    edit_bits = ""
+    if editable:
+        banner += (
+            '<div class="hint">セルをクリックすると直せる（Enter で保存・Esc で取り消し）。'
+            "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
+        )
+        edit_bits = f'<div id="say"></div><script data-token="{_esc(token)}">{_EDIT_SCRIPT}</script>'
     return (
-        f"<style>{_STYLE}</style>"
+        f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}　{_esc(provenance)}</div>{banner}</header>'
         f'<div class="scroll"><table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>'
-        f"<footer>{_legend()}{notes}</footer>"
+        f"<footer>{_legend()}{notes}</footer>{edit_bits}"
     )

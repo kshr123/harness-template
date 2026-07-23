@@ -26,7 +26,7 @@ from pathlib import Path
 
 from harness import pm
 from harness.deliver.calendar import WorkCalendar
-from harness.deliver.overlay import ManualRow, Overlay, Section, load_overlay
+from harness.deliver.overlay import OVERLAY_PATH, ManualRow, Overlay, Section, load_overlay
 from harness.models import Status
 
 # 親の状態をどう畳むか。「動いている」とみなす子の状態（1 つでもあれば親は in-progress）。
@@ -41,6 +41,9 @@ class WbsRow:
     name: str
     source: str  # "section"（顧客向けの節）| "work"（作業単位）| "manual"（手動行）
     ref: str | None  # 作業単位 ID または手動行 ID（節は None）
+    # この行の値が保存されているファイル（節は None）。編集面が「どこへ書き戻すか」をここから引く
+    # ＝書き戻し先を画面側で組み立て直さない（2 か所で同じ対応づけを持たない）。
+    path: Path | None = None
     team: str | None = None
     assignees: list[str] = field(default_factory=list)
     milestone: bool = False
@@ -108,6 +111,7 @@ def _from_work(node: pm.Node, code: str, calendar: WorkCalendar, today: date) ->
         name=item.title or item.id,
         source="work",
         ref=item.id,
+        path=node.path / pm.MARKER if node.path.is_dir() else node.path,
         team=None,  # 作業単位はチーム欄を持たない（顧客向けの区分は節の team で表す）
         assignees=[item.owner] if item.owner else [],
         milestone=item.milestone,
@@ -144,13 +148,14 @@ def _sum_effort(values: list[float | None]) -> float | None:
     return sum(present) if present else None
 
 
-def _from_manual(manual: ManualRow, code: str, calendar: WorkCalendar, today: date) -> WbsRow:
+def _from_manual(manual: ManualRow, code: str, calendar: WorkCalendar, today: date, overlay_path: Path) -> WbsRow:
     """手動行（`work/` に置けない行）を WBS の行にする。状態・実績は保存された値をそのまま使う。"""
     row = WbsRow(
         code=code,
         name=manual.name,
         source="manual",
         ref=manual.id,
+        path=overlay_path,
         team=manual.team,
         assignees=list(manual.assignees),
         milestone=manual.milestone,
@@ -257,7 +262,7 @@ def build(root: Path, *, today: date, overlay: Overlay | None = None) -> Wbs:
 
     rows: list[WbsRow]
     if over.sections:
-        rows = _build_sections(over, index, manual_by_id, calendar, today, problems)
+        rows = _build_sections(over, index, manual_by_id, calendar, today, problems, root / OVERLAY_PATH)
     else:
         # 節を書かない案件は、work/ 直下の単位がそのまま第 1 階層になる（設定ゼロで使える）。
         rows = [_from_work(node, str(i), calendar, today) for i, node in enumerate(nodes, start=1)]
@@ -271,6 +276,7 @@ def _build_sections(
     calendar: WorkCalendar,
     today: date,
     problems: list[pm.Problem],
+    overlay_path: Path,
 ) -> list[WbsRow]:
     """節構成に従って第 1 階層を組む。参照が解決できない項目は落とさず error にする（fail-closed）。"""
     rows: list[WbsRow] = []
@@ -301,6 +307,6 @@ def _build_sections(
                         )
                     )
                     continue
-                children.append(_from_manual(manual, child_code, calendar, today))
+                children.append(_from_manual(manual, child_code, calendar, today, overlay_path))
         rows.append(_section_row(section, code, children, calendar, today))
     return rows

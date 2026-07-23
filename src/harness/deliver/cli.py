@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import socket
 import sys
+import threading
+import time
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -86,6 +89,53 @@ def _lint(
     if any(p.level == "error" for p in problems):
         raise typer.Exit(1)
     typer.echo("WBS の検査に成功した")
+
+
+@wbs_app.command("edit")
+def _edit(
+    port: Annotated[int, typer.Option(help="待ち受けポート（0 で空いているものを自動で選ぶ）")] = 0,
+    today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
+    idle_minutes: Annotated[float, typer.Option(help="この分数だけ触られなければ自分で終わる")] = 60.0,
+    root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
+) -> None:
+    """手元のブラウザで WBS を直す（書き戻す先は正本＝作業単位の frontmatter と docs/wbs.yaml）。
+
+    待ち受けは 127.0.0.1 だけ。合言葉は起動のたびに作り、画面の本文に埋める（URL には載せない）。
+    表示された URL をブラウザで開く。
+    """
+    base = date.fromisoformat(today) if today else date.today()
+    try:
+        import uvicorn
+
+        from harness.deliver.server import Idle, create_app, new_token
+    except ImportError as exc:
+        typer.echo(f"fastapi/uvicorn が無い（deliver extra 未導入）。`uv sync --extra deliver` で導入する: {exc}")
+        raise typer.Exit(1) from exc
+
+    chosen = port or _free_port()
+    idle = Idle(timeout_seconds=idle_minutes * 60.0)
+    token = new_token()
+    app = create_app(root, today=base, token=token, idle=idle)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=chosen, log_level="warning"))
+    threading.Thread(target=_stop_when_idle, args=(server, idle), daemon=True).start()
+    typer.echo(f"http://127.0.0.1:{chosen}/ をブラウザで開く（{idle_minutes:g} 分触らなければ自動で終わる）")
+    server.run()
+
+
+def _free_port() -> int:
+    """空いているポートを 1 つもらう（毎回違う番号にして、他の待ち受けと衝突させない）。"""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _stop_when_idle(server: Any, idle: Any) -> None:  # noqa: ANN401  uvicorn.Server / Idle（遅延取り込み）
+    """放っておかれたら待ち受けを終える（消し忘れたサーバが裏で生き続けないようにする）。"""
+    while not server.should_exit:
+        time.sleep(5.0)
+        if idle.expired(time.monotonic()):
+            server.should_exit = True
+            return
 
 
 def wbs_main() -> None:
