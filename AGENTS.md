@@ -97,6 +97,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - `uv run data --help` … DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。使い方は eda / experiment / features スキル）
 - `uv run serve --help` … 配信プロファイルを使い始めるコマンド（champion の FastAPI 配信。正本は `docs/serve.md`）
 - `uv run agent --help` … LLMOps プロファイルを使い始めるコマンド（AgentSpec の評価・カタログ。正本は `docs/agent.md`）
+- `uv run wbs export` / `uv run wbs lint` … クライアントに見せる WBS・ガントを作業単位の木から出す・検査する（deliver プロファイル。正本は `docs/deliver.md`）
 - `uv run stats --help` … ベイズ統計モデリング（stats プロファイル）を使い始めるコマンド（モデル・サンプラー・診断・PPC のカタログ。正本は `docs/stats.md`）
 
 ## してはいけないこと

@@ -584,6 +584,11 @@ agent = [
     { name = "fastapi" },
     { name = "uvicorn" },
 ]
+deliver = [
+    { name = "fastapi" },
+    { name = "holidays" },
+    { name = "uvicorn" },
+]
 ds = [
     { name = "altair" },
     { name = "marimo" },
@@ -646,9 +651,11 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'agent'", specifier = ">=0.40" },
     { name = "arviz", marker = "extra == 'stats'", specifier = ">=1.2" },
     { name = "fastapi", marker = "extra == 'agent'", specifier = ">=0.139" },
+    { name = "fastapi", marker = "extra == 'deliver'", specifier = ">=0.139" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.139" },
     { name = "h5netcdf", marker = "extra == 'stats'", specifier = ">=1.0" },
     { name = "h5py", marker = "extra == 'stats'", specifier = ">=3.0" },
+    { name = "holidays", marker = "extra == 'deliver'", specifier = ">=0.100" },
     { name = "kmedoids", marker = "extra == 'kmedoids'", specifier = ">=0.5" },
     { name = "lightgbm", marker = "extra == 'lightgbm'", specifier = ">=4.5" },
     { name = "marimo", marker = "extra == 'ds'", specifier = ">=0.9" },
@@ -671,9 +678,10 @@ requires-dist = [
     { name = "statsmodels", marker = "extra == 'statsmodels'", specifier = ">=0.14" },
     { name = "typer", specifier = ">=0.15" },
     { name = "uvicorn", marker = "extra == 'agent'", specifier = ">=0.50" },
+    { name = "uvicorn", marker = "extra == 'deliver'", specifier = ">=0.50" },
     { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.50" },
 ]
-provides-extras = ["ds", "lightgbm", "statsmodels", "pmdarima", "opentsne", "kmedoids", "optuna", "skops", "onnx", "serve", "agent", "stats"]
+provides-extras = ["ds", "lightgbm", "statsmodels", "pmdarima", "opentsne", "kmedoids", "optuna", "skops", "onnx", "serve", "agent", "stats", "deliver"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -683,6 +691,18 @@ dev = [
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.9" },
+]
+
+[[package]]
+name = "holidays"
+version = "0.101"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a6/9c/1b4fbc0757e110704b55d81890b0f7e00d98d6d2e9900b96ba0f3abd4f52/holidays-0.101.tar.gz", hash = "sha256:fbaa802d66e5d24877359ae68c46d00a73437162d3e9a17466fe6cfcce123c3a", size = 956805, upload-time = "2026-07-20T20:44:44.504Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/73/f004ae0e18a87408cef57191eac8d742c2906d9a57316f0c8f69c663093f/holidays-0.101-py3-none-any.whl", hash = "sha256:be1d5bb0b662d709da08dcdfa9b42feb678312df2a5d6280421da71349e4757f", size = 1542496, upload-time = "2026-07-20T20:44:42.079Z" },
 ]
 
 [[package]]

@@ -77,6 +77,7 @@ CASE_AREA_ROOTS: tuple[str, ...] = (
     "issues",
     "docs/requirements",
     "docs/demands",
+    "docs/wbs.yaml",
     "docs/charter.md",
     "docs/learnings.md",
     "docs/structure-review-*.md",
@@ -206,6 +207,7 @@ _REMOVE_GLOBS: tuple[str, ...] = (
     "issues/ISS-*",
     "docs/requirements/REQ-*",
     "docs/demands/DEM-*",
+    "docs/wbs.yaml",
     "docs/structure-review-*.md",
 )
 _REMOVE_DIRS: tuple[str, ...] = ("data",)
@@ -233,6 +235,7 @@ def scrub(root: Path, profiles: list[str]) -> ScrubResult:
     - `issues/`：前案件の課題（`ISS-*`）を消す。
     - `docs/requirements/`：前案件の要件（`REQ-*`）を消し、雛形 `REQ-001.md` を置く。
     - `docs/demands/`：前案件の要求（`DEM-*`）を消す。
+    - `docs/wbs.yaml`：前案件の顧客向け WBS の上書き（節構成・カレンダー・手動行）を消す。
     - `docs/charter.md`・`docs/learnings.md`：雛形に戻す。
     - `docs/structure-review-*.md`：基盤のレビュー記録（履歴）を消す。
     - `data/`：生成物（実データ・保存済みモデル）を消す。

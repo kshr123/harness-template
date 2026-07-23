@@ -58,6 +58,10 @@ agent = ["anthropic>=0.40", "fastapi>=0.139", "uvicorn>=0.50"]
 # （h5netcdf＋h5py）。pymc 経由の numba 0.65（cp314 wheel あり）が numpy を 2.4 系に固定する＝all-extras 全体が
 # numpy 2.4 に揃う（2026-07-13 実測。他 extra は 2.4 で問題なし）。導入例: uv sync --extra stats
 stats = ["pymc>=6.0", "nutpie>=0.16", "arviz>=1.2", "h5netcdf>=1.0", "h5py>=3.0"]
+# 顧客向け成果物（harness.deliver プロファイル）。WBS・ガントを作業単位の木から出す。
+# holidays（vacanza・MIT）は営業日計算の祝日。自前の祝日表を持たない（業界標準を再発明しない）。
+# 編集面のローカルサーバは fastapi/uvicorn（serve と同じピン）。導入例: uv sync --extra deliver
+deliver = ["holidays>=0.100", "fastapi>=0.139", "uvicorn>=0.50"]
 
 [project.scripts]
 # 共通の検証コマンドと、プロジェクト管理の入口。実体はこのCLI。make は使わない（任意エイリアスのみ）。
@@ -83,6 +87,8 @@ serve = "harness.serve.cli:serve_main"
 agent = "harness.agent.cli:agent_main"
 # ベイズ統計モデリングのカタログ（BAYES_MODELS/SAMPLERS/BAYES_DIAGNOSTICS/PPC_CHECKS）。正本は docs/stats.md。
 stats = "harness.stats.cli:stats_main"
+# 顧客向け成果物プロファイルの CLI（WBS・ガントの出力と検査）。正本は docs/deliver.md。
+wbs = "harness.deliver.cli:wbs_main"
 
 [dependency-groups]
 dev = [

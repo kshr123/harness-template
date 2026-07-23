@@ -1,0 +1,141 @@
+"""WBS の不変条件の検査（deliver プロファイルの検査）。
+
+検査と表示は**同じ導出**（`wbs.build`）を読む＝「画面には出ているが検査は見ていない」経路を作らない。
+
+ここで止めるもの:
+
+- 節構成が指す作業単位・手動行が実在しない（消した単位を指したまま＝黙って行が減る）。
+- 定義した手動行がどの節からも参照されていない（書いたのに出ない＝黙って消える）。
+- 顧客向けの節構成が `work/` の単位を覆っていない（載せない単位は `exclude` に明示する＝差分に残す）。
+- 同じ作業単位を 2 か所の節が指している（進捗が二重に数えられる）。
+- 子を持つ単位が自分で日程を宣言している（親の日程は子から導くので、宣言した値は必ずどこかで嘘になる）。
+- 先行する単位の終了予定より、後続の開始予定が前にある（依存と日程の矛盾）。
+
+上書きファイルが無い案件では、節構成が空＝木をそのまま出すので、覆いの検査は何も要求しない。
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+from harness import pm
+from harness.deliver import wbs as wbs_mod
+from harness.deliver.overlay import Overlay
+
+
+def _covered_ids(over: Overlay) -> set[str]:
+    """節構成が直接指している作業単位の ID（配下は木をたどって覆われたとみなす）。"""
+    return {e.work for s in over.sections for e in s.entries if e.work is not None}
+
+
+def _referenced_rows(over: Overlay) -> set[str]:
+    """節構成が指している手動行の ID。"""
+    return {e.row for s in over.sections for e in s.entries if e.row is not None}
+
+
+def _uncovered(nodes: list[pm.Node], covered: set[str], excluded: set[str]) -> list[str]:
+    """節構成にも `exclude` にも入っていない作業単位を、上から順に探す（覆われた枝の中は見ない）。"""
+    missing: list[str] = []
+    for node in nodes:
+        if node.item.id in covered or node.item.id in excluded:
+            continue
+        if node.children:
+            missing.extend(_uncovered(node.children, covered, excluded))
+            if not any(c.item.id in covered or c.item.id in excluded for c in node.children):
+                missing.append(node.item.id)
+        else:
+            missing.append(node.item.id)
+    return sorted(set(missing))
+
+
+def _parent_declared_dates(nodes: list[pm.Node]) -> list[str]:
+    """子を持つのに自分で日程を宣言している単位の ID（親の日程は子から導くので二重になる）。"""
+    found: list[str] = []
+    for node in nodes:
+        if node.children:
+            if node.item.start is not None or node.item.due is not None:
+                found.append(node.item.id)
+            found.extend(_parent_declared_dates(node.children))
+    return found
+
+
+def check(root: Path, *, today: date, overlay: Overlay | None = None) -> list[pm.Problem]:
+    """WBS の不変条件を検査する（基準日を明示引数で受ける＝呼ぶ側が決める）。"""
+    built = wbs_mod.build(root, today=today, overlay=overlay)
+    problems = list(built.problems)
+    over = built.overlay
+    nodes, _ = pm.load_tree(root)
+
+    if over.sections:
+        covered = _covered_ids(over)
+        excluded = set(over.exclude)
+        for item_id in _uncovered(nodes, covered, excluded):
+            problems.append(
+                pm.Problem(
+                    "error",
+                    f"作業単位 '{item_id}' が docs/wbs.yaml のどの節にも載っていない。顧客向けの WBS から"
+                    f"意図して外すなら exclude に書く（黙って消えるのを止める・wbs_lint）",
+                )
+            )
+        seen: set[str] = set()
+        for section in over.sections:
+            for entry in section.entries:
+                if entry.work is None:
+                    continue
+                if entry.work in seen:
+                    problems.append(
+                        pm.Problem(
+                            "error",
+                            f"作業単位 '{entry.work}' を 2 つ以上の節が指している（進捗が二重に数えられる・wbs_lint）",
+                        )
+                    )
+                seen.add(entry.work)
+        referenced = _referenced_rows(over)
+        for row in over.rows:
+            if row.id not in referenced:
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"手動行 '{row.id}' をどの節も参照していない（書いたのに出ない行を作らない・wbs_lint）",
+                    )
+                )
+
+    for item_id in _parent_declared_dates(nodes):
+        problems.append(
+            pm.Problem(
+                "error",
+                f"'{item_id}' は子を持つのに自分で start/due を宣言している。親の日程は子から導くので、"
+                f"宣言した値はいつか子と食い違う。子に日程を置き、親からは外す（wbs_lint）",
+            )
+        )
+
+    problems.extend(_dependency_order(built))
+    return problems
+
+
+def _dependency_order(built: wbs_mod.Wbs) -> list[pm.Problem]:
+    """先行する単位の終了予定より後続の開始予定が前にある矛盾を集める。"""
+    by_id = {row.ref: row for row in built.walk() if row.ref is not None}
+    problems: list[pm.Problem] = []
+    for row in built.walk():
+        if row.start is None:
+            continue
+        for dep_id in row.depends_on:
+            dep = by_id.get(dep_id)
+            if dep is None or dep.due is None:
+                continue
+            if row.start < dep.due:
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"'{row.ref}' は '{dep_id}' の後に来るのに、開始予定 {row.start} が "
+                        f"'{dep_id}' の終了予定 {dep.due} より前にある（wbs_lint）",
+                    )
+                )
+    return problems
+
+
+def run_checks(root: Path) -> list[pm.Problem]:
+    """verify から呼ばれる入口。基準日は実行日（この検査の合否は基準日に依らない）。"""
+    return check(root, today=date.today())

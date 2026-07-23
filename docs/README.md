@@ -14,7 +14,8 @@
 5. [DoD.md](DoD.md) … 「完了」と言ってよい条件のチェックリスト。
 6. [core.md](core.md) … 中核（プロファイルに依らない共通部分）。`uv run verify` が実際に何を回すか。
 7. 必要な領域だけ：[ds.md](ds.md)（表データの学習）・[agent.md](agent.md)（LLM エージェント）・
-   [serve.md](serve.md)（モデル配信）・[ops.md](ops.md)（CI・継続学習・監視）・[stats.md](stats.md)（ベイズ統計）。
+   [serve.md](serve.md)（モデル配信）・[ops.md](ops.md)（CI・継続学習・監視）・[stats.md](stats.md)（ベイズ統計）・
+   [deliver.md](deliver.md)（顧客向けの WBS・ガント）。
 
 ## ID・略語の凡例
 
@@ -58,6 +59,7 @@
 | [serve-code.md](serve-code.md) | Explanation | serve のコードの役割・組まれ方・今後の広がり（設計の説明） |
 | [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
 | [stats.md](stats.md) | Reference | ベイズ統計モデリング（モデル・サンプラー・診断・PPC）の全体像と使いどころ |
+| [deliver.md](deliver.md) | Reference | クライアントに見せる WBS・ガント（作業単位の木からの生成ビュー） |
 | [template-copy.md](template-copy.md) | How-to | この基盤を次の案件へ複製する手順 |
 | [learnings.md](learnings.md) | Explanation | 作業で得た気づきの記録（ルールにルール化する前の材料） |
 | [requirements/](requirements/) | Reference | 案件の要件（REQ） |
