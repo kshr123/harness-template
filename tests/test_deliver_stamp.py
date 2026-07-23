@@ -158,3 +158,58 @@ def test_a_clean_tree_exports_with_its_provenance(tmp_path: Path) -> None:
     assert "コミット" in page
     assert stamp.tree_fingerprint(_built(tmp_path)) in page
     assert "下書き" not in page
+
+
+def test_only_the_wbs_inputs_count_as_uncommitted(tmp_path: Path) -> None:
+    """未コミットの判定は WBS の入力だけを見る。
+
+    作業ツリー全体を見ると、生成物やメモを 1 つ置いただけで出力が拒否され、しかも「下書き」の刻印が
+    嘘になる（入力は全部コミット済みなのに下書き扱い）。由来が主張している範囲だけを見る。
+    """
+    _scaffold(tmp_path)
+    _repo(tmp_path)
+    (tmp_path / "提出用.xlsx").write_text("生成物", encoding="utf-8")
+    (tmp_path / "メモ.txt").write_text("関係のないメモ", encoding="utf-8")
+    assert not stamp.is_dirty(tmp_path)
+
+    out = tmp_path / "WBS.html"
+    result = CliRunner().invoke(
+        wbs_app, ["export", "--root", str(tmp_path), "--out", str(out), "--today", TODAY.isoformat()]
+    )
+    assert result.exit_code == 0, result.output
+    assert "下書き" not in out.read_text(encoding="utf-8")
+
+    (tmp_path / "work" / "EP-90-alpha" / "T-9002-b.md").write_text(
+        "---\nid: T-9002\nkind: task\nstatus: todo\nstart: 2026-08-10\ndue: 2026-08-19\n---\n", encoding="utf-8"
+    )
+    assert stamp.is_dirty(tmp_path)  # 入力が動いたら拒否する
+
+
+def test_a_past_export_stamps_the_commit_the_tag_points_at(tmp_path: Path) -> None:
+    """過去の時点を出すときは、タグ名だけでなくそれが指すコミットも刻む。
+
+    タグは後から動かせる・消せるので、名前だけでは同じ中身に辿り着けない。
+    """
+    _scaffold(tmp_path)
+    _repo(tmp_path)
+    _git(tmp_path, "tag", "合意")
+    resolved = stamp.commit_of(tmp_path, "合意")
+    assert resolved is not None
+    out = tmp_path / "past.html"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["export", "--root", str(tmp_path), "--out", str(out), "--today", TODAY.isoformat(), "--at", "合意"],
+    )
+    assert result.exit_code == 0, result.output
+    page = out.read_text(encoding="utf-8")
+    assert "合意" in page
+    assert resolved in page
+
+
+def test_a_badly_written_base_date_is_explained_not_dumped(tmp_path: Path) -> None:
+    """基準日の書き方が違うとき、生の例外でなく直し方を出す。"""
+    _scaffold(tmp_path)
+    result = CliRunner().invoke(wbs_app, ["export", "--root", str(tmp_path), "--today", "2026/08/20"])
+    assert result.exit_code == 1
+    assert "YYYY-MM-DD" in result.output
+    assert "Traceback" not in result.output

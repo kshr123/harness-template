@@ -21,7 +21,7 @@ from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
 # 状態の表示名（顧客に見せる語）。コード側の語彙（Status）を 2 つに増やさないための表示専用の対応表。
-_STATUS_LABEL: dict[Status, str] = {
+STATUS_LABEL: dict[Status, str] = {
     Status.todo: "未着手",
     Status.in_progress: "進行中",
     Status.in_review: "確認中",
@@ -29,7 +29,7 @@ _STATUS_LABEL: dict[Status, str] = {
     Status.done: "完了",
 }
 
-_COLUMNS = ("WBS", "作業", "チーム", "担当", "状態", "予定開始", "予定終了", "日数", "実績開始", "実績終了", "進捗")
+COLUMNS = ("WBS", "作業", "チーム", "担当", "状態", "予定開始", "予定終了", "日数", "実績開始", "実績終了", "進捗")
 
 # ガントの SVG の内部座標の幅（viewBox の幅）。実際の表示幅は CSS が決める（preserveAspectRatio="none"）。
 _CANVAS = 1000.0
@@ -73,22 +73,60 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], today: date) -> str:
     return "".join(parts)
 
 
+def axis_ticks(span: tuple[date, date]) -> list[date]:
+    """時間軸に打つ目盛の日付。**期間の長さで間引く**（案件が長いほど粗くする）。
+
+    週ごとに固定すると、2 年を超える案件で 100 個以上の日付が重なって読めなくなる（実際に起きる）。
+    軸は「いつ頃か」が読めればよいので、目安として 30 個程度に収まる粒度へ落とす。
+    """
+    first, last = span
+    days = (last - first).days + 1
+    if days <= 120:  # 4 か月まで＝週ごと（月曜）
+        out: list[date] = []
+        day = first - timedelta(days=first.weekday())
+        while day <= last:
+            if day >= first:
+                out.append(day)
+            day += timedelta(days=7)
+        return out
+    step = 1 if days <= 900 else 3  # 2 年半までは月ごと、それを超えたら四半期ごと
+    out = []
+    year, month = first.year, first.month
+    while True:
+        current = date(year, month, 1)
+        if current > last:
+            break
+        if current >= first:
+            out.append(current)
+        month += step
+        while month > 12:
+            year, month = year + 1, month - 12
+    return out
+
+
 def _axis_svg(span: tuple[date, date], today: date) -> str:
-    """時間軸の見出し（週の頭に目盛）。表の見出し行に入るので、印刷時は各ページに再掲される。"""
+    """時間軸の見出し。表の見出し行に入るので、印刷時は各ページに再掲される。
+
+    目盛の線は棒と同じ引き伸ばし（`preserveAspectRatio="none"`）で位置を合わせるが、**日付の文字は
+    SVG に入れない**。引き伸ばすと文字まで横に潰れる／伸びるため、文字は HTML の要素として割合の位置に
+    重ねる（列の実幅がいくつでも読める）。
+    """
     first, last = span
     ticks: list[str] = []
-    day = first - timedelta(days=first.weekday())  # 直前の月曜から週ごとに
-    while day <= last:
-        if day >= first:
-            x = _x_of(day, span)
-            ticks.append(f'<line x1="{x:.2f}" y1="7" x2="{x:.2f}" y2="14" />')
-            ticks.append(f'<text x="{x + 3:.2f}" y="6">{day.strftime("%-m/%-d")}</text>')
-        day += timedelta(days=7)
+    labels: list[str] = []
+    total = (last - first).days + 1
+    for day in axis_ticks(span):
+        x = _x_of(day, span)
+        ticks.append(f'<line x1="{x:.2f}" y1="7" x2="{x:.2f}" y2="14" />')
+        # 書式指定子の `%-m` は Windows で例外になるので、数を直に組む（他プロファイルと同じく Windows も想定）。
+        labels.append(
+            f'<span class="axis-lab" style="left:{(day - first).days / total * 100:.3f}%">{day.month}/{day.day}</span>'
+        )
     if first <= today <= last:
         tx = _x_of(today, span)
         ticks.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
     head = f'<svg class="axis" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">'
-    return head + "".join(ticks) + "</svg>"
+    return f'<div class="axis-wrap">{head}{"".join(ticks)}</svg>{"".join(labels)}</div>'
 
 
 def _editable_fields(row: WbsRow) -> dict[str, str]:
@@ -146,7 +184,7 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, edita
         name += f'<span class="ref">{_esc(row.ref)}</span>'
     fields = _editable_fields(row) if editable else {}
     digest = _digest_of(row) if fields else ""
-    status_label = _STATUS_LABEL[row.status] if row.status is not None else ""
+    status_label = STATUS_LABEL[row.status] if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
     toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
     cells = [
@@ -224,8 +262,10 @@ tr.lv2 td.name { padding-left:34px; }
 tr.lv3 td.name { padding-left:50px; }
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
 svg.bar, svg.axis { display:block; width:100%; height:14px; }
-svg.axis text { font-size:7px; fill:var(--muted); }
 svg.axis line { stroke:var(--line); stroke-width:1; }
+.axis-wrap { position:relative; height:14px; }
+.axis-lab { position:absolute; top:0; margin-left:2px; font-size:8px; font-weight:400; color:var(--muted);
+            white-space:nowrap; line-height:1; }
 rect.plan { fill:var(--plan); } rect.done { fill:var(--done); } rect.late { fill:var(--late); }
 rect.prog { fill:var(--prog); opacity:.75; } polygon.ms { fill:var(--ink); }
 line.today { stroke:var(--today); stroke-width:1.2; stroke-dasharray:2 2; }
@@ -358,8 +398,18 @@ _EDIT_SCRIPT = """
 """
 
 
+# 完全な文書として出す（断片で渡さない）。文字コードの宣言が無いと、受け手のブラウザの設定次第で
+# 日本語が化ける（提出先の環境は制御できない）。doctype が無いと後方互換モードで描画され、印刷時の
+# 文字寸法の指定が表に効かず A3 に収まる前提が崩れる。題は印刷のヘッダにも出る。
+_DOCUMENT = (
+    '<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    "<title>{title}</title>\n</head>\n<body>\n{body}\n</body>\n</html>\n"
+)
+
+
 def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable: bool = False, token: str = "") -> str:
-    """WBS 一式を自己完結 HTML（本文）に描く。閲覧用と編集用で同じ描き方を使う。
+    """WBS 一式を完全な HTML 文書 1 つに描く。閲覧用と編集用で同じ描き方を使う。
 
     `provenance` は生成物の由来（どのコミット・いつ・どの木から出たか）を 1 行で表した文字列。
     `draft` を立てると下書きと分かる表示にする（未コミットの変更を含む生成物を、そうと分かる形でだけ許す）。
@@ -367,7 +417,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     ファイルに書き出す生成物は常に `editable=False`＝保存の口が無いので、渡した先で編集はできない。
     """
     span = wbs.span
-    head = "".join(f"<th>{_esc(c)}</th>" for c in _COLUMNS)
+    head = "".join(f"<th>{_esc(c)}</th>" for c in COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
     body = "".join(_row_html(row, span, wbs.today, editable=editable) for row in wbs.walk())
     title = wbs.overlay.project or "WBS"
@@ -385,10 +435,11 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
         )
         edit_bits = f'<div id="say"></div><script data-token="{_esc(token)}">{_EDIT_SCRIPT}</script>'
-    return (
+    inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}　{_esc(provenance)}</div>{banner}</header>'
         f'<div class="scroll"><table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>'
         f"<footer>{_legend()}{notes}</footer><script>{_VIEW_SCRIPT}</script>{edit_bits}"
     )
+    return _DOCUMENT.format(title=_esc(title), body=inner)

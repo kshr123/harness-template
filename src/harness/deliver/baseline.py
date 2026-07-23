@@ -25,6 +25,9 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+import frontmatter
+import yaml
+
 from harness.deliver.overlay import OVERLAY_PATH
 from harness.deliver.wbs import Wbs, WbsRow, build
 
@@ -92,8 +95,37 @@ def tree_at(root: Path, ref: str) -> Iterator[Path]:
         yield dest
 
 
-def commits_touching(root: Path, ref: str, path: Path) -> list[str]:
-    """その時点から今までに、そのファイルを触ったコミット（新しい順・「短い hash 件名」の形）。"""
+# 1 つの欄について遡るコミットの上限（これを超えるほど触られたファイルは、先頭だけ示せば十分）。
+_MAX_HISTORY = 60
+
+
+def _field_at(root: Path, commit: str, rel: str, field: str, row_id: str | None) -> str | None:
+    """その時点のファイルから、その欄の値を読む（読めなければ None）。"""
+    proc = _git(root, "show", f"{commit}:{rel}")
+    if proc.returncode != 0:
+        return None
+    text = proc.stdout
+    try:
+        if row_id is None:
+            meta = frontmatter.loads(text).metadata
+            value = meta.get(field)
+        else:
+            raw = yaml.safe_load(text)
+            rows = raw.get("rows", []) if isinstance(raw, dict) else []
+            row = next((r for r in rows if isinstance(r, dict) and r.get("id") == row_id), None)
+            value = row.get(field) if row else None
+    except yaml.YAMLError:
+        return None
+    return None if value is None else str(value)
+
+
+def commits_changing(root: Path, ref: str, path: Path, field: str, row_id: str | None = None) -> list[str]:
+    """その時点から今までに、**その欄の値を実際に変えた**コミット（新しい順・「短い hash 件名」の形）。
+
+    「そのファイルを触ったコミット」で代用すると、日付を動かした後に同じファイルの担当欄を直しただけの
+    コミットが「日付が動いた理由」として出てしまう＝クライアントへの説明に嘘の理由が刻まれる。
+    各コミットとその 1 つ前で欄の値を読み比べ、変わったものだけを返す。
+    """
     try:
         rel = path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
@@ -101,7 +133,13 @@ def commits_touching(root: Path, ref: str, path: Path) -> list[str]:
     proc = _git(root, "log", "--format=%h %s", f"{ref}..HEAD", "--", rel)
     if proc.returncode != 0:
         return []
-    return [line for line in proc.stdout.splitlines() if line.strip()]
+    lines = [line for line in proc.stdout.splitlines() if line.strip()][:_MAX_HISTORY]
+    out: list[str] = []
+    for line in lines:
+        commit = line.split(" ", 1)[0]
+        if _field_at(root, commit, rel, field, row_id) != _field_at(root, f"{commit}~1", rel, field, row_id):
+            out.append(line)
+    return out
 
 
 @dataclass(frozen=True)
@@ -141,36 +179,51 @@ def _value(row: WbsRow, attr: str) -> str | None:
     return str(getattr(value, "value", value))
 
 
-def _rows_by_ref(wbs: Wbs) -> dict[str, WbsRow]:
-    return {row.ref: row for row in wbs.walk() if row.ref is not None}
+# 子から導く欄（動いても「その行を直したから」ではない＝配下の変更の結果）。表題は親でも自分の値。
+_DERIVED_ATTRS = frozenset({"start", "due", "status"})
+
+
+def _key(row: WbsRow) -> str:
+    """比較の突き合わせ鍵。作業単位・手動行は ID、顧客向けの節は名前（節は ID を持たない）。"""
+    return row.ref if row.ref is not None else f"節 {row.name}"
+
+
+def _rows_by_key(wbs: Wbs) -> dict[str, WbsRow]:
+    """節も含めた全行（節の日程が動いたことはクライアントが最も見るところなので、落とさない）。"""
+    return {_key(row): row for row in wbs.walk()}
 
 
 def compare(before: Wbs, after: Wbs, *, root: Path, ref: str) -> list[Change]:
     """2 つの時点の WBS を突き合わせ、動いた点だけを並べる（動いていない単位は出てこない）。"""
-    old, new = _rows_by_ref(before), _rows_by_ref(after)
+    old, new = _rows_by_key(before), _rows_by_key(after)
     changes: list[Change] = []
-    for item_id in sorted(set(old) | set(new)):
-        was, now = old.get(item_id), new.get(item_id)
+    for key in sorted(set(old) | set(new)):
+        was, now = old.get(key), new.get(key)
         if was is None and now is not None:
-            changes.append(Change(item_id, now.name, "追加", None, None, tuple(_why(root, ref, now))))
+            changes.append(Change(key, now.name, "追加", None, None, ()))
             continue
         if now is None and was is not None:
-            changes.append(Change(item_id, was.name, "削除", None, None, ()))
+            changes.append(Change(key, was.name, "削除", None, None, ()))
             continue
         if was is None or now is None:
             continue
-        derived = bool(now.children)
         for label, attr in _COMPARED:
             old_value, new_value = _value(was, attr), _value(now, attr)
-            if old_value != new_value:
-                commits = () if derived else tuple(_why(root, ref, now))
-                changes.append(Change(item_id, now.name, label, old_value, new_value, commits, derived))
+            if old_value == new_value:
+                continue
+            derived = bool(now.children) and attr in _DERIVED_ATTRS
+            commits = () if derived else tuple(_why(root, ref, now, attr))
+            changes.append(Change(key, now.name, label, old_value, new_value, commits, derived))
     return changes
 
 
-def _why(root: Path, ref: str, row: WbsRow) -> list[str]:
-    """その行の値が入っているファイルを、指定の時点から今までに触ったコミット。"""
-    return commits_touching(root, ref, row.path) if row.path is not None else []
+def _why(root: Path, ref: str, row: WbsRow, attr: str) -> list[str]:
+    """その欄の値を実際に変えたコミット（値が入っているファイルを、その時点から今まで遡って調べる）。"""
+    if row.path is None:
+        return []
+    field = "name" if attr == "name" and row.source == "manual" else ("title" if attr == "name" else attr)
+    row_id = row.ref if row.source == "manual" else None
+    return commits_changing(root, ref, row.path, field, row_id)
 
 
 def changes_since(root: Path, ref: str, *, today: date) -> list[Change]:

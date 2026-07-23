@@ -14,22 +14,13 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from harness.deliver.render import COLUMNS as _COLUMNS  # 列の並びと表示名は 1 か所（形式ごとに写しを持たない）
+from harness.deliver.render import STATUS_LABEL as _STATUS_LABEL
 from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
 if TYPE_CHECKING:  # 型だけ（実体は書き出すときに取り込む）
     from openpyxl.worksheet.worksheet import Worksheet
-
-_COLUMNS = ("WBS", "作業", "チーム", "担当", "状態", "予定開始", "予定終了", "日数", "実績開始", "実績終了", "進捗")
-
-# 状態の表示名（HTML 側と同じ語。表示専用の対応表なので、語彙そのものを 2 つに増やしてはいない）。
-_STATUS_LABEL: dict[Status, str] = {
-    Status.todo: "未着手",
-    Status.in_progress: "進行中",
-    Status.in_review: "確認中",
-    Status.blocked: "停止",
-    Status.done: "完了",
-}
 
 # 週の列の塗り（HTML の棒と同じ意味・同じ色合い）。
 _FILL = {"plan": "5B87B8", "done": "4F9D72", "late": "C8635A", "ms": "1B1F24"}

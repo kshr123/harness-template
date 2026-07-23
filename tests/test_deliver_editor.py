@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from harness.deliver import wbs_lint
 from harness.deliver.editor import EditRejected, apply_edit, file_digest
 
 pytestmark = pytest.mark.unit
@@ -169,3 +170,58 @@ def test_an_unknown_row_is_refused(tmp_path: Path) -> None:
         apply_edit(root, ref="T-9999", field="due", value="2026-08-12", base_digest="", today=TODAY)
     with pytest.raises(EditRejected):
         apply_edit(root, ref="W-404", field="due", value="2026-08-12", base_digest="", today=TODAY)
+
+
+def test_a_comment_inside_a_manual_row_does_not_break_the_write_back(tmp_path: Path) -> None:
+    """列 0 のコメントが手動行の途中にあっても、狙った行が置き換わる。
+
+    塊の切り出しがコメントで打ち切られると、その先のキーを見落として同じキーを書き足す＝「保存した」と
+    出るのに値が変わらない、が起きる（読み戻しの突き合わせでも捕まえるが、そもそも起こさない）。
+    """
+    root = _project(tmp_path)
+    path = root / "docs" / "wbs.yaml"
+    text = path.read_text(encoding="utf-8").replace(
+        "    status: todo\n", "    status: todo\n# 途中にコメントを入れてみる\n"
+    )
+    path.write_text(text, encoding="utf-8")
+    apply_edit(root, ref="W-001", field="due", value="2026-08-19", base_digest=file_digest(path), today=TODAY)
+    after = path.read_text(encoding="utf-8")
+    assert after.count("due:") == 1  # 同じキーを書き足していない
+    assert "due: 2026-08-19" in after
+    assert "# 途中にコメントを入れてみる" in after
+
+
+def test_a_write_back_that_does_not_take_effect_is_refused(tmp_path: Path) -> None:
+    """書き戻しが効かなかった場合は「保存できた」と言わない（黙って捨てない）。"""
+    root = _project(tmp_path)
+    path = _item_path(root)
+    # 同じキーが 2 つある壊れた状態を作る（後ろが勝つので、前を書き換えても値は変わらない）。
+    text = path.read_text(encoding="utf-8").replace("due: 2026-08-07\n", "due: 2026-08-07\ndue: 2026-09-30\n")
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(EditRejected) as caught:
+        apply_edit(root, ref="T-9001", field="due", value="2026-08-12", base_digest=file_digest(path), today=TODAY)
+    assert "効いていない" in str(caught.value)
+
+
+def test_an_unrelated_pre_existing_problem_does_not_block_saving(tmp_path: Path) -> None:
+    """この編集と関係のない指摘が既に出ていても、保存はできる。
+
+    全体の検査で断ると、画面から直せない指摘が 1 つあるだけで他の行も一切保存できなくなる
+    （「編集面を開いたのに何も保存できない」状態）。**増えた指摘だけ**を拒否の理由にする。
+    """
+    root = _project(tmp_path)
+    # 子を持つのに日程を宣言している親＝画面からは直せない指摘を、先に作っておく。
+    epic = root / "work" / "EP-90-alpha"
+    epic.mkdir(parents=True)
+    (epic / "item.md").write_text(
+        "---\nid: EP-90\nkind: epic\nstatus: in-progress\nplan: detailed\nstart: 2026-08-01\ndue: 2026-08-31\n---\n",
+        encoding="utf-8",
+    )
+    (epic / "T-9010-c.md").write_text(
+        "---\nid: T-9010\nkind: task\nstatus: todo\nstart: 2026-08-03\ndue: 2026-08-07\n---\n",
+        encoding="utf-8",
+    )
+    assert any(p.level == "error" for p in wbs_lint.check(root, today=TODAY))  # 既に赤い
+    path = _item_path(root)
+    apply_edit(root, ref="T-9001", field="due", value="2026-08-12", base_digest=file_digest(path), today=TODAY)
+    assert "due: 2026-08-12" in path.read_text(encoding="utf-8")

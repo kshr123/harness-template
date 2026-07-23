@@ -106,7 +106,12 @@ def _frontmatter_bounds(lines: list[str]) -> tuple[int, int]:
 
 
 def _row_bounds(lines: list[str], row_id: str) -> tuple[int, int, str]:
-    """手動行 `- id: <row_id>` の塊の範囲と、その中のキーの字下げを返す。"""
+    """手動行 `- id: <row_id>` の塊の範囲と、その中のキーの字下げを返す。
+
+    塊の終わりは「空でもコメントでもなく、キーの字下げで始まらない行」。**コメント行を透かす**のが要点で、
+    列 0 のコメント（人が 1 行コメントアウトすると普通に起きる）で塊を打ち切ると、その先にあるキーを
+    見落として同じキーをもう 1 つ書き足してしまう＝「保存した」と出るのに値が変わらない、が起きる。
+    """
     head = re.compile(rf"^(\s*)-\s+id:\s*[\"']?{re.escape(row_id)}[\"']?\s*$")
     for i, line in enumerate(lines):
         match = head.match(line)
@@ -117,33 +122,72 @@ def _row_bounds(lines: list[str], row_id: str) -> tuple[int, int, str]:
         end = len(lines)
         for j in range(i + 1, len(lines)):
             stripped = lines[j].strip()
-            if stripped and not lines[j].startswith(key_indent):
+            if not stripped or stripped.startswith("#"):
+                continue
+            if not lines[j].startswith(key_indent):
                 end = j
                 break
         return i + 1, end, key_indent
     raise EditRejected(f"手動行 '{row_id}' が {OVERLAY_PATH} に見つからない")
 
 
-def _validated_item_text(text: str) -> None:
-    """書く前に、その本文が作業単位として読めるかを確かめる（読めなければ書かない）。"""
+def _normalized(value: object) -> str | None:
+    """読み戻した値を突き合わせるための正規形（型の違いで偽の不一致にしない）。"""
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return f"{float(value):g}"
+    return str(value)
+
+
+def _expected(rendered: str | None) -> str | None:
+    """書き込む予定の値を、読み戻した値と同じ正規形に直す。"""
+    if rendered is None:
+        return None
+    return _normalized(yaml.safe_load(f"v: {rendered}")["v"])
+
+
+def _validated_item_text(text: str, field: str, rendered: str | None) -> None:
+    """書く前に、その本文が作業単位として読め、**狙った欄が狙った値になっている**ことを確かめる。
+
+    読めるかだけを見ると、行の置き換えが空振りして値が変わっていない場合を通してしまう
+    （「保存した」と出るのに変わらない＝黙って間違う形）。読み戻して突き合わせる。
+    """
     try:
-        Item.model_validate(dict(frontmatter.loads(text).metadata))
+        item = Item.model_validate(dict(frontmatter.loads(text).metadata))
     except ValidationError as exc:
         raise EditRejected(f"作業単位として読めない値: {exc.error_count()} 件") from exc
     except yaml.YAMLError as exc:
         raise EditRejected(f"frontmatter が壊れる書き方になっている: {exc}") from exc
+    _check_readback(_normalized(getattr(item, field, None)), _expected(rendered), field)
 
 
-def _validated_overlay_text(text: str) -> None:
-    """書く前に、その本文が上書きとして読めるかを確かめる。"""
+def _validated_overlay_text(text: str, row_id: str, field: str, rendered: str | None) -> None:
+    """書く前に、その本文が上書きとして読め、狙った手動行の狙った欄が狙った値になっていることを確かめる。"""
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         raise EditRejected(f"{OVERLAY_PATH} が壊れる書き方になっている: {exc}") from exc
     try:
-        Overlay.model_validate(raw if isinstance(raw, dict) else {})
+        overlay = Overlay.model_validate(raw if isinstance(raw, dict) else {})
     except ValidationError as exc:
         raise EditRejected(f"上書きとして読めない値: {exc.error_count()} 件") from exc
+    row = overlay.rows_by_id.get(row_id)
+    if row is None:
+        raise EditRejected(f"書き戻した後に手動行 '{row_id}' が読めなくなった")
+    _check_readback(_normalized(getattr(row, field, None)), _expected(rendered), field)
+
+
+def _check_readback(actual: str | None, expected: str | None, field: str) -> None:
+    if actual != expected:
+        raise EditRejected(
+            f"'{field}' の書き戻しが効いていない（読み直すと {actual!r}・入れたかったのは {expected!r}）。"
+            f"同じキーが複数あるなど、書き方が想定と違う可能性がある"
+        )
 
 
 def _find_item_path(root: Path, item_id: str) -> Path:
@@ -224,13 +268,17 @@ def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str
         new_text = "\n".join(new_lines) + ("\n" if original.endswith("\n") else "")
 
         if manual:
-            _validated_overlay_text(new_text)
+            _validated_overlay_text(new_text, ref, field, rendered)
         else:
-            _validated_item_text(new_text)
+            _validated_item_text(new_text, field, rendered)
 
+        # 書く前から出ている指摘は、この編集のせいではない（別のところが直っていない状態）。それで保存を
+        # 断ると、画面から直せない指摘が 1 つあるだけで他の行も一切保存できなくなる。**増えた指摘だけ**を
+        # 拒否の理由にする。
+        before = {p.message for p in wbs_lint.check(root, today=today) if p.level == "error"}
         path.write_text(new_text, encoding="utf-8")
-        errors = [p for p in wbs_lint.check(root, today=today) if p.level == "error"]
-        if errors:
+        introduced = [p for p in wbs_lint.check(root, today=today) if p.level == "error" and p.message not in before]
+        if introduced:
             path.write_text(original, encoding="utf-8")  # 検査に落ちる状態を正本に残さない
-            raise EditRejected("　/　".join(p.message for p in errors))
+            raise EditRejected("　/　".join(p.message for p in introduced))
         return file_digest(path)

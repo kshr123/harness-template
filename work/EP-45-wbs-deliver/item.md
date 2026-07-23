@@ -1,10 +1,9 @@
 ---
 id: EP-45
 kind: epic
-status: done
+status: in-review
 plan: detailed
 created: 2026-07-23
-closed: 2026-07-23
 requirements: [REQ-005, REQ-006, REQ-007, REQ-008, REQ-009]
 depends_on: [EP-43, EP-44]
 priority: high

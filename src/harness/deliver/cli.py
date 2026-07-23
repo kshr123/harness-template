@@ -29,13 +29,24 @@ for _stream in (sys.stdout, sys.stderr):
 
 wbs_app = typer.Typer(help="作業単位の木から顧客向けの WBS・ガントを出す（deliver プロファイル）", add_completion=False)
 
-DEFAULT_OUT = "artifacts/wbs/WBS"  # 拡張子は形式が決める（formats.SUFFIX）
+DEFAULT_OUT = "artifacts/wbs/WBS"  # 拡張子は形式が決める（RendererEntry.suffix）
 
 
 def _fail(message: str) -> None:
     """指摘を出して止める（既定を不合格側に置く＝黙って空の成果物を出さない）。"""
     typer.echo(message, err=True)
     raise typer.Exit(1)
+
+
+def _base_date(today: str | None) -> date:
+    """基準日を読む。書き方が違うときは、生の例外でなく直し方を出して止める。"""
+    if today is None:
+        return date.today()
+    try:
+        return date.fromisoformat(today)
+    except ValueError:
+        _fail(f"基準日は YYYY-MM-DD で書く（受け取った値: {today}）")
+        raise  # pragma: no cover - _fail が必ず送出する
 
 
 @wbs_app.command("export")
@@ -53,18 +64,28 @@ def _export(
     未コミットの変更があるときも既定では出力しない（刻んだコミットが嘘になる）。`--draft` を付けたときだけ、
     下書きと分かる表示で出す。`--at` に合意した時点（タグ・コミット）を渡すと、その時点の WBS を出し直す。
     """
-    base = date.fromisoformat(today) if today else date.today()
+    base = _base_date(today)
     try:
-        writer = formats.RENDERERS.resolve(fmt).factory
+        entry = formats.RENDERERS.resolve(fmt)
     except ValueError as exc:
         _fail(str(exc))
         return
+    writer, suffix = entry.factory, entry.suffix
     if at is None:
-        _export_from(root, root, out=out, today=base, draft=draft, commit=None, fmt=fmt, writer=writer)
+        _export_from(root, root, out=out, today=base, draft=draft, commit=None, suffix=suffix, writer=writer)
         return
     try:
         with baseline.tree_at(root, at) as snapshot:
-            _export_from(root, snapshot, out=out, today=base, draft=False, commit=at, fmt=fmt, writer=writer)
+            _export_from(
+                root,
+                snapshot,
+                out=out,
+                today=base,
+                draft=False,
+                commit=stamp.label_for(root, at),
+                suffix=suffix,
+                writer=writer,
+            )
     except baseline.BaselineError as exc:
         _fail(str(exc))
 
@@ -83,7 +104,7 @@ def _export_from(
     today: date,
     draft: bool,
     commit: str | None,
-    fmt: str,
+    suffix: str,
     writer: Callable[..., None],
 ) -> None:
     """`source` の中身から WBS を出す（`root` は出力先と git を見る先）。過去の時点も同じ道を通る。"""
@@ -115,7 +136,7 @@ def _export_from(
             "（先にコミットする。下書きとして出すなら --draft を付ける）"
         )
         return
-    target = out if out is not None else root / (DEFAULT_OUT + formats.SUFFIX.get(fmt, ""))
+    target = out if out is not None else root / (DEFAULT_OUT + suffix)
     target.parent.mkdir(parents=True, exist_ok=True)
     provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone(), commit=commit)
     writer(built, target, provenance=provenance, draft=dirty)
@@ -135,7 +156,7 @@ def _diff(
     変化の理由は、その日程を動かしたコミットのメッセージをそのまま添える（理由の保管場所を新設しない）。
     合意した時点そのものの WBS を出し直したいときは `uv run wbs export --at <参照>`。
     """
-    base = date.fromisoformat(today) if today else date.today()
+    base = _base_date(today)
     try:
         changes = baseline.changes_since(root, ref, today=base)
     except baseline.BaselineError as exc:
@@ -155,7 +176,7 @@ def _lint(
     root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
 ) -> None:
     """WBS の不変条件だけを検査する（`uv run verify` が回すのと同じ検査を単体で走らせる）。"""
-    base = date.fromisoformat(today) if today else date.today()
+    base = _base_date(today)
     problems = wbs_lint.check(root, today=base)
     for problem in problems:
         typer.echo(f"{problem.level}: {problem.message}")
@@ -176,7 +197,7 @@ def _edit(
     待ち受けは 127.0.0.1 だけ。合言葉は起動のたびに作り、画面の本文に埋める（URL には載せない）。
     表示された URL をブラウザで開く。
     """
-    base = date.fromisoformat(today) if today else date.today()
+    base = _base_date(today)
     try:
         import uvicorn
 

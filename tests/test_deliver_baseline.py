@@ -193,3 +193,66 @@ def test_export_at_a_past_reference_ignores_uncommitted_changes(agreed_project: 
     )
     assert result.exit_code == 0, result.output
     assert "09/02" not in out.read_text(encoding="utf-8")
+
+
+def test_the_reason_is_the_commit_that_changed_that_field(agreed_project: Path) -> None:
+    """理由として添えるのは「その欄を実際に変えたコミット」。
+
+    「そのファイルを最後に触ったコミット」で代用すると、日付を動かした後に担当欄を直しただけの
+    コミットが日付変更の理由として出る＝クライアントへの説明に嘘の理由が刻まれる。
+    """
+    _write(
+        agreed_project / "work" / "EP-90-alpha" / "T-9001-a.md",
+        {"id": "T-9001", "kind": "task", "status": "todo", "title": "設計", "start": "2026-08-03", "due": "2026-08-21"},
+    )
+    _commit(agreed_project, "EP-90 T-9001：先方レビューの遅延で終了を後ろへ")
+    _write(
+        agreed_project / "work" / "EP-90-alpha" / "T-9001-a.md",
+        {
+            "id": "T-9001",
+            "kind": "task",
+            "status": "todo",
+            "title": "設計",
+            "start": "2026-08-03",
+            "due": "2026-08-21",
+            "owner": "山田",
+        },
+    )
+    _commit(agreed_project, "EP-90 T-9001：担当を山田にする")
+
+    moved = {(c.ref, c.kind): c for c in baseline.changes_since(agreed_project, AGREED, today=TODAY)}
+    due = moved[("T-9001", "予定終了")]
+    assert due.commits, "理由のコミットが添えられていない"
+    assert "先方レビューの遅延" in due.commits[0]
+    assert all("担当を山田" not in c for c in due.commits)  # 日付を動かしていないコミットは理由にしない
+
+
+def test_a_client_facing_phase_shows_its_own_movement(agreed_project: Path) -> None:
+    """節（顧客向けのフェーズ）の日程が動いたことも出る。フェーズの終わりはクライアントが最も見る。"""
+    (agreed_project / "docs").mkdir(exist_ok=True)
+    (agreed_project / "docs" / "wbs.yaml").write_text(
+        "sections:\n  - name: フェーズ1\n    entries:\n      - work: EP-90\n", encoding="utf-8"
+    )
+    _commit(agreed_project, "EP-90 T-9001：顧客向けの節を置く")
+    _git(agreed_project, "tag", "節あり合意")  # 節がある状態を合意した時点にする
+    _write(
+        agreed_project / "work" / "EP-90-alpha" / "T-9002-b.md",
+        {"id": "T-9002", "kind": "task", "status": "todo", "title": "実装", "start": "2026-08-17", "due": "2026-08-21"},
+    )
+    _commit(agreed_project, "EP-90 T-9002：後ろへ")
+
+    kinds = {(c.ref, c.kind) for c in baseline.changes_since(agreed_project, "節あり合意", today=TODAY)}
+    assert ("節 フェーズ1", "予定終了") in kinds
+
+
+def test_a_parent_title_change_is_not_called_a_consequence(agreed_project: Path) -> None:
+    """親の表題は親自身に保存された値なので、「配下の変更による」とは言わない（理由も添える）。"""
+    _write(
+        agreed_project / "work" / "EP-90-alpha" / "item.md",
+        {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed", "title": "基本設計"},
+    )
+    _commit(agreed_project, "EP-90 T-9001：フェーズ名を先方の言い方に合わせる")
+    moved = {(c.ref, c.kind): c for c in baseline.changes_since(agreed_project, AGREED, today=TODAY)}
+    change = moved[("EP-90", "表題")]
+    assert not change.derived
+    assert change.commits and "先方の言い方" in change.commits[0]

@@ -98,7 +98,7 @@ class SectionEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    work: str | None = None  # 作業単位の ID（例 EP-44）。日程・状態はそこから導出する。
+    work: str | None = None  # 作業単位の ID（例 EP-90）。日程・状態はそこから導出する。
     row: str | None = None  # 手動行の ID（例 W-001）
 
     @model_validator(mode="after")

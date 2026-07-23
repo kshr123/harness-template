@@ -113,7 +113,7 @@ def test_same_work_unit_in_two_sections_fails(tmp_path: Path) -> None:
     )
     messages = _errors(tmp_path, overlay)
     assert len(messages) == 1
-    assert "2 つ以上の節" in messages[0]
+    assert "両方に出る" in messages[0]
 
 
 def test_manual_row_that_no_section_shows_fails(tmp_path: Path) -> None:
@@ -182,3 +182,34 @@ def test_successor_starting_before_its_predecessor_ends_fails(tmp_path: Path) ->
     messages = _errors(tmp_path)
     assert len(messages) == 1
     assert "T-9002" in messages[0]
+
+
+def test_a_section_covering_an_ancestor_and_another_its_descendant_fails(tmp_path: Path) -> None:
+    """節 A がエピックを、節 B がその中のタスクを指すと、同じ作業が 2 行になるので失敗する。
+
+    ID の完全一致だけを見る検査ではこの形（エピックごと載せた後、目玉のタスクだけ別フェーズにも出す）を
+    見逃す。指した範囲どうしの重なりで見る。
+    """
+    _scaffold(tmp_path)
+    overlay = Overlay.model_validate(
+        {
+            "sections": [
+                {"name": "フェーズ1", "entries": [{"work": "EP-90"}]},
+                {"name": "フェーズ2", "entries": [{"work": "T-9002"}]},
+                {"name": "フェーズ3", "entries": [{"work": "EP-91"}]},
+            ]
+        }
+    )
+    messages = _errors(tmp_path, overlay)
+    assert len(messages) == 1
+    assert "T-9002" in messages[0]
+
+
+def test_a_manual_row_without_any_section_fails(tmp_path: Path) -> None:
+    """節を書かない案件で手動行だけ書くと、どこにも出ないので失敗する（書いたのに出ない行を作らない）。"""
+    _scaffold(tmp_path)
+    overlay = Overlay.model_validate({"rows": [{"id": "W-001", "name": "承認", "status": "todo"}]})
+    messages = _errors(tmp_path, overlay)
+    assert len(messages) == 1
+    assert "W-001" in messages[0]
+    assert "sections" in messages[0]  # 直し方を添える

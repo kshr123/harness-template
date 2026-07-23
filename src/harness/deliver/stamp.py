@@ -16,6 +16,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from harness import pm
+from harness.deliver.overlay import OVERLAY_PATH
 from harness.deliver.wbs import Wbs
 from harness.fingerprint import input_fingerprint
 
@@ -38,14 +40,26 @@ def _git(root: Path, *args: str) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
-def commit_of(root: Path) -> str | None:
-    """いま出ている中身の元になっているコミット（短い形）。git が無ければ None。"""
-    return _git(root, "rev-parse", "--short", "HEAD")
+def commit_of(root: Path, ref: str = "HEAD") -> str | None:
+    """その参照が指すコミット（短い形）。git が無い・参照が無ければ None。"""
+    return _git(root, "rev-parse", "--short", ref)
+
+
+def label_for(root: Path, ref: str) -> str:
+    """過去の時点を刻むときの表記。タグ名だけでは足りない（タグは後から動かせる・消せる）ので、
+    指しているコミットを併記して、後から必ず同じ中身に辿り着けるようにする。"""
+    resolved = commit_of(root, ref)
+    return f"{ref}（{resolved}）" if resolved else ref
 
 
 def is_dirty(root: Path) -> bool:
-    """作業ツリーに未コミットの変更があるか（git が無ければ「無い」とみなす）。"""
-    status = _git(root, "status", "--porcelain")
+    """WBS の**入力**に未コミットの変更があるか（git が無ければ「無い」とみなす）。
+
+    作業ツリー全体を見ると、生成物やメモを 1 つ置いただけで出力が拒否され、しかも「下書き」の刻印が
+    嘘になる（入力は全部コミット済みなのに下書き扱い）。由来が実際に主張している範囲＝作業単位の木と
+    上書きファイルだけを見る。
+    """
+    status = _git(root, "status", "--porcelain", "--", pm.WORK_DIR, OVERLAY_PATH)
     return bool(status)
 
 

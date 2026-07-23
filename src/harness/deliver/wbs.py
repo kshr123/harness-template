@@ -62,8 +62,14 @@ class WbsRow:
 
     @property
     def scheduled(self) -> bool:
-        """日程（開始または終了）を持つか。持たない行は未日程として印を付けて出す（黙って消さない）。"""
-        return self.start is not None or self.due is not None
+        """棒として描ける日程を持つか。持たない行は未日程として印を付けて出す（黙って消さない）。
+
+        片端しか無い（開始だけ・終了だけ）行も未日程に数える。棒を描けないのに印も付かないと、ガントの列が
+        無言の空白になり「日程を入れ忘れた」のか「そういう行」なのかが読めなくなる（節目は終了だけで描ける）。
+        """
+        if self.milestone:
+            return self.due is not None
+        return self.start is not None and self.due is not None
 
     @property
     def progress(self) -> float:
@@ -134,7 +140,9 @@ def _from_work(node: pm.Node, code: str, calendar: WorkCalendar, today: date) ->
         row.start = item.start
         row.due = item.due
         row.status = item.status
-        row.actual_start = item.created
+        # 実績開始は「着手していない単位には出さない」。created はファイルを起こした日（普通は計画時）
+        # なので、そのまま出すと未着手の行に実績が立ち、クライアントは着手済みと読む＝進捗の虚偽になる。
+        row.actual_start = item.created if item.status is not Status.todo else None
         row.actual_finish = item.closed if item.status is Status.done else None
         row.done_leaves = 1 if item.status is Status.done else 0
         row.total_leaves = 1

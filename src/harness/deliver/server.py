@@ -36,10 +36,6 @@ from harness.deliver.editor import EditRejected, apply_edit
 # 名乗ってよいホスト（ポートは切り落として比べる）。これ以外は拒否する。
 ALLOWED_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
 
-_PAGE = (
-    '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>{title}</title></head><body>{body}</body></html>'
-)
-
 
 def new_token() -> str:
     """起動のたびに作る合言葉。"""
@@ -99,9 +95,7 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
     def _page() -> HTMLResponse:
         """今の正本から画面を作り直して返す（画面は状態を持たない）。"""
         built = wbs_mod.build(root, today=today)
-        body = render.render_html(built, editable=True, token=token)
-        title = built.overlay.project or "WBS"
-        return HTMLResponse(_PAGE.format(title=title, body=body))
+        return HTMLResponse(render.render_html(built, editable=True, token=token))
 
     @app.post("/edit")
     def _edit(payload: EditRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:

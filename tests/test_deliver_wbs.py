@@ -237,3 +237,46 @@ def test_missing_reference_is_reported_not_silently_dropped(tmp_path: Path) -> N
     built = _build(tmp_path, overlay)
     assert [p.level for p in built.problems] == ["error"]
     assert "EP-99" in built.problems[0].message
+
+
+def test_an_unstarted_task_has_no_actual_start(tmp_path: Path) -> None:
+    """未着手の作業に実績開始を出さない（created は計画時にファイルを起こした日で、着手日ではない）。
+
+    出してしまうと、クライアントは「着手済み」と読む＝進捗の虚偽になる。
+    """
+    _scaffold(tmp_path)
+    _write(
+        tmp_path / "work" / "EP-91-beta" / "item.md",
+        {
+            "id": "EP-91",
+            "kind": "epic",
+            "status": "todo",
+            "start": "2026-08-17",
+            "due": "2026-08-21",
+            "created": "2026-07-01",
+        },
+    )
+    rows = _by_ref(_build(tmp_path))
+    assert rows["EP-91"].actual_start is None
+    assert rows["T-9001"].actual_start == date(2026, 8, 3)  # 着手済み（done）には出る
+
+
+def test_a_row_with_only_one_end_counts_as_unscheduled(tmp_path: Path) -> None:
+    """開始だけ・終了だけの行は棒を描けないので、未日程として印を付ける（無言の空白にしない）。"""
+    _scaffold(tmp_path)
+    _write(
+        tmp_path / "work" / "EP-94-half.md", {"id": "EP-94", "kind": "epic", "status": "todo", "start": "2026-08-03"}
+    )
+    built = _build(tmp_path)
+    assert "EP-94" in {row.ref for row in built.unscheduled}
+
+
+def test_a_milestone_needs_only_its_day(tmp_path: Path) -> None:
+    """節目は終了だけで描けるので、未日程にはならない。"""
+    _scaffold(tmp_path)
+    _write(
+        tmp_path / "work" / "EP-95-ms.md",
+        {"id": "EP-95", "kind": "epic", "status": "todo", "due": "2026-08-28", "milestone": True},
+    )
+    built = _build(tmp_path)
+    assert "EP-95" not in {row.ref for row in built.unscheduled}

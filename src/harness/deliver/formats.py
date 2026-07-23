@@ -13,16 +13,26 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from harness.deliver import render
 from harness.deliver.wbs import Wbs
 from harness.registry import Entry, Registry
 
-# 形式ごとの拡張子（出力先を省いたときの既定のファイル名に使う）。
-SUFFIX: dict[str, str] = {"html": ".html", "xlsx": ".xlsx"}
 
-RENDERERS: Registry[Entry] = Registry("出力形式", catalog="wbs formats", extras_hint={"xlsx": "openpyxl"})
+@dataclass(frozen=True, kw_only=True)
+class RendererEntry(Entry):
+    """出力形式 1 つ。`suffix` は出力先を省いたときに付ける拡張子。
+
+    拡張子を別の対応表に持つと、形式を足したときに片方だけ書き忘れて拡張子の無いファイルができる
+    （登録簿の外に 2 つ目の台帳を作らない）。
+    """
+
+    suffix: str
+
+
+RENDERERS: Registry[RendererEntry] = Registry("出力形式", catalog="wbs formats", extras_hint={"xlsx": "openpyxl"})
 
 
 def _write_html(wbs: Wbs, path: Path, *, provenance: str = "", draft: bool = False) -> None:
@@ -30,7 +40,7 @@ def _write_html(wbs: Wbs, path: Path, *, provenance: str = "", draft: bool = Fal
     path.write_text(render.render_html(wbs, provenance=provenance, draft=draft), encoding="utf-8")
 
 
-RENDERERS.register("html", _write_html)
+RENDERERS.register("html", _write_html, entry_cls=RendererEntry, suffix=".html")
 
 try:  # 表計算の枝（openpyxl が入っている案件でだけ生える）。核はこの形式を知らない。
     import openpyxl  # noqa: F401  入っているかを確かめるためだけの取り込み
@@ -39,4 +49,4 @@ except ImportError:
 else:
     from harness.deliver.xlsx import write_xlsx
 
-    RENDERERS.register("xlsx", write_xlsx)
+    RENDERERS.register("xlsx", write_xlsx, entry_cls=RendererEntry, suffix=".xlsx")

@@ -49,6 +49,61 @@ def _uncovered(nodes: list[pm.Node], covered: set[str], excluded: set[str]) -> l
     return sorted(set(missing))
 
 
+def _descendants(node: pm.Node) -> set[str]:
+    """その単位と、その配下すべての ID（節が指した範囲＝実際に出る行の集合）。"""
+    out = {node.item.id}
+    for child in node.children:
+        out |= _descendants(child)
+    return out
+
+
+def _find(nodes: list[pm.Node], item_id: str) -> pm.Node | None:
+    for node in nodes:
+        if node.item.id == item_id:
+            return node
+        found = _find(node.children, item_id)
+        if found is not None:
+            return found
+    return None
+
+
+def _overlapping_sections(over: Overlay, nodes: list[pm.Node]) -> list[pm.Problem]:
+    """2 つの節が同じ作業単位を出してしまう組み合わせを集める。
+
+    ID の完全一致だけを見ると、「節 A がエピックを、節 B がその中のタスクを指す」形を見逃す（実際に
+    起こりやすい：エピックごと載せた後、目玉のタスクだけ別のフェーズにも出す）。この形では同じ作業が
+    2 行として出て、進捗の末端も二重に数えられる。**指した範囲どうしの重なり**で見る。
+    """
+    problems: list[pm.Problem] = []
+    claimed: dict[str, str] = {}  # 出る行の ID → それを出している節の名前
+    reported: set[tuple[str, str]] = set()  # 報告済みの節の組（配下の分まで並べない）
+    for section in over.sections:
+        for entry in section.entries:
+            if entry.work is None:
+                continue
+            node = _find(nodes, entry.work)
+            if node is None:
+                continue  # 参照切れは build 側が error にする
+            for item_id in sorted(_descendants(node)):
+                owner = claimed.get(item_id)
+                if owner is None:
+                    claimed[item_id] = section.name
+                    continue
+                # 重なりは配下にも連鎖するので、節の組ごとに 1 件だけ（先頭の単位）を報告する。
+                pair = (owner, section.name)
+                if pair in reported:
+                    continue
+                reported.add(pair)
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"作業単位 '{item_id}' が節 '{owner}' と節 '{section.name}' の両方に出る"
+                        f"（同じ作業が 2 行になり、進捗が二重に数えられる・wbs_lint）",
+                    )
+                )
+    return problems
+
+
 def _parent_declared_dates(nodes: list[pm.Node]) -> list[str]:
     """子を持つのに自分で日程を宣言している単位の ID（親の日程は子から導くので二重になる）。"""
     found: list[str] = []
@@ -78,28 +133,21 @@ def check(root: Path, *, today: date, overlay: Overlay | None = None) -> list[pm
                     f"意図して外すなら exclude に書く（黙って消えるのを止める・wbs_lint）",
                 )
             )
-        seen: set[str] = set()
-        for section in over.sections:
-            for entry in section.entries:
-                if entry.work is None:
-                    continue
-                if entry.work in seen:
-                    problems.append(
-                        pm.Problem(
-                            "error",
-                            f"作業単位 '{entry.work}' を 2 つ以上の節が指している（進捗が二重に数えられる・wbs_lint）",
-                        )
-                    )
-                seen.add(entry.work)
-        referenced = _referenced_rows(over)
-        for row in over.rows:
-            if row.id not in referenced:
-                problems.append(
-                    pm.Problem(
-                        "error",
-                        f"手動行 '{row.id}' をどの節も参照していない（書いたのに出ない行を作らない・wbs_lint）",
-                    )
+        problems.extend(_overlapping_sections(over, nodes))
+
+    # 手動行の参照検査は節の有無に関わらず回す。節を書かない案件で rows: を書くと、どこにも出ないまま
+    # 検査も通ってしまう（書いたのに出ない＝黙って消える形）。手動行は節からしか置けないので、
+    # 節が無いのに手動行がある状態そのものが誤り。
+    referenced = _referenced_rows(over)
+    for row in over.rows:
+        if row.id not in referenced:
+            hint = "節（sections）を書いて、その entries に row として並べる" if not over.sections else "節から参照する"
+            problems.append(
+                pm.Problem(
+                    "error",
+                    f"手動行 '{row.id}' をどの節も参照していない（書いたのに出ない行を作らない）。{hint}（wbs_lint）",
                 )
+            )
 
     for item_id in _parent_declared_dates(nodes):
         problems.append(
