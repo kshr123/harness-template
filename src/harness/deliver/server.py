@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict
 
 from harness.deliver import render
 from harness.deliver import wbs as wbs_mod
+from harness.deliver.adder import add_child
 from harness.deliver.editor import EditRejected, apply_edit
 
 # 名乗ってよいホスト（ポートは切り落として比べる）。これ以外は拒否する。
@@ -65,6 +66,14 @@ class Idle:
     def expired(self, now: float) -> bool:
         with self._lock:
             return now - self._last >= self.timeout_seconds
+
+
+class AddRequest(BaseModel):
+    """`POST /add` の本文。parent は足す先の作業単位（None なら work/ の直下）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    parent: str | None = None
 
 
 class EditRequest(BaseModel):
@@ -109,5 +118,16 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"digest": digest}
+
+    @app.post("/add")
+    def _add(payload: AddRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
+        """作業単位を 1 つ足す（正本＝work/ にファイルを作る。WBS 側には何も持たない）。"""
+        if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
+            raise HTTPException(status_code=403, detail="合言葉が違う")
+        try:
+            new_id = add_child(root, payload.parent, today=today)
+        except EditRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"id": new_id}
 
     return app

@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from harness.deliver.render import COLUMNS as _COLUMNS  # 列の並びと表示名は 1 か所（形式ごとに写しを持たない）
+from harness.deliver.render import COLUMN_LABELS as _COLUMNS  # 列の並びと表示名は 1 か所（形式ごとに写しを持たない）
 from harness.deliver.render import STATUS_LABEL as _STATUS_LABEL
 from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status

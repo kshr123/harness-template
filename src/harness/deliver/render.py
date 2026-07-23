@@ -29,7 +29,22 @@ STATUS_LABEL: dict[Status, str] = {
     Status.done: "完了",
 }
 
-COLUMNS = ("WBS", "作業", "チーム", "担当", "状態", "予定開始", "予定終了", "日数", "実績開始", "実績終了", "進捗")
+# 表の列（見出しと、幅・寄せを決める区分）。見出しの並びは形式に依らないので、表計算もここから引く。
+COLUMNS: tuple[tuple[str, str], ...] = (
+    ("WBS", "code"),
+    ("作業", "name"),
+    ("チーム", "who"),
+    ("担当", "who"),
+    ("状態", "st"),
+    ("予定開始", "d"),
+    ("予定終了", "d"),
+    ("日数", "n"),
+    ("実績開始", "d"),
+    ("実績終了", "d"),
+    ("進捗", "n"),
+)
+
+COLUMN_LABELS: tuple[str, ...] = tuple(label for label, _ in COLUMNS)
 
 # ガントの SVG の内部座標の幅（viewBox の幅）。実際の表示幅は CSS が決める（preserveAspectRatio="none"）。
 _CANVAS = 1000.0
@@ -81,26 +96,30 @@ def axis_ticks(span: tuple[date, date]) -> list[date]:
     """
     first, last = span
     days = (last - first).days + 1
+    out: list[date] = []
     if days <= 120:  # 4 か月まで＝週ごと（月曜）
-        out: list[date] = []
         day = first - timedelta(days=first.weekday())
         while day <= last:
             if day >= first:
                 out.append(day)
             day += timedelta(days=7)
-        return out
-    step = 1 if days <= 900 else 3  # 2 年半までは月ごと、それを超えたら四半期ごと
-    out = []
-    year, month = first.year, first.month
-    while True:
-        current = date(year, month, 1)
-        if current > last:
-            break
-        if current >= first:
-            out.append(current)
-        month += step
-        while month > 12:
-            year, month = year + 1, month - 12
+    else:
+        step = 1 if days <= 900 else 3  # 2 年半までは月ごと、それを超えたら四半期ごと
+        year, month = first.year, first.month
+        while True:
+            current = date(year, month, 1)
+            if current > last:
+                break
+            if current >= first:
+                out.append(current)
+            month += step
+            while month > 12:
+                year, month = year + 1, month - 12
+    # 期間の頭には必ず目盛を打つ。週や月の格子だけに任せると、**短い期間で目盛が 1 つも落ちない**
+    # （数日の工程は、格子の線がその期間の外にしか無い）＝軸から日付が消える。
+    if not out or out[0] != first:
+        crowded = bool(out) and (out[0] - first).days * (_CANVAS / days) < 40  # 近すぎる目盛は片方だけ残す
+        out = [first, *out[1:]] if crowded else [first, *out]
     return out
 
 
@@ -115,13 +134,17 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
     ticks: list[str] = []
     labels: list[str] = []
     total = (last - first).days + 1
+    monthly = total > 120  # 目盛の粒度は期間の長さで決まる（axis_ticks と同じ境目）
+    shown_year: int | None = None
     for day in axis_ticks(span):
         x = _x_of(day, span)
         ticks.append(f'<line x1="{x:.2f}" y1="7" x2="{x:.2f}" y2="14" />')
         # 書式指定子の `%-m` は Windows で例外になるので、数を直に組む（他プロファイルと同じく Windows も想定）。
-        labels.append(
-            f'<span class="axis-lab" style="left:{(day - first).days / total * 100:.3f}%">{day.month}/{day.day}</span>'
-        )
+        # 年は、先頭と年が変わるところに出す（毎回出すと重なって読めない・出さないと何年の話か分からない）。
+        stem = f"{day.month}" if monthly else f"{day.month}/{day.day}"
+        text = f"{day.year}/{stem}" if day.year != shown_year else stem
+        shown_year = day.year
+        labels.append(f'<span class="axis-lab" style="left:{(day - first).days / total * 100:.3f}%">{text}</span>')
     if first <= today <= last:
         tx = _x_of(today, span)
         ticks.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
@@ -174,6 +197,8 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, edita
     classes = [f"lv{depth}", f"src-{row.source}"]
     if row.late:
         classes.append("is-late")
+    if row.status is Status.done:
+        classes.append("is-done")
     unscheduled = not row.children and not row.scheduled
     if unscheduled:
         classes.append("is-unscheduled")
@@ -187,12 +212,19 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, edita
     status_label = STATUS_LABEL[row.status] if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
     toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
+    # 子を足せるのは「フォルダの単位」だけ（親はフォルダで表すので、ファイル 1 つの単位の下には置けない）。
+    can_add = editable and row.path is not None and row.path.name == "item.md"
+    add = (
+        f'<button class="add" type="button" data-ref="{_esc(row.ref)}" title="この下に作業を足す">＋</button>'
+        if can_add
+        else ""
+    )
     cells = [
-        f'<td class="code">{toggle if row.children else ""}{_esc(row.code)}</td>',
+        f'<td class="code">{toggle if row.children else ""}{add}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
-        _cell("team", _esc(row.team), row.team or "", row, fields, digest),
-        _cell("assignees", _esc("、".join(row.assignees)), "、".join(row.assignees), row, fields, digest),
-        _cell("status", _esc(status_label), row.status.value if row.status else "", row, fields, digest),
+        _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="who"),
+        _cell("assignees", _esc("、".join(row.assignees)), "、".join(row.assignees), row, fields, digest, css="who"),
+        _cell("status", _esc(status_label), row.status.value if row.status else "", row, fields, digest, css="st"),
         _cell("start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d"),
         _cell("due", _day_label(row.due), row.due.isoformat() if row.due else "", row, fields, digest, css="d"),
         f'<td class="n">{"" if row.workdays is None else row.workdays}</td>',
@@ -244,15 +276,30 @@ header { border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:1
 h1 { font-size:17px; margin:0 0 2px; }
 .meta { color:var(--muted); font-size:11px; }
 .scroll { overflow-x:auto; }
-table { border-collapse:collapse; width:100%; min-width:1100px; }
+/* 罫線はセルの右下だけに引く（sticky を効かせるため collapse を使わない）。 */
+table { border-collapse:separate; border-spacing:0; width:100%; min-width:900px; }
 thead { display:table-header-group; }
-th, td { border:1px solid var(--line); padding:2px 5px; vertical-align:middle; white-space:nowrap; }
+th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+         padding:2px 5px; vertical-align:middle; white-space:nowrap; }
+thead th { border-top:1px solid var(--line); }
+th:first-child, td:first-child { border-left:1px solid var(--line); }
 th { background:var(--sec); font-weight:600; font-size:11px; text-align:left; }
 tr { break-inside:avoid; }
-td.code { color:var(--muted); font-variant-numeric:tabular-nums; }
-td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:12px; }
-td.name { white-space:normal; min-width:220px; }
-td.gantt { width:45%; min-width:340px; padding:0 2px; }
+/* 左の表は必要な幅まで詰める＝いちばん見せたいガントが画面外へ押し出されないようにする。 */
+th.code, td.code { width:42px; color:var(--muted); font-variant-numeric:tabular-nums; }
+th.who, td.who { width:74px; overflow:hidden; text-overflow:ellipsis; }
+th.st, td.st { width:46px; }
+th.d, td.d { width:46px; }
+th.n, td.n { width:34px; }
+td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
+th.name, td.name { white-space:normal; min-width:150px; }
+th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; }
+/* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
+th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
+th.code, td.code { left:0; }
+th.name, td.name { left:42px; }
+thead th.code, thead th.name { z-index:3; background:var(--sec); }
+tr.lv0 > td.code, tr.lv0 > td.name { background:var(--sec); }
 .ref { color:var(--muted); font-size:10px; margin-left:6px; }
 .tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; padding:0 4px; margin-left:6px;
        border-radius:2px; }
@@ -261,6 +308,15 @@ tr.lv1 td.name { padding-left:18px; }
 tr.lv2 td.name { padding-left:34px; }
 tr.lv3 td.name { padding-left:50px; }
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
+/* 完了した行は落ち着かせる（残っている作業が目に入るように）。取り消し線は付けない＝実績の日付は読ませたい。 */
+tr.is-done > td { color:var(--muted); }
+tr.is-done rect.done { opacity:.55; }
+.ops { display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap; }
+.ops button { font:inherit; font-size:11px; color:var(--ink); background:var(--paper); cursor:pointer;
+              border:1px solid var(--line); border-radius:3px; padding:1px 8px; }
+.ops button:hover { background:var(--sec); }
+button.add { border:0; background:none; color:var(--plan); font:inherit; cursor:pointer; padding:0 3px 0 0; }
+button.add:hover { text-decoration:underline; }
 svg.bar, svg.axis { display:block; width:100%; height:14px; }
 svg.axis line { stroke:var(--line); stroke-width:1; }
 .axis-wrap { position:relative; height:14px; }
@@ -292,6 +348,10 @@ button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
   .scroll { overflow:visible; }
   table { min-width:0; }
   td.gantt { min-width:0; }
+  /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す。 */
+  th.code, td.code, th.name, td.name { position:static; }
+  /* 操作のボタンは紙に出さない。 */
+  .ops, button.add { display:none; }
 }
 """
 
@@ -325,6 +385,18 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
 # ＝畳んだまま刷って白紙のフェーズを渡す事故が、そもそも起こらない形にする。
 _VIEW_SCRIPT = """
 (function(){
+  function toggles(){ return document.querySelectorAll('.tw'); }
+  function setAll(open){
+    toggles().forEach(function(b){ b.setAttribute('aria-expanded', open?'true':'false');
+                                   b.textContent = open?'▾':'▸'; });
+    document.querySelectorAll('tr[data-code]').forEach(function(tr){
+      if(tr.dataset.code.indexOf('.')<0) return;         // 第 1 階層は常に見せる
+      tr.classList.toggle('hid', !open);
+    });
+  }
+  var fold=document.getElementById('fold'), unfold=document.getElementById('unfold');
+  if(fold) fold.addEventListener('click', function(){ setAll(false); });
+  if(unfold) unfold.addEventListener('click', function(){ setAll(true); });
   function hidden(code){
     var shut=document.querySelectorAll('.tw[aria-expanded="false"]');
     for(var i=0;i<shut.length;i++){
@@ -388,7 +460,20 @@ _EDIT_SCRIPT = """
     box.addEventListener('keydown',function(e){
       if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
   }
+  function add(parent){
+    if(busy) return; busy=true;
+    fetch('add',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({parent:parent})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('足した: '+r.body.id); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'足せなかった',true); } })
+      .catch(function(e){ busy=false; tell('足せなかった: '+e,true); });
+  }
   document.addEventListener('click',function(e){
+    var plus=e.target.closest && e.target.closest('button.add');
+    if(plus){ e.preventDefault(); add(plus.dataset.ref); return; }
+    var top=e.target.closest && e.target.closest('#addtop');
+    if(top){ e.preventDefault(); add(null); return; }
     var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
   document.addEventListener('keydown',function(e){
     if(e.key!=='Enter') return;
@@ -417,7 +502,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     ファイルに書き出す生成物は常に `editable=False`＝保存の口が無いので、渡した先で編集はできない。
     """
     span = wbs.span
-    head = "".join(f"<th>{_esc(c)}</th>" for c in COLUMNS)
+    head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css in COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
     body = "".join(_row_html(row, span, wbs.today, editable=editable) for row in wbs.walk())
     title = wbs.overlay.project or "WBS"
@@ -427,7 +512,11 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     if unscheduled:
         ids = "、".join(_esc(r.ref or r.name) for r in unscheduled)
         notes = f"<h2>未日程（{len(unscheduled)} 件）</h2><p>予定を置いていない作業: {ids}</p>"
+    period = f"　期間 {span[0].isoformat()} 〜 {span[1].isoformat()}" if span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
+    ops = ['<button id="fold" type="button">全部閉じる</button>', '<button id="unfold" type="button">全部展開</button>']
+    if editable:
+        ops.append('<button id="addtop" type="button">＋ 最上位に作業を足す</button>')
     edit_bits = ""
     if editable:
         banner += (
@@ -438,7 +527,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
-        f'<div class="meta">基準日 {wbs.today.isoformat()}　{_esc(provenance)}</div>{banner}</header>'
+        f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
+        f'<div class="ops">{"".join(ops)}</div></header>'
         f'<div class="scroll"><table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>'
         f"<footer>{_legend()}{notes}</footer><script>{_VIEW_SCRIPT}</script>{edit_bits}"
     )

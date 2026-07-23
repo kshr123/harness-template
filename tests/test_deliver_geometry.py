@@ -155,16 +155,16 @@ def test_a_task_due_exactly_today_is_not_late_yet(tmp_path: Path) -> None:
 
 def test_the_axis_thins_out_for_long_projects() -> None:
     """短い案件は週ごと、長い案件は月・四半期ごとに間引く（目盛が重なって読めなくなるのを防ぐ）。"""
-    short = render.axis_ticks((date(2026, 8, 3), date(2026, 9, 30)))
+    short = render.axis_ticks((date(2026, 8, 3), date(2026, 9, 30)))  # 8/3 は月曜＝格子と揃う
     assert all((later - earlier).days == 7 for earlier, later in zip(short[:-1], short[1:], strict=True))
 
     year = render.axis_ticks((date(2026, 1, 5), date(2026, 12, 31)))
-    assert all(day.day == 1 for day in year)  # 月ごと（月の頭）
-    assert len(year) <= 12
+    assert all(day.day == 1 for day in year[1:])  # 先頭（期間の頭）を除き月ごと（月の頭）
+    assert len(year) <= 13
 
     long_run = render.axis_ticks((date(2026, 1, 5), date(2029, 6, 30)))
-    assert len(long_run) <= 16  # 3 年半でも読める数に収まる
-    assert all(day.month in {1, 4, 7, 10} for day in long_run)  # 四半期ごと
+    assert len(long_run) <= 17  # 3 年半でも読める数に収まる
+    assert all(day.month in {1, 4, 7, 10} for day in long_run[1:])  # 四半期ごと
 
 
 def test_the_output_is_a_complete_document(tmp_path: Path) -> None:
@@ -191,3 +191,118 @@ def test_the_axis_labels_are_not_stretched_with_the_bars(tmp_path: Path) -> None
     axis = html.split('<div class="axis-wrap">')[1].split("</div>")[0]
     assert "<text" not in axis  # 文字は SVG の外
     assert 'class="axis-lab"' in axis
+
+
+def test_the_gantt_is_the_last_column_right_of_progress(tmp_path: Path) -> None:
+    """ガントは表の最後の列（進捗の右）にある。列の並びが崩れたら失敗する。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    header = html.split("<thead>")[1].split("</thead>")[0]
+    labels = [re.sub("<[^>]+>", "", cell) for cell in re.findall(r"<th[^>]*>(.*?)</th>", header, re.S)]
+    assert labels[-2] == "進捗"  # ガントの 1 つ手前が進捗
+    assert 'class="gantt"' in header
+    row = _row_markup(html, "T-9001")
+    assert row.rindex('class="gantt"') > row.rindex('class="n"')  # 本文でも進捗の右
+
+
+def test_the_table_stays_narrow_enough_to_show_the_gantt(tmp_path: Path) -> None:
+    """左の表を詰めて、ガントが画面外へ押し出されないようにする。
+
+    いちばん見せたい列が最初にスクロールで隠れる、という形にしない。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    table = re.search(r"table \{[^}]*min-width:(\d+)px", html)
+    gantt = re.search(r"th\.gantt, td\.gantt \{[^}]*min-width:(\d+)px", html)
+    assert table is not None and gantt is not None
+    table_min, gantt_min = int(table.group(1)), int(gantt.group(1))
+    assert table_min <= 900
+    assert gantt_min >= 260  # ガントに使える幅も確保する
+
+
+def test_the_first_columns_stay_visible_when_scrolled(tmp_path: Path) -> None:
+    """横に溢れても WBS 番号と作業名は左に貼り付く（どの作業の棒かが読める）。印刷では普通の列に戻す。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    assert "th.code, td.code, th.name, td.name { position:sticky;" in html
+    printed = html.split("@media print {")[1]
+    assert "th.code, td.code, th.name, td.name { position:static; }" in printed
+
+
+def test_the_axis_shows_the_year_where_it_matters(tmp_path: Path) -> None:
+    """軸の日付に年を出す（先頭と、年が変わるところ）。何年の話か分からない工程表を渡さない。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-11-02", "due": "2026-12-25"},
+        {"id": "T-9002", "kind": "task", "status": "todo", "start": "2027-01-04", "due": "2027-02-26"},
+    )
+    html = _render(tmp_path, date(2026, 12, 1))
+    labels = re.findall(r'<span class="axis-lab"[^>]*>(.*?)</span>', html)
+    assert labels[0].startswith("2026/")  # 先頭は年つき
+    assert any(label.startswith("2027/") for label in labels)  # 年が変わったところにも出す
+    assert sum(1 for label in labels if "/" in label and label.count("/") == 2) <= 2  # 毎回は出さない
+
+
+def test_a_finished_row_is_toned_down(tmp_path: Path) -> None:
+    """完了した行は落ち着かせる（残っている作業が目に入るように）。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "done", "start": "2026-08-03", "due": "2026-08-07"},
+        {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
+    )
+    html = _render(tmp_path, date(2026, 8, 11))
+    assert "is-done" in _row_markup(html, "T-9001")
+    assert "is-done" not in _row_markup(html, "T-9002")
+    assert "tr.is-done > td { color:var(--muted); }" in html
+
+
+def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:
+    """全部閉じる／全部展開の操作を出す（階層が深い工程表を 1 手で見渡せるように）。"""
+    epic = tmp_path / "work" / "EP-90-alpha"
+    _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(
+        epic / "T-9001-a.md",
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    assert 'id="fold"' in html and 'id="unfold"' in html
+    assert "全部閉じる" in html and "全部展開" in html
+
+
+def test_the_header_states_the_period_in_full_dates(tmp_path: Path) -> None:
+    """見出しに期間を年月日で出す（軸の目盛だけに頼らせない）。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    assert "期間 2026-08-03 〜 2026-08-07" in html
+
+
+def test_a_short_project_still_gets_dates_on_the_axis() -> None:
+    """数日しかない工程でも軸に日付が出る（週や月の格子だけに任せると目盛が 1 つも落ちない）。"""
+    one_day = render.axis_ticks((date(2026, 7, 23), date(2026, 7, 23)))
+    assert one_day == [date(2026, 7, 23)]
+
+    few_days = render.axis_ticks((date(2026, 7, 23), date(2026, 7, 27)))  # 木曜〜月曜（間に月曜が 1 つ）
+    assert few_days[0] == date(2026, 7, 23)
+    assert len(few_days) >= 1
+
+
+def test_the_first_tick_is_always_the_start_of_the_period() -> None:
+    """どの粒度でも、期間の頭に目盛がある（軸の左端が何日か分からない、を無くす）。"""
+    for span in (
+        (date(2026, 8, 3), date(2026, 9, 30)),
+        (date(2026, 1, 5), date(2026, 12, 31)),
+        (date(2026, 1, 5), date(2029, 6, 30)),
+    ):
+        assert render.axis_ticks(span)[0] == span[0]

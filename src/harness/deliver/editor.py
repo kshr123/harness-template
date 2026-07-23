@@ -36,8 +36,8 @@ from harness.models import Item, Status
 EDITABLE_WORK_FIELDS: frozenset[str] = frozenset({"title", "status", "owner", "start", "due", "effort_days"})
 EDITABLE_MANUAL_FIELDS: frozenset[str] = frozenset({"name", "status", "team", "start", "due", "effort_days"})
 
-# 読み取り〜書き込みを囲う錠（1 人用の道具なので 1 つで足りる）。
-_LOCK = threading.Lock()
+# 読み取り〜書き込みを囲う錠（1 人用の道具なので 1 つで足りる）。書き込む口はすべてこれを取る。
+LOCK = threading.Lock()
 
 
 class EditRejected(Exception):
@@ -190,20 +190,20 @@ def _check_readback(actual: str | None, expected: str | None, field: str) -> Non
         )
 
 
-def _find_item_path(root: Path, item_id: str) -> Path:
+def find_item_path(root: Path, item_id: str) -> Path:
     """作業単位 ID からその単位のファイルを引く。"""
     nodes, _ = pm.load_tree(root)
-    for node in _walk(nodes):
+    for node in walk_nodes(nodes):
         if node.item.id == item_id:
             return node.path / pm.MARKER if node.path.is_dir() else node.path
     raise EditRejected(f"作業単位 '{item_id}' が work/ に見つからない")
 
 
-def _walk(nodes: list[pm.Node]) -> list[pm.Node]:
+def walk_nodes(nodes: list[pm.Node]) -> list[pm.Node]:
     out: list[pm.Node] = []
     for node in nodes:
         out.append(node)
-        out.extend(_walk(node.children))
+        out.extend(walk_nodes(node.children))
     return out
 
 
@@ -241,14 +241,14 @@ def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str
     """
     from harness.deliver import wbs_lint  # 検査は書いた後に呼ぶだけ（相互 import を避けて局所に置く）
 
-    with _LOCK:
+    with LOCK:
         manual = ref.startswith("W-")
         if manual:
             _check_field(field, EDITABLE_MANUAL_FIELDS)
             path = root / OVERLAY_PATH
         else:
             _check_field(field, EDITABLE_WORK_FIELDS)
-            path = _find_item_path(root, ref)
+            path = find_item_path(root, ref)
 
         current = file_digest(path)
         if base_digest and base_digest != current:
