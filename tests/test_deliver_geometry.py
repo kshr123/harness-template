@@ -191,7 +191,7 @@ def test_the_axis_labels_are_not_stretched_with_the_bars(tmp_path: Path) -> None
     html = _render(tmp_path, date(2026, 8, 5))
     axis = html.split('<div class="axis-wrap">')[1].split("</div>")[0]
     assert "<text" not in axis  # 文字は SVG の外
-    assert 'class="axis-lab"' in axis
+    assert "axis-lab" in axis
 
 
 def test_the_gantt_is_the_last_column_right_of_progress(tmp_path: Path) -> None:
@@ -247,10 +247,11 @@ def test_the_axis_shows_the_year_where_it_matters(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2027-01-04", "due": "2027-02-26"},
     )
     html = _render(tmp_path, date(2026, 12, 1))
-    labels = re.findall(r'<span class="axis-lab"[^>]*>(.*?)</span>', html)
+    labels = re.findall(r'<span class="axis-lab[^"]*"[^>]*>(.*?)</span>', html)
     assert labels[0].startswith("2026/")  # 先頭は年つき
     assert any(label.startswith("2027/") for label in labels)  # 年が変わったところにも出す
-    assert sum(1 for label in labels if "/" in label and label.count("/") == 2) <= 2  # 毎回は出さない
+    # 週と月の 2 組を出すので、年つきは各組の先頭と年替わりだけ（毎回は出さない）。
+    assert sum(1 for label in labels if label.count("/") == 2) <= 4
 
 
 def test_a_finished_row_is_toned_down(tmp_path: Path) -> None:
@@ -344,8 +345,8 @@ def test_every_row_carries_the_time_grid(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     row = _row_markup(html, "T-9001")
-    grid = [float(x) for x in re.findall(r'<line class="grid" x1="([\d.]+)"', row)]
-    ticks = [render._x_of(day, WINDOW) for day in render.axis_ticks(WINDOW)[1:]]
+    grid = [float(x) for x in re.findall(r'<line class="grid g-w" x1="([\d.]+)"', row)]
+    ticks = [render._x_of(day, WINDOW) for day in render.week_ticks(WINDOW)[1:]]
     assert grid == pytest.approx(ticks, abs=0.01)
     assert grid, "格子が 1 本も引かれていない"
 
@@ -364,3 +365,29 @@ def test_non_working_days_are_shaded(tmp_path: Path) -> None:
     assert len(bands) == 2
     assert bands[0][0] == pytest.approx(5 * PER_DAY, abs=0.01)  # 最初の土曜＝5 日後
     assert bands[0][1] == pytest.approx(2 * PER_DAY, abs=0.01)  # 土日の 2 日分
+
+
+def test_both_the_week_and_month_grids_are_available(tmp_path: Path) -> None:
+    """週と月の両方の目盛を書き出しておく（単位の切り替えでサーバへ行かないため）。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-12-18"},
+    )
+    html = _render(tmp_path, date(2026, 9, 1))
+    row = _row_markup(html, "T-9001")
+    assert re.search(r'<line class="grid g-w"', row)
+    assert re.search(r'<line class="grid g-m"', row)
+    assert 'class="axis-lab lab-w"' in html
+    assert 'class="axis-lab lab-m"' in html
+
+
+def test_the_view_offers_the_gantt_units(tmp_path: Path) -> None:
+    """ガントの単位（自動・月・週・日）を選ぶ操作が画面にある。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    for unit in ("auto", "m", "w", "d"):
+        assert f'data-zoom="{unit}"' in html
+    assert "data-days=" in html  # 幅の計算に使う日数を画面が持っている

@@ -109,9 +109,12 @@ def backdrop(span: tuple[date, date], calendar: WorkCalendar, today: date) -> st
                 parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{_x_of(day, span) - x:.2f}" height="14" />')
                 run_start = None
             day += timedelta(days=1)
-    for tick in axis_ticks(span)[1:]:  # 先頭は列の左端なので線を引かない
-        x = _x_of(tick, span)
-        parts.append(f'<line class="grid" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="14" />')
+    for kind, ticks in (("w", week_ticks(span)), ("m", month_ticks(span))):
+        for tick in ticks:
+            if tick == first:  # 先頭は列の左端なので線を引かない
+                continue
+            x = _x_of(tick, span)
+            parts.append(f'<line class="grid g-{kind}" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="14" />')
     if first <= today <= last:
         tx = _x_of(today, span) + scale / 2
         parts.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
@@ -138,6 +141,39 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
             parts.append(f'<rect class="prog" x="{x:.2f}" y="5" width="{width * row.progress:.2f}" height="4" />')
     parts.append("</svg>")
     return "".join(parts)
+
+
+def week_ticks(span: tuple[date, date]) -> list[date]:
+    """週の目盛（月曜）。期間の頭は必ず入れる。"""
+    first, last = span
+    out: list[date] = []
+    day = first - timedelta(days=first.weekday())
+    while day <= last:
+        if day >= first:
+            out.append(day)
+        day += timedelta(days=7)
+    if not out or out[0] != first:
+        out = [first, *out]
+    return out
+
+
+def month_ticks(span: tuple[date, date]) -> list[date]:
+    """月の目盛（月の頭）。期間の頭は必ず入れる。"""
+    first, last = span
+    out: list[date] = []
+    year, month = first.year, first.month
+    while True:
+        current = date(year, month, 1)
+        if current > last:
+            break
+        if current >= first:
+            out.append(current)
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+    if not out or out[0] != first:
+        out = [first, *out]
+    return out
 
 
 def axis_ticks(span: tuple[date, date]) -> list[date]:
@@ -186,17 +222,18 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
     ticks: list[str] = []
     labels: list[str] = []
     total = (last - first).days + 1
-    monthly = total > 120  # 目盛の粒度は期間の長さで決まる（axis_ticks と同じ境目）
-    shown_year: int | None = None
-    for day in axis_ticks(span):
-        x = _x_of(day, span)
-        ticks.append(f'<line x1="{x:.2f}" y1="7" x2="{x:.2f}" y2="14" />')
-        # 書式指定子の `%-m` は Windows で例外になるので、数を直に組む（他プロファイルと同じく Windows も想定）。
-        # 年は、先頭と年が変わるところに出す（毎回出すと重なって読めない・出さないと何年の話か分からない）。
-        stem = f"{day.month}" if monthly else f"{day.month}/{day.day}"
-        text = f"{day.year}/{stem}" if day.year != shown_year else stem
-        shown_year = day.year
-        labels.append(f'<span class="axis-lab" style="left:{(day - first).days / total * 100:.3f}%">{text}</span>')
+    for kind, days, monthly in (("w", week_ticks(span), False), ("m", month_ticks(span), True)):
+        shown_year: int | None = None
+        for day in days:
+            x = _x_of(day, span)
+            ticks.append(f'<line class="g-{kind}" x1="{x:.2f}" y1="7" x2="{x:.2f}" y2="14" />')
+            # 書式指定子の `%-m` は Windows で例外になるので、数を直に組む（Windows も想定）。
+            # 年は、先頭と年が変わるところに出す（毎回出すと重なって読めない・出さないと何年か分からない）。
+            stem = f"{day.month}" if monthly else f"{day.month}/{day.day}"
+            text = f"{day.year}/{stem}" if day.year != shown_year else stem
+            shown_year = day.year
+            left = (day - first).days / total * 100
+            labels.append(f'<span class="axis-lab lab-{kind}" style="left:{left:.3f}%">{text}</span>')
     if first <= today <= last:
         tx = _x_of(today, span)
         ticks.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
@@ -287,15 +324,10 @@ def _row_html(
     status_label = STATUS_LABEL[row.status] if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
     toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
-    # 子を足せるのは「フォルダの単位」だけ（親はフォルダで表すので、ファイル 1 つの単位の下には置けない）。
+    # 下の階層を持てるのは「フォルダの単位」だけ（親はフォルダで表すので、ファイル 1 つの単位の下には置けない）。
     can_add = editable and row.path is not None and row.path.name == "item.md"
-    add = (
-        f'<button class="add" type="button" data-ref="{_esc(row.ref)}" title="この下に作業を足す">＋</button>'
-        if can_add
-        else ""
-    )
     cells = [
-        f'<td class="code">{toggle if row.children else ""}{add}{_esc(row.code)}</td>',
+        f'<td class="code">{toggle if row.children else ""}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
         _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="who", choices=names["teams"]),
         _cell(
@@ -320,6 +352,7 @@ def _row_html(
     holder = _esc(row.ref) if can_add else ""
     return (
         f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}" data-ref="{_esc(row.ref or "")}"'
+        f' data-name="{_esc(row.name)}" data-level="{depth + 1}"'
         f' data-holder="{holder}" data-parent="{_esc(parent)}">{"".join(cells)}</tr>'
     )
 
@@ -395,6 +428,14 @@ th.n, td.n { width:34px; }
 td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
 th.name, td.name { white-space:normal; min-width:150px; }
 th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; }
+/* 自動のときは期間の長さで粒度を選ぶ。拡大縮小（日・週・月）はこれを上書きする。 */
+.scroll.auto-w .g-m, .scroll.auto-w .lab-m { display:none; }
+.scroll.auto-m .g-w, .scroll.auto-m .lab-w { display:none; }
+.scroll.zoom-d .g-m, .scroll.zoom-d .lab-m { display:none; }
+.scroll.zoom-w .g-m, .scroll.zoom-w .lab-m { display:none; }
+.scroll.zoom-m .g-w, .scroll.zoom-m .lab-w { display:none; }
+.scroll.zoomed th.gantt, .scroll.zoomed td.gantt { width:var(--gw); min-width:var(--gw); max-width:var(--gw); }
+.scroll.zoomed table { min-width:0; }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 th.code, td.code { left:0; }
@@ -416,8 +457,8 @@ tr.is-done rect.done { opacity:.55; }
 .ops button { font:inherit; font-size:11px; color:var(--ink); background:var(--paper); cursor:pointer;
               border:1px solid var(--line); border-radius:3px; padding:1px 8px; }
 .ops button:hover { background:var(--sec); }
-button.add { border:0; background:none; color:var(--plan); font:inherit; cursor:pointer; padding:0 3px 0 0; }
-button.add:hover { text-decoration:underline; }
+.ops .sep { color:var(--muted); font-size:11px; margin-left:10px; }
+.ops button.zoom[aria-pressed="true"] { background:var(--plan); color:#fff; border-color:var(--plan); }
 svg.bar, svg.axis { display:block; width:100%; height:14px; }
 svg.axis line { stroke:var(--line); stroke-width:1; }
 rect.off { fill:var(--ink); opacity:.07; }
@@ -454,7 +495,7 @@ button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
   /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す。 */
   th.code, td.code, th.name, td.name { position:static; }
   /* 操作のボタンは紙に出さない。 */
-  .ops, button.add { display:none; }
+  .ops { display:none; }
 }
 """
 
@@ -488,12 +529,33 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
 #menu button { display:block; width:100%; text-align:left; font:inherit; font-size:12px; color:var(--ink);
                background:none; border:0; padding:5px 14px; cursor:pointer; }
 #menu button:hover { background:var(--sec); }
+#menu .mhead { padding:5px 14px 6px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--line);
+               margin-bottom:3px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#menu .mrule { border-top:1px solid var(--line); margin:3px 0; }
 """
 
 # 折りたたみ（閲覧・編集の両方に付く）。行を DOM から消さずに隠すだけにして、印刷では CSS が必ず戻す
 # ＝畳んだまま刷って白紙のフェーズを渡す事故が、そもそも起こらない形にする。
 _VIEW_SCRIPT = """
 (function(){
+  // ガントの単位（日・週・月）。1 日あたりの幅を変えるだけ＝棒も格子も同じ表の中で伸び縮みするので、
+  // 行と棒がずれない（表ごと横にスクロールする）。
+  var PX={d:22,w:7,m:2.2};
+  var scroll=document.querySelector('.scroll');
+  function zoom(kind){
+    if(!scroll) return;
+    var days=Number(scroll.dataset.days||0);
+    ['zoom-d','zoom-w','zoom-m','zoomed'].forEach(function(c){ scroll.classList.remove(c); });
+    if(kind!=='auto' && days>0){
+      scroll.style.setProperty('--gw', Math.max(Math.round(days*PX[kind]),240)+'px');
+      scroll.classList.add('zoomed','zoom-'+kind);
+    }
+    document.querySelectorAll('.zoom').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.zoom===kind)); });
+  }
+  document.querySelectorAll('.zoom').forEach(function(b){
+    b.addEventListener('click',function(){ zoom(b.dataset.zoom); }); });
+  zoom('auto');
   function toggles(){ return document.querySelectorAll('.tw'); }
   function setAll(open){
     toggles().forEach(function(b){ b.setAttribute('aria-expanded', open?'true':'false');
@@ -596,10 +658,10 @@ _EDIT_SCRIPT = """
     box.addEventListener('keydown',function(e){
       if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
   }
-  function add(parent){
+  function add(ref, where){
     if(busy) return; busy=true;
     fetch('add',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
-      body:JSON.stringify({parent:parent})})
+      body:JSON.stringify({ref:ref, where:where})})
       .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
       .then(function(r){ if(r.ok){ tell('足した: '+r.body.id); location.reload(); }
                          else { busy=false; tell(r.body.detail||'足せなかった',true); } })
@@ -621,27 +683,34 @@ _EDIT_SCRIPT = """
     b.addEventListener('click',function(){ hideMenu(); fn(); });
     return b;
   }
+  function head(text){
+    var h=document.createElement('div'); h.className='mhead'; h.textContent=text; return h;
+  }
+  function rule(){ var r=document.createElement('div'); r.className='mrule'; return r; }
   document.addEventListener('contextmenu',function(e){
     var tr=e.target.closest && e.target.closest('tr[data-ref]');
     if(!tr || !menu || !tr.dataset.ref) return;
     e.preventDefault();
     menu.textContent='';
-    var ref=tr.dataset.ref, holder=tr.dataset.holder, parent=tr.dataset.parent;
-    if(holder) menu.appendChild(item('この下に作業を足す',function(){ add(holder); }));
-    if(parent) menu.appendChild(item('同じ階層に作業を足す',function(){ add(parent); }));
+    var ref=tr.dataset.ref, holder=tr.dataset.holder;
+    var code=tr.dataset.code, name=tr.dataset.name||'', level=tr.dataset.level;
+    // どの行のどの階層を触っているのかを、操作の前に見せる。
+    menu.appendChild(head(code+' '+name+'　（第'+level+'階層）'));
+    menu.appendChild(item('第'+level+'階層　この行の上に足す',function(){ add(ref,'above'); }));
+    menu.appendChild(item('第'+level+'階層　この行の下に足す',function(){ add(ref,'below'); }));
+    if(holder) menu.appendChild(item('第'+(Number(level)+1)+'階層　この行の中に足す',function(){ add(ref,'child'); }));
+    menu.appendChild(rule());
+    menu.appendChild(item('第1階層　いちばん上の階層に足す',function(){ add(null,'top'); }));
+    menu.appendChild(rule());
     menu.appendChild(item('名前を変える',function(){
       var cell=tr.querySelector('td.edit.name'); if(cell) open(cell); }));
     menu.appendChild(item('消す',function(){
-      if(window.confirm(ref+' を消す。よろしいか？')) del(ref); }));
+      if(window.confirm(code+' '+name+'（'+ref+'）を消す。よろしいか？')) del(ref); }));
     menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
   });
   document.addEventListener('click',hideMenu);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
   document.addEventListener('click',function(e){
-    var plus=e.target.closest && e.target.closest('button.add');
-    if(plus){ e.preventDefault(); add(plus.dataset.ref); return; }
-    var top=e.target.closest && e.target.closest('#addtop');
-    if(top){ e.preventDefault(); add(null); return; }
     var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
   document.addEventListener('keydown',function(e){
     if(e.key!=='Enter') return;
@@ -674,6 +743,9 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     back = backdrop(span, wbs.overlay.calendar.to_calendar(), wbs.today) if span else ""
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css in COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
+    days = ((span[1] - span[0]).days + 1) if span else 0
+    # 自動のときは期間の長さで粒度を選ぶ（短い案件は週・長い案件は月）。拡大縮小はこれを上書きする。
+    auto = "auto-m" if days > 120 else "auto-w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
     body = "".join(
@@ -689,9 +761,15 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         notes = f"<h2>未日程（{len(unscheduled)} 件）</h2><p>予定を置いていない作業: {ids}</p>"
     period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
-    ops = ['<button id="fold" type="button">全部閉じる</button>', '<button id="unfold" type="button">全部展開</button>']
-    if editable:
-        ops.append('<button id="addtop" type="button">＋ 最上位に作業を足す</button>')
+    ops = [
+        '<button id="fold" type="button">全部閉じる</button>',
+        '<button id="unfold" type="button">全部展開</button>',
+        '<span class="sep">ガントの単位</span>',
+        '<button class="zoom" data-zoom="auto" type="button">自動</button>',
+        '<button class="zoom" data-zoom="m" type="button">月</button>',
+        '<button class="zoom" data-zoom="w" type="button">週</button>',
+        '<button class="zoom" data-zoom="d" type="button">日</button>',
+    ]
     edit_bits = ""
     if editable:
         banner += (
@@ -706,7 +784,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div></header>'
-        f'<div class="scroll"><table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>'
+        f'<div class="scroll {auto}" data-days="{days}">'
+        f"<table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>"
         f"<footer>{_legend()}{notes}</footer><script>{_VIEW_SCRIPT}</script>{edit_bits}"
     )
     return _DOCUMENT.format(title=_esc(title), body=inner)

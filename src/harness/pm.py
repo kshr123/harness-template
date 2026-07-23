@@ -75,8 +75,16 @@ def _parse_item(path: Path, problems: list[Problem]) -> Item | None:
         return None
 
 
+# 並び順を書いていない単位を後ろに送るための番兵（順序を書いた単位だけが前に出る）。
+_NO_ORDER = 10**9
+
+
 def _load_dir(dir_path: Path, problems: list[Problem]) -> list[Node]:
-    """ディレクトリ直下の作業単位（子ディレクトリの item.md と、印の付いたファイル）を読む。"""
+    """ディレクトリ直下の作業単位（子ディレクトリの item.md と、印の付いたファイル）を読む。
+
+    並びは `order`（人が決める並び順）→ ファイル名の順。`order` を書いていなければ従来どおり
+    ファイル名の順になる（順序を気にしない案件の見え方は変わらない）。
+    """
     nodes: list[Node] = []
     for entry in sorted(dir_path.iterdir()):
         if entry.is_dir():
@@ -90,6 +98,7 @@ def _load_dir(dir_path: Path, problems: list[Problem]) -> list[Node]:
             item = _parse_item(entry, problems)
             if item is not None:
                 nodes.append(Node(item, entry, []))
+    nodes.sort(key=lambda n: (_NO_ORDER if n.item.order is None else n.item.order, n.path.name))
     return nodes
 
 

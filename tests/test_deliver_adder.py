@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from harness import pm
 from harness.deliver import wbs_lint
-from harness.deliver.adder import add_child
+from harness.deliver.adder import add_child, add_sibling
 from harness.deliver.editor import EditRejected
 from harness.deliver.server import create_app
 from harness.models import Kind, Status
@@ -32,6 +32,20 @@ def _write(path: Path, meta: dict[str, Any]) -> None:
     post = frontmatter.Post("")
     post.metadata.update(meta)
     path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+
+def _order(root: Path) -> list[str]:
+    """表示順（木をたどった順）の ID の並び。"""
+    nodes, _ = pm.load_tree(root)
+
+    def walk(ns: list[pm.Node]) -> list[str]:
+        out: list[str] = []
+        for node in ns:
+            out.append(node.item.id)
+            out.extend(walk(node.children))
+        return out
+
+    return walk(nodes)
 
 
 def _items(root: Path) -> dict[str, Any]:
@@ -124,17 +138,17 @@ def test_adding_through_the_server_needs_the_token(tmp_path: Path) -> None:
     )
     client = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1")
 
-    refused = client.post("/add", json={"parent": "EP-90"})
+    refused = client.post("/add", json={"ref": "EP-90", "where": "child"})
     assert refused.status_code == 403
     assert len(_items(tmp_path)) == 2
 
-    added = client.post("/add", json={"parent": "EP-90"}, headers={"X-WBS-Token": TOKEN})
+    added = client.post("/add", json={"ref": "EP-90", "where": "child"}, headers={"X-WBS-Token": TOKEN})
     assert added.status_code == 200, added.text
     assert added.json()["id"] in _items(tmp_path)
 
 
-def test_the_edit_page_offers_the_add_controls(tmp_path: Path) -> None:
-    """フォルダの単位には「＋」が出て、最上位に足す操作も画面にある（足し方が分からない、を無くす）。"""
+def test_the_edit_page_carries_what_the_menu_needs(tmp_path: Path) -> None:
+    """足す操作は右クリックに寄せる（ボタンを行に置かない）。行はどの階層かと足せる先を持つ。"""
     epic = tmp_path / "work" / "EP-90-alpha"
     _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
     _write(
@@ -142,6 +156,46 @@ def test_the_edit_page_offers_the_add_controls(tmp_path: Path) -> None:
         {"id": "T-0001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
     page = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1").get("/")
-    assert 'class="add" type="button" data-ref="EP-90"' in page.text
-    assert 'data-ref="T-0001" title' not in page.text  # ファイルの単位には出さない
-    assert 'id="addtop"' in page.text
+    assert 'class="add"' not in page.text  # 行に「＋」は置かない
+    epic_row = next(part for part in page.text.split("<tr") if "EP-90" in part)
+    task_row = next(part for part in page.text.split("<tr") if "T-0001" in part)
+    assert 'data-level="1"' in epic_row and 'data-holder="EP-90"' in epic_row
+    assert 'data-level="2"' in task_row and 'data-holder=""' in task_row  # ファイルの単位は中に持てない
+    assert 'id="menu"' in page.text
+
+
+def test_a_sibling_can_be_placed_above_or_below(tmp_path: Path) -> None:
+    """右クリックの「上に足す／下に足す」が、その位置に入る。
+
+    並びはファイル名の順（実質 ID 順）で ID は最大＋1 でしか採れないため、順序を書かないと「上」は
+    表現できない。最初の挿入でその置き場の並びを 10 刻みで書き出し、新しい行にはその間の値を与える。
+    """
+    epic = tmp_path / "work" / "EP-90-alpha"
+    _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(epic / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo", "title": "設計"})
+    _write(epic / "T-0002-b.md", {"id": "T-0002", "kind": "task", "status": "todo", "title": "実装"})
+
+    above = add_sibling(tmp_path, "T-0002", above=True, today=TODAY)
+    assert _order(tmp_path) == ["EP-90", "T-0001", above, "T-0002"]
+
+    below = add_sibling(tmp_path, "T-0001", above=False, today=TODAY)
+    assert _order(tmp_path) == ["EP-90", "T-0001", below, above, "T-0002"]
+
+
+def test_the_written_order_is_spaced_so_more_fit_between(tmp_path: Path) -> None:
+    """並び順は詰めずに刻んで振る（次の挿入が 1 行の書き足しで済む）。"""
+    epic = tmp_path / "work" / "EP-90-alpha"
+    _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(epic / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
+    add_sibling(tmp_path, "T-0001", above=False, today=TODAY)
+    orders = [item.order for item in _items(tmp_path).values() if item.id.startswith("T-")]
+    assert orders == [10, 20]
+
+
+def test_a_project_without_any_order_keeps_the_filename_order(tmp_path: Path) -> None:
+    """順序を書いていない案件の並びは、これまでどおりファイル名の順（既定の見え方を変えない）。"""
+    epic = tmp_path / "work" / "EP-90-alpha"
+    _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(epic / "T-0002-b.md", {"id": "T-0002", "kind": "task", "status": "todo"})
+    _write(epic / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
+    assert _order(tmp_path) == ["EP-90", "T-0001", "T-0002"]

@@ -23,7 +23,7 @@ import threading
 import time
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict
 
 from harness.deliver import render
 from harness.deliver import wbs as wbs_mod
-from harness.deliver.adder import add_child
+from harness.deliver.adder import add_child, add_sibling
 from harness.deliver.editor import EditRejected, apply_edit
 from harness.deliver.remover import remove
 
@@ -78,11 +78,12 @@ class RemoveRequest(BaseModel):
 
 
 class AddRequest(BaseModel):
-    """`POST /add` の本文。parent は足す先の作業単位（None なら work/ の直下）。"""
+    """`POST /add` の本文。`where` が足す向き（いちばん上の階層／この行の中／上／下）。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    parent: str | None = None
+    ref: str | None = None  # 基準にする行（top のときは不要）
+    where: Literal["top", "child", "above", "below"] = "top"
 
 
 class EditRequest(BaseModel):
@@ -94,6 +95,17 @@ class EditRequest(BaseModel):
     field: str
     value: str
     base: str = ""
+
+
+def _place(root: Path, payload: AddRequest, *, today: date) -> str:
+    """足す向きに応じて置き場を決める（画面が持っている「どこへ」をそのまま実行する）。"""
+    if payload.where == "top":
+        return add_child(root, None, today=today)
+    if payload.ref is None:
+        raise EditRejected("どの行を基準にするか指定されていない")
+    if payload.where == "child":
+        return add_child(root, payload.ref, today=today)
+    return add_sibling(root, payload.ref, above=payload.where == "above", today=today)
 
 
 def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None) -> FastAPI:
@@ -134,7 +146,7 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
         if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
             raise HTTPException(status_code=403, detail="合言葉が違う")
         try:
-            new_id = add_child(root, payload.parent, today=today)
+            new_id = _place(root, payload, today=today)
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"id": new_id}

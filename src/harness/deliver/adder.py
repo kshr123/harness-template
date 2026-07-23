@@ -51,6 +51,10 @@ def _strip_keys(text: str, keys: tuple[str, ...]) -> str:
     return text
 
 
+# 並び順の刻み。間に挿せるよう、詰めずに間隔を空けて振る。
+_ORDER_STEP = 10
+
+
 def add_child(root: Path, parent_ref: str | None, *, today: date) -> str:
     """`parent_ref` の下（None なら `work/` の直下）に作業単位を 1 つ作り、その ID を返す。
 
@@ -60,7 +64,68 @@ def add_child(root: Path, parent_ref: str | None, *, today: date) -> str:
         return _add(root, parent_ref, today=today)
 
 
-def _add(root: Path, parent_ref: str | None, *, today: date) -> str:
+def add_sibling(root: Path, ref: str, *, above: bool, today: date) -> str:
+    """`ref` の**すぐ上／すぐ下**に、同じ置き場の作業単位を 1 つ作る。
+
+    並びはファイル名の順（実質 ID 順）で、ID は既存の最大＋1 でしか採れない。だから「上に足す」は
+    順序を書かないと表現できない。ここで**その置き場の並び順をいったん書き出し**（今の見た目のまま
+    10 刻みで振る）、新しい行にはその間の値を与える。以後の挿入は 1 行の書き足しで済む。
+    """
+    with LOCK:
+        nodes, _ = pm.load_tree(root)
+        target = next((n for n in walk_nodes(nodes) if n.item.id == ref), None)
+        if target is None:
+            raise EditRejected(f"作業単位 '{ref}' が work/ に見つからない")
+        siblings = _siblings_of(nodes, ref)
+        holder = _holder_of(root, nodes, ref)
+        new_id = _add(root, holder, today=today, skip_inherit=True)
+        _renumber(siblings, ref, new_id, above=above, root=root)
+        return new_id
+
+
+def _siblings_of(nodes: list[pm.Node], ref: str) -> list[pm.Node]:
+    """その単位と同じ置き場に並んでいる単位（自分を含む・表示順）。"""
+    if any(n.item.id == ref for n in nodes):
+        return nodes
+    for node in nodes:
+        found = _siblings_of(node.children, ref)
+        if found:
+            return found
+    return []
+
+
+def _holder_of(root: Path, nodes: list[pm.Node], ref: str) -> str | None:
+    """その単位が入っている置き場（フォルダの単位の ID。`work/` 直下なら None）。"""
+    for node in nodes:
+        if any(child.item.id == ref for child in node.children):
+            return node.item.id
+        found = _holder_of(root, node.children, ref)
+        if found is not None:
+            return found
+    return None
+
+
+def _renumber(siblings: list[pm.Node], ref: str, new_id: str, *, above: bool, root: Path) -> None:
+    """その置き場の並び順を書き出し直す（今の見た目のまま 10 刻み・新しい行を狙った位置へ）。"""
+    order = [n.item.id for n in siblings]
+    at = order.index(ref)
+    order.insert(at if above else at + 1, new_id)
+    nodes, _ = pm.load_tree(root)
+    by_id = {n.item.id: n for n in walk_nodes(nodes)}
+    for position, item_id in enumerate(order, start=1):
+        node = by_id.get(item_id)
+        if node is None:
+            continue
+        path = node.path / pm.MARKER if node.path.is_dir() else node.path
+        text = path.read_text(encoding="utf-8")
+        value = position * _ORDER_STEP
+        new_text, count = re.subn(r"(?m)^order\s*:.*$", f"order: {value}", text, count=1)
+        if count == 0:
+            new_text = text.replace("\nid:", f"\norder: {value}\nid:", 1)
+        path.write_text(new_text, encoding="utf-8")
+
+
+def _add(root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool = False) -> str:
     nodes, problems = pm.load_tree(root)
     if any(p.level == "error" for p in problems):
         raise EditRejected("work/ の読み取りに失敗している状態では足せない（先に指摘を直す）")
@@ -83,7 +148,7 @@ def _add(root: Path, parent_ref: str | None, *, today: date) -> str:
         parent_text = parent_path.read_text(encoding="utf-8")
         has_children = any(node.children for node in walk_nodes(nodes) if node.item.id == parent_ref)
         inherited = {}
-        if not has_children:
+        if not has_children and not skip_inherit:
             for key in _MOVED_TO_CHILD:
                 value = _frontmatter_value(parent_text, key)
                 if value:
