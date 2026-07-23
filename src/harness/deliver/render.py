@@ -236,11 +236,26 @@ def _intervals(ticks: list[date], span: tuple[date, date]) -> list[tuple[date, f
     return out
 
 
-def _labels(ticks: list[date], span: tuple[date, date], kind: str, text: Callable[[date, bool], str]) -> str:
-    """区間の真ん中に置くラベルの並び（年が変わるところだけ年を添える）。"""
+def _labels(
+    ticks: list[date],
+    span: tuple[date, date],
+    kind: str,
+    text: Callable[[date, bool], str],
+    *,
+    min_days: int = 0,
+) -> str:
+    """区間の真ん中に置くラベルの並び（年が変わるところだけ年を添える）。
+
+    `min_days` より短い区間にはラベルを置かない。月の頭で切れた半端な週などは、置いても文字が途中で
+    切れて読めない（`8/` のように見える）ので、線だけ残して文字は出さない。
+    """
     parts: list[str] = []
     shown_year: int | None = None
+    total = (span[1] - span[0]).days + 1
     for day, left, width in _intervals(ticks, span):
+        if width / 100 * total < min_days:
+            shown_year = day.year
+            continue
         label = text(day, day.year != shown_year)
         shown_year = day.year
         parts.append(f'<span class="axis-lab lab-{kind}" style="left:{left:.3f}%;width:{width:.3f}%">{label}</span>')
@@ -431,153 +446,184 @@ def _digest_of(row: WbsRow) -> str:
     return file_digest(row.path) if row.path is not None else ""
 
 
-# 配色は「紙に刷った工程表」を基準に、画面で見るとき用に暗い地の版も持つ（印刷は常に紙の版に固定）。
-# 灰は中立の灰でなく、棒の青へわずかに寄せた寒色寄りにして、地と棒が同じ絵に見えるようにする。
-# 和文の書体はファイルに埋め込めない（数 MB になる）ので、日本語の業務文書で確実に出る系統だけを並べる。
+# 色は 3 色まで（白・黒・青）＋警告の 1 色（赤）。濃さは変えてよいので、黒は 5 段・青は 3 段・赤は 2 段で作る。
+# **＋1 色を赤にした理由**：顧客向けの工程表で読み落とすと実害が出るのは「遅れ」だけで、警告は赤以外に代えが
+# きかない。完了は状態の列・実績の日付・進捗の数・棒の淡さで 4 重に表しているので、色相に頼らなくてよい。
+# 罫線は重みを 3 段に分ける（弱＝行の区切りと日/週の格子／強＝見出しの下端・月の格子・貼り付く列の右／
+# 2px＝表とガントの領域の境目）。すべて同じ太さで引くと表計算の初期状態に見える。
 _STYLE = """
 :root {
-  --paper:#fbfbfa; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
-  --plan:#5b87b8; --done:#4f9d72; --late:#c8635a; --prog:#2f6f4f; --today:#c8635a;
-  --tag-bg:#fdf1d6; --tag-ink:#8a6116; --late-ink:#a8352a;
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
+  --line:#e3e6ea; --line-strong:#86919e;
+  --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
+  --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
+  --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
+  --tag-bg:#fbe9e6; --tag-ink:#a02718;
+  --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper:#16181c; --ink:#e6e8ea; --muted:#98a1ad; --line:#333941; --sec:#1f242b;
-    --plan:#6f9fd0; --done:#5fb587; --late:#dd7d72; --prog:#8ed7ae; --today:#dd7d72;
-    --tag-bg:#3a3020; --tag-ink:#e3c07a; --late-ink:#f0958b;
+  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349;
+  --line:#2e343c; --line-strong:#5b6672;
+  --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
+  --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
+  --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
+  --tag-bg:#3a2420; --tag-ink:#f0a396;
+  --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
 }
 :root[data-theme="dark"] {
-  --paper:#16181c; --ink:#e6e8ea; --muted:#98a1ad; --line:#333941; --sec:#1f242b;
-  --plan:#6f9fd0; --done:#5fb587; --late:#dd7d72; --prog:#8ed7ae; --today:#dd7d72;
-  --tag-bg:#3a3020; --tag-ink:#e3c07a; --late-ink:#f0958b;
+  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349;
+  --line:#2e343c; --line-strong:#5b6672;
+  --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
+  --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
+  --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
+  --tag-bg:#3a2420; --tag-ink:#f0a396;
+  --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
 :root[data-theme="light"] {
-  --paper:#fbfbfa; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
-  --plan:#5b87b8; --done:#4f9d72; --late:#c8635a; --prog:#2f6f4f; --today:#c8635a;
-  --tag-bg:#fdf1d6; --tag-ink:#8a6116; --late-ink:#a8352a;
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
+  --line:#e3e6ea; --line-strong:#86919e;
+  --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
+  --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
+  --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
+  --tag-bg:#fbe9e6; --tag-ink:#a02718;
+  --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
 * { box-sizing:border-box; }
-body { margin:0; padding:16px 20px; color:var(--ink); background:var(--paper);
-       font:13px/1.5 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif; }
+body { margin:0; padding:20px 24px; color:var(--ink); background:var(--paper);
+       font:13px/1.45 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif; }
 header { border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:12px; }
-h1 { font-size:17px; margin:0 0 2px; }
+h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 .meta { color:var(--muted); font-size:11px; }
-.scroll { overflow-x:auto; }
-/* 罫線はセルの右下だけに引く（sticky を効かせるため collapse を使わない）。 */
+/* 表の外枠は入れ物 1 枚に集める（セルの外周罫を撤去＝方眼に見えないようにする）。 */
+.scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; container-type:scroll-state; }
 table { border-collapse:separate; border-spacing:0; width:100%; min-width:900px; }
 thead { display:table-header-group; }
-thead th { position:sticky; top:0; z-index:4; }
+thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
 th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
-         padding:2px 5px; vertical-align:middle; white-space:nowrap; }
-thead th { border-top:1px solid var(--line); }
-th:first-child, td:first-child { border-left:1px solid var(--line); }
-th { background:var(--sec); font-weight:600; font-size:11px; text-align:left; }
+         padding:5px 8px; vertical-align:middle; white-space:nowrap; }
+th:first-child, td:first-child { border-left:0; }
+th:last-child, td:last-child { border-right:0; }
+th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
+     letter-spacing:.02em; text-align:left; }
 tr { break-inside:avoid; }
-/* 左の表は必要な幅まで詰める＝いちばん見せたいガントが画面外へ押し出されないようにする。 */
-th.code, td.code { width:42px; color:var(--muted); font-variant-numeric:tabular-nums; }
+th.code, td.code { width:48px; color:var(--muted); font-variant-numeric:tabular-nums; }
 th.who, td.who { width:74px; overflow:hidden; text-overflow:ellipsis; }
 th.st, td.st { width:46px; }
 th.d, td.d { width:46px; }
 th.n, td.n { width:34px; }
-td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
+td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11.5px; }
 th.name, td.name { white-space:normal; min-width:150px; }
-th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; }
-/* 時間軸の単位。上段＝大きい単位・下段＝選んだ単位で、段数は常に 2（切り替えで高さが跳ねない）。 */
-.axis-lab { display:none; }
-/* 上段＝大きい単位・下段＝選んだ単位。年は上段に来る見出しだけが持つ（上下で年が二重に出ない）。 */
+/* 左の表（セルの格子）とガント（時間の格子）は別の領域。2px の罫・見出しの地色・格子の作法で 3 重に割る。 */
+th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; border-left:2px solid var(--line-strong); }
+th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
+thead th.gantt { background:var(--paper); }
+/* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
+th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
+th.code, td.code { left:0; }
+th.name, td.name { left:48px; border-right:1px solid var(--line-strong); }
+thead th.code, thead th.name { z-index:3; background:var(--sec); }
+td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1px; right:-9px; width:8px;
+  opacity:0; background:linear-gradient(to right, rgba(15,20,26,.14), transparent);
+  pointer-events:none; transition:opacity .15s; }
+@container scroll-state(scrollable: inline-start) { td.name::after, th.name::after { opacity:1; } }
+tr.lv0 > td { background:var(--sec); font-weight:600; border-top:1px solid var(--line-strong); }
+tr.lv1 td.name { padding-left:20px; }
+tr.lv2 td.name { padding-left:36px; }
+tr.lv3 td.name { padding-left:52px; }
+tbody tr:hover > td { background:var(--hover); }
+tr.is-sel > td { background:var(--sel); }
+tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
+tr.is-done > td { color:var(--muted); }
+.ref { color:var(--muted); font-size:10px; margin-left:6px; }
+.tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; font-weight:600;
+       padding:0 5px; margin-left:6px; border-radius:3px; }
+/* 時間軸：2 段（上＝大きい単位・下＝選んだ単位）。段の間に横罫、区間ごとに縦罫を引く。 */
+.axis-wrap { position:relative; height:44px; }
+svg.axis { display:block; width:100%; height:44px; }
+.axis-wrap::before { content:""; position:absolute; top:22px; left:0; right:0; border-top:1px solid var(--line); }
+.axis-lab { display:none; position:absolute; height:22px; line-height:22px; font-size:10px;
+            color:var(--muted); text-align:center; white-space:nowrap; overflow:hidden;
+            border-left:1px solid var(--line); }
+.lab-y, .lab-m, .lab-my { border-left-color:var(--line-strong); color:var(--ink); }
 .scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
 .scroll.u-w .lab-my, .scroll.u-w .lab-w { display:block; }
 .scroll.u-d .lab-my, .scroll.u-d .lab-d { display:block; }
 .scroll.u-m .lab-y, .scroll.u-w .lab-my, .scroll.u-d .lab-my { top:0; font-size:11px; font-weight:600; }
-.scroll.u-m .lab-m, .scroll.u-w .lab-w, .scroll.u-d .lab-d { top:20px; }
+.scroll.u-m .lab-m, .scroll.u-w .lab-w, .scroll.u-d .lab-d { top:22px; }
+/* 格子の重み：日 < 週 < 月。月の線だけが見出しから本体まで同じ濃さで縦に通る。 */
 .g-d, .g-w, .g-m { display:none; }
-.scroll.u-m .g-m, .scroll.u-w .g-w, .scroll.u-w .g-m, .scroll.u-d .g-d, .scroll.u-d .g-m { display:block; }
-/* 非稼働日の帯は、1 日が細くなる月表示では出さない（縞模様になって棒が埋もれる）。 */
-.scroll.u-m rect.off { display:none; }
-/* 単位ごとの列幅。1 日あたりの幅を決めるだけで、棒も格子も同じ表の中で伸び縮みする。 */
-.scroll.wide th.gantt, .scroll.wide td.gantt { width:var(--gw); min-width:var(--gw); }
-.scroll.wide table { min-width:0; }
-/* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
-th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
-th.code, td.code { left:0; }
-th.name, td.name { left:42px; }
-thead th.code, thead th.name { z-index:3; background:var(--sec); }
-tr.lv0 > td.code, tr.lv0 > td.name { background:var(--sec); }
-.ref { color:var(--muted); font-size:10px; margin-left:6px; }
-.tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; padding:0 4px; margin-left:6px;
-       border-radius:2px; }
-tr.lv0 > td { background:var(--sec); font-weight:600; }
-tr.lv1 td.name { padding-left:18px; }
-tr.lv2 td.name { padding-left:34px; }
-tr.lv3 td.name { padding-left:50px; }
-tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
-/* 完了した行は落ち着かせる（残っている作業が目に入るように）。取り消し線は付けない＝実績の日付は読ませたい。 */
-tr.is-done > td { color:var(--muted); }
-tr.is-done rect.done { opacity:.55; }
-.ops { display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap; }
-.ops button { font:inherit; font-size:11px; color:var(--ink); background:var(--paper); cursor:pointer;
-              border:1px solid var(--line); border-radius:3px; padding:1px 8px; }
-.ops button:hover { background:var(--sec); }
-.ops .sep { color:var(--muted); font-size:11px; margin-left:10px; }
-.ops { justify-content:space-between; }
-.ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
-.ops button.zoom { border-radius:0; margin-left:-1px; }
-.ops button.zoom:first-of-type { border-radius:3px 0 0 3px; margin-left:0; }
-.ops button.zoom:last-of-type { border-radius:0 3px 3px 0; }
-.ops button.zoom[aria-pressed="true"] { background:var(--plan); color:#08121d; border-color:var(--plan);
-                                        font-weight:600; }
-svg.bar { display:block; width:100%; height:14px; }
-svg.axis { display:block; width:100%; }
-rect.off { fill:var(--ink); opacity:.13; }
-line.grid { stroke:var(--line); stroke-width:.7; }
-.axis-wrap { position:relative; height:40px; }
-svg.axis { height:40px; }
-/* 文字は区間の真ん中に置く（線の右に寄せると、どの線の分か読めない）。8px は提出物として読めないので 10px 以上。 */
-.axis-lab { position:absolute; height:20px; line-height:20px; font-size:10px; color:var(--ink);
-            text-align:center; white-space:nowrap; overflow:hidden; }
-line.g-d { stroke:var(--line); stroke-width:.5; }
+line.g-d { stroke:var(--line); stroke-width:.5; opacity:.45; }
 line.g-w { stroke:var(--line); stroke-width:1; }
-line.g-m { stroke:var(--ink); stroke-width:1.4; opacity:.32; }
-rect.plan { fill:var(--plan); } rect.done { fill:var(--done); } rect.late { fill:var(--late); }
-rect.prog { fill:var(--prog); opacity:.75; }
-rect.sum { fill:var(--ink); opacity:.62; }
-line.leg { stroke:var(--ink); stroke-width:2; opacity:.62; }
-/* 節目は引き伸ばす図形の外に置く（潰れない）。 */
+line.g-m { stroke:var(--line-strong); stroke-width:1; }
+.scroll.u-m .g-m, .scroll.u-w .g-w, .scroll.u-w .g-m,
+.scroll.u-d .g-d, .scroll.u-d .g-w, .scroll.u-d .g-m { display:block; }
+.scroll.u-m rect.off { display:none; }
+rect.off { fill:var(--ink); opacity:.07; }
+line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
+/* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
+svg.bar { display:block; width:100%; height:16px; }
+svg.bar rect { rx:0; }
+rect.plan { fill:var(--plan); }
+rect.late { fill:var(--late); }
+rect.done { fill:var(--done); stroke:var(--prog); stroke-width:1; vector-effect:non-scaling-stroke; }
+rect.prog { fill:var(--prog); }
+rect.sum { fill:var(--sum); }
+line.leg { stroke:var(--sum); stroke-width:2; }
 td.gantt { position:relative; }
-.ms { position:absolute; top:0; height:14px; line-height:14px; margin-left:-4px; font-size:11px;
+.ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
       color:var(--ink); pointer-events:none; }
-line.today { stroke:var(--today); stroke-width:1.2; stroke-dasharray:2 2; }
+.ops { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;
+       justify-content:space-between; }
+.ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
+.ops button { font:inherit; font-size:11px; color:var(--ink); background:var(--paper); cursor:pointer;
+              border:1px solid var(--line); border-radius:6px; padding:3px 10px; }
+.ops button:hover { background:var(--hover); border-color:var(--line-strong); }
+.ops .sep { color:var(--muted); font-size:11px; margin-left:10px; }
+.ops button.zoom { border-radius:0; margin-left:-1px; }
+.ops button.zoom:first-of-type { border-radius:6px 0 0 6px; margin-left:0; }
+.ops button.zoom:last-of-type { border-radius:0 6px 6px 0; }
+.ops button.zoom[aria-pressed="true"] { background:var(--btn-on-bg); color:var(--btn-on-ink);
+                                        border-color:var(--btn-on-bg); font-weight:600; }
+button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
+            padding:0 4px 0 0; line-height:1; }
+button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
+tr.hid { display:none; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .legend span { margin-right:14px; }
-.legend i { display:inline-block; width:16px; height:8px; border-radius:2px; vertical-align:middle; margin-right:4px; }
-tr.hid { display:none; }
-button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer; padding:0 4px 0 0;
-            line-height:1; }
-button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
+.legend i { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
 @media print {
   /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
   tr.hid { display:table-row !important; }
   button.tw { display:none; }
-  /* 印刷は常に紙の版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
+  /* 紙は常に明るい版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
   :root {
-    --paper:#fff; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
-    --plan:#5b87b8; --done:#4f9d72; --late:#c8635a; --prog:#2f6f4f; --today:#c8635a;
-    --tag-bg:#fdf1d6; --tag-ink:#8a6116; --late-ink:#a8352a;
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
+  --line:#e3e6ea; --line-strong:#86919e;
+  --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
+  --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
+  --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
+  --tag-bg:#fbe9e6; --tag-ink:#a02718;
+  --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
   @page { size:A3 landscape; margin:8mm; }
   body { padding:0; font-size:10px; }
-  .scroll { overflow:visible; }
+  .scroll { overflow:visible; border:1px solid var(--line-strong); border-radius:0; }
   table { min-width:0; }
   td.gantt { min-width:0; }
   /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す。 */
   th.code, td.code, th.name, td.name { position:static; }
+  td.name::after, th.name::after { display:none; }
   /* 操作のボタンは紙に出さない。 */
   .ops { display:none; }
   /* 単位を広げたまま印刷すると紙からはみ出して右が切れるので、紙では必ず全期間を収める。 */
   .scroll.wide th.gantt, .scroll.wide td.gantt { width:auto !important; min-width:0 !important; }
 }
+/* 単位ごとの列幅。1 日あたりの幅を決めるだけで、棒も格子も同じ表の中で伸び縮みする。 */
+.scroll.wide th.gantt, .scroll.wide td.gantt { width:var(--gw); min-width:var(--gw); }
+.scroll.wide table { min-width:0; }
 """
 
 
@@ -585,8 +631,9 @@ def _legend() -> str:
     return (
         '<p class="legend">'
         '<span><i style="background:var(--plan)"></i>予定</span>'
-        '<span><i style="background:var(--done)"></i>完了</span>'
+        '<span><i style="background:var(--done);box-shadow:inset 0 0 0 1px var(--prog)"></i>完了</span>'
         '<span><i style="background:var(--late)"></i>遅れ（予定終了を過ぎて未完）</span>'
+        '<span><i style="background:var(--sum);height:4px"></i>まとめ（配下から導いた期間）</span>'
         '<span><i style="background:var(--ink);width:8px;height:8px;transform:rotate(45deg)"></i>節目</span>'
         "<span>破線＝基準日</span></p>"
     )
@@ -598,7 +645,7 @@ td.edit:hover { background:color-mix(in srgb, var(--plan) 14%, transparent); }
 td.edit:focus-visible { outline:2px solid var(--plan); outline-offset:-2px; }
 td.edit .blank { color:var(--muted); opacity:.45; }
 td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); background:var(--paper);
-                               border:1px solid var(--plan); border-radius:2px; padding:1px 3px; }
+                               border:1px solid var(--plan); border-radius:4px; padding:1px 3px; }
 #say { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); max-width:min(720px,92vw);
        background:var(--ink); color:var(--paper); padding:8px 14px; border-radius:4px; font-size:12px;
        line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
@@ -606,7 +653,7 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
 .hint { color:var(--muted); font-size:11px; }
 #menu { position:absolute; display:none; z-index:20; min-width:180px; padding:4px 0;
         background:var(--paper); border:1px solid var(--line); border-radius:4px;
-        box-shadow:0 6px 20px rgba(0,0,0,.22); }
+        box-shadow:0 8px 24px rgba(15,20,26,.16); }
 #menu button { display:block; width:100%; text-align:left; font:inherit; font-size:12px; color:var(--ink);
                background:none; border:0; padding:5px 14px; cursor:pointer; }
 #menu button:hover { background:var(--sec); }
@@ -769,7 +816,10 @@ _EDIT_SCRIPT = r"""
       .catch(function(e){ busy=false; tell('消せなかった: '+e,true); });
   }
   var menu=document.getElementById('menu');
-  function hideMenu(){ if(menu) menu.style.display='none'; }
+  function hideMenu(){
+    if(menu) menu.style.display='none';
+    document.querySelectorAll('tr.is-sel').forEach(function(r){ r.classList.remove('is-sel'); });
+  }
   function item(label,fn){
     var b=document.createElement('button'); b.type='button'; b.textContent=label;
     b.addEventListener('click',function(){ hideMenu(); fn(); });
@@ -808,6 +858,8 @@ _EDIT_SCRIPT = r"""
       if(window.confirm(msg+'\nよろしいですか？')) del(ref); });
     danger.className='danger';
     menu.appendChild(danger);
+    hideMenu();
+    tr.classList.add('is-sel');   // どの行を触っているかを画面でも示す
     menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
   });
   document.addEventListener('click',hideMenu);
