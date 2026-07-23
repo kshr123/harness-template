@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 from datetime import date, timedelta
 
+from harness.deliver.calendar import WorkCalendar
 from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
@@ -66,14 +67,64 @@ def _x_of(day: date, span: tuple[date, date]) -> float:
     return (day - first).days * (_CANVAS / total)
 
 
-def _bar_svg(row: WbsRow, span: tuple[date, date], today: date) -> str:
-    """1 行分のガント（その行のセルに収まる小さな SVG）。バー・節目・進捗・今日の線をこの中で完結させる。"""
+# 描画の窓の最小の長さ（日）。これより短い案件でも、棒が列いっぱいに広がって「ただの帯」にならないようにする。
+_MIN_WINDOW_DAYS = 14
+# 非稼働日の帯を敷く上限（これより長い期間では点になって潰れるだけなので敷かない）。
+_MAX_SHADED_DAYS = 200
+
+
+def drawing_window(span: tuple[date, date]) -> tuple[date, date]:
+    """図を描く期間。データの期間を**週の境目に合わせて広げる**（月曜始まり・日曜終わり）。
+
+    データの期間をそのまま使うと、数日しかない案件で棒が列の端から端まで伸びて「ただの帯」になり、
+    図表として読めない。週に揃えると土日の帯とも位置が合う。最低 2 週間は確保する。
+    """
+    first, last = span
+    first -= timedelta(days=first.weekday())
+    last += timedelta(days=6 - last.weekday())
+    while (last - first).days + 1 < _MIN_WINDOW_DAYS:
+        last += timedelta(days=7)
+    return first, last
+
+
+def backdrop(span: tuple[date, date], calendar: WorkCalendar, today: date) -> str:
+    """全行に共通の下敷き（非稼働日の帯・時間軸の格子・今日の線）。
+
+    棒だけを描くと図表に見えない（時間の目盛が無いので、棒の長さが何日なのか読めない）。格子は軸の目盛と
+    同じ位置に引く＝上の見出しと目で繋がる。非稼働日に帯を敷くと、営業日で数えていることが図でも分かる。
+    """
     first, last = span
     scale = _CANVAS / ((last - first).days + 1)
-    parts: list[str] = [f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">']
+    parts: list[str] = []
+    if (last - first).days + 1 <= _MAX_SHADED_DAYS:
+        run_start: date | None = None
+        day = first
+        while day <= last + timedelta(days=1):
+            off = day <= last and not calendar.is_workday(day)
+            if off and run_start is None:
+                run_start = day
+            elif not off and run_start is not None:
+                x = _x_of(run_start, span)
+                parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{_x_of(day, span) - x:.2f}" height="14" />')
+                run_start = None
+            day += timedelta(days=1)
+    for tick in axis_ticks(span)[1:]:  # 先頭は列の左端なので線を引かない
+        x = _x_of(tick, span)
+        parts.append(f'<line class="grid" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="14" />')
     if first <= today <= last:
-        tx = _x_of(today, span)
+        tx = _x_of(today, span) + scale / 2
         parts.append(f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" />')
+    return "".join(parts)
+
+
+def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
+    """1 行分のガント（その行のセルに収まる小さな SVG）＝共通の下敷き＋その行の棒。"""
+    first, last = span
+    scale = _CANVAS / ((last - first).days + 1)
+    parts: list[str] = [
+        f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">',
+        back,
+    ]
     if row.milestone and row.due is not None:
         cx = _x_of(row.due, span) + scale / 2
         parts.append(f'<polygon class="ms" points="{cx - 6:.2f},7 {cx:.2f},1 {cx + 6:.2f},7 {cx:.2f},13" />')
@@ -187,7 +238,9 @@ def _cell(column: str, inner: str, raw: str, row: WbsRow, fields: dict[str, str]
     return f'<td{attrs} tabindex="0">{inner or '<span class="blank">＋</span>'}</td>'
 
 
-def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, editable: bool = False) -> str:
+def _row_html(
+    row: WbsRow, span: tuple[date, date] | None, today: date, back: str = "", *, editable: bool = False
+) -> str:
     """WBS の 1 行。節・作業単位・手動行を同じ描き方で出す（行の描き方は 1 つだけ）。
 
     編集できる状態でも描き方は変えない（直せる欄に書き戻し先の目印が増えるだけ）＝閲覧用と編集用で
@@ -231,7 +284,7 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, edita
         f'<td class="d">{_day_label(row.actual_start)}</td>',
         f'<td class="d">{_day_label(row.actual_finish)}</td>',
         f'<td class="n">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
-        f'<td class="gantt">{_bar_svg(row, span, today) if span else ""}</td>',
+        f'<td class="gantt">{_bar_svg(row, span, back) if span else ""}</td>',
     ]
     return f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}">{"".join(cells)}</tr>'
 
@@ -319,6 +372,8 @@ button.add { border:0; background:none; color:var(--plan); font:inherit; cursor:
 button.add:hover { text-decoration:underline; }
 svg.bar, svg.axis { display:block; width:100%; height:14px; }
 svg.axis line { stroke:var(--line); stroke-width:1; }
+rect.off { fill:var(--ink); opacity:.07; }
+line.grid { stroke:var(--line); stroke-width:.7; }
 .axis-wrap { position:relative; height:14px; }
 .axis-lab { position:absolute; top:0; margin-left:2px; font-size:8px; font-weight:400; color:var(--muted);
             white-space:nowrap; line-height:1; }
@@ -501,10 +556,12 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     `editable` を立てると、直せる欄に書き戻し先の目印と入力の仕掛けが付く（編集サーバから配るときだけ）。
     ファイルに書き出す生成物は常に `editable=False`＝保存の口が無いので、渡した先で編集はできない。
     """
-    span = wbs.span
+    data_span = wbs.span
+    span = drawing_window(data_span) if data_span else None
+    back = backdrop(span, wbs.overlay.calendar.to_calendar(), wbs.today) if span else ""
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css in COLUMNS)
     axis = f'<th class="gantt">{_axis_svg(span, wbs.today) if span else ""}</th>'
-    body = "".join(_row_html(row, span, wbs.today, editable=editable) for row in wbs.walk())
+    body = "".join(_row_html(row, span, wbs.today, back, editable=editable) for row in wbs.walk())
     title = wbs.overlay.project or "WBS"
     client = f"<div>提出先: {_esc(wbs.overlay.client)}</div>" if wbs.overlay.client else ""
     unscheduled = wbs.unscheduled
@@ -512,7 +569,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     if unscheduled:
         ids = "、".join(_esc(r.ref or r.name) for r in unscheduled)
         notes = f"<h2>未日程（{len(unscheduled)} 件）</h2><p>予定を置いていない作業: {ids}</p>"
-    period = f"　期間 {span[0].isoformat()} 〜 {span[1].isoformat()}" if span else ""
+    period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
     ops = ['<button id="fold" type="button">全部閉じる</button>', '<button id="unfold" type="button">全部展開</button>']
     if editable:

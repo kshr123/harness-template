@@ -115,7 +115,8 @@ def test_milestone_is_drawn_as_a_point_not_a_bar(tmp_path: Path) -> None:
     html = _html(tmp_path)
     milestone_row = next(line for line in html.split("<tr") if "T-9003" in line)
     assert "<polygon" in milestone_row
-    assert "<rect" not in milestone_row
+    # 下敷き（非稼働日の帯）は全行に敷くので、無いことを見るのは**棒**だけ。
+    assert not re.search(r'<rect class="(plan|done|late)"', milestone_row)
 
 
 def test_today_line_is_drawn_inside_each_row(tmp_path: Path) -> None:
