@@ -10,13 +10,13 @@ import socket
 import sys
 import threading
 import time
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
-from harness.deliver import render, wbs_lint
+from harness.deliver import render, stamp, wbs_lint
 from harness.deliver import wbs as wbs_mod
 
 # Windows コンソール（cp932）でも日本語・記号を出せるよう UTF-8 に固定（他プロファイルの CLI と同じ作法）。
@@ -40,11 +40,14 @@ def _fail(message: str) -> None:
 def _export(
     out: Annotated[Path | None, typer.Option(help=f"出力先（既定 {DEFAULT_OUT}）")] = None,
     today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
+    draft: Annotated[bool, typer.Option("--draft", help="未コミットの変更を含んだまま下書きとして出す")] = False,
     root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
 ) -> None:
     """WBS を自己完結の HTML 1 ファイルに出す（クライアントへ渡す形）。
 
     検査に失敗する状態・描く対象が 1 件も無い状態では出力しない（空の工程表を黙って渡さない）。
+    未コミットの変更があるときも既定では出力しない（刻んだコミットが嘘になる）。`--draft` を付けたときだけ、
+    下書きと分かる表示で出す。
     """
     base = date.fromisoformat(today) if today else date.today()
     # 例外の種類ごとに節を分ける（ruff format が `except (A, B):` を壊す既知の不具合を踏まないため）。
@@ -68,12 +71,20 @@ def _export(
             "（work/ の単位に start・due を書くか、docs/wbs.yaml に手動行を足す）"
         )
         return
+    dirty = stamp.is_dirty(root)
+    if dirty and not draft:
+        _fail(
+            "作業ツリーに未コミットの変更がある。このまま出すと生成物に刻むコミットが実際の中身と食い違う"
+            "（先にコミットする。下書きとして出すなら --draft を付ける）"
+        )
+        return
     target = out if out is not None else root / DEFAULT_OUT
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render.render_html(built), encoding="utf-8")
+    provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone())
+    target.write_text(render.render_html(built, provenance=provenance, draft=dirty), encoding="utf-8")
     rows = len(built.walk())
     note = f"（未日程 {len(built.unscheduled)} 件）" if built.unscheduled else ""
-    typer.echo(f"{target}: {rows} 行を出力した{note}")
+    typer.echo(f"{target}: {rows} 行を出力した{note}　{provenance}")
 
 
 @wbs_app.command("lint")

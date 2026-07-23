@@ -147,8 +147,10 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, edita
     fields = _editable_fields(row) if editable else {}
     digest = _digest_of(row) if fields else ""
     status_label = _STATUS_LABEL[row.status] if row.status is not None else ""
+    # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
+    toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
     cells = [
-        f'<td class="code">{_esc(row.code)}</td>',
+        f'<td class="code">{toggle if row.children else ""}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
         _cell("team", _esc(row.team), row.team or "", row, fields, digest),
         _cell("assignees", _esc("、".join(row.assignees)), "、".join(row.assignees), row, fields, digest),
@@ -161,7 +163,7 @@ def _row_html(row: WbsRow, span: tuple[date, date] | None, today: date, *, edita
         f'<td class="n">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
         f'<td class="gantt">{_bar_svg(row, span, today) if span else ""}</td>',
     ]
-    return f'<tr class="{" ".join(classes)}">{"".join(cells)}</tr>'
+    return f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}">{"".join(cells)}</tr>'
 
 
 def _digest_of(row: WbsRow) -> str:
@@ -231,7 +233,14 @@ footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .legend span { margin-right:14px; }
 .legend i { display:inline-block; width:16px; height:8px; border-radius:2px; vertical-align:middle; margin-right:4px; }
+tr.hid { display:none; }
+button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer; padding:0 4px 0 0;
+            line-height:1; }
+button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
 @media print {
+  /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
+  tr.hid { display:table-row !important; }
+  button.tw { display:none; }
   /* 印刷は常に紙の版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
   :root {
     --paper:#fff; --ink:#1b1f24; --muted:#6b7280; --line:#d8dbe0; --sec:#eef2f7;
@@ -270,6 +279,34 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
        line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
 #say.bad { background:var(--late-ink); }
 .hint { color:var(--muted); font-size:11px; }
+"""
+
+# 折りたたみ（閲覧・編集の両方に付く）。行を DOM から消さずに隠すだけにして、印刷では CSS が必ず戻す
+# ＝畳んだまま刷って白紙のフェーズを渡す事故が、そもそも起こらない形にする。
+_VIEW_SCRIPT = """
+(function(){
+  function hidden(code){
+    var shut=document.querySelectorAll('.tw[aria-expanded="false"]');
+    for(var i=0;i<shut.length;i++){
+      var c=shut[i].dataset.code;
+      if(code!==c && code.indexOf(c+'.')===0) return true;
+    }
+    return false;
+  }
+  document.addEventListener('click',function(e){
+    var b=e.target.closest && e.target.closest('.tw'); if(!b) return;
+    var open=b.getAttribute('aria-expanded')==='true';
+    b.setAttribute('aria-expanded', open?'false':'true');
+    b.textContent = open?'▸':'▾';
+    var code=b.dataset.code, rows=document.querySelectorAll('tr[data-code]');
+    for(var i=0;i<rows.length;i++){
+      var c=rows[i].dataset.code;
+      if(c===code || c.indexOf(code+'.')!==0) continue;
+      if(open) rows[i].classList.add('hid');
+      else if(!hidden(c)) rows[i].classList.remove('hid');
+    }
+  });
+})();
 """
 
 # 保存に成功したら画面を作り直す（部分更新しない）。日数・ロールアップ・進捗・遅れは導出値なので、
@@ -353,5 +390,5 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}　{_esc(provenance)}</div>{banner}</header>'
         f'<div class="scroll"><table><thead><tr>{head}{axis}</tr></thead><tbody>{body}</tbody></table></div>'
-        f"<footer>{_legend()}{notes}</footer>{edit_bits}"
+        f"<footer>{_legend()}{notes}</footer><script>{_VIEW_SCRIPT}</script>{edit_bits}"
     )
