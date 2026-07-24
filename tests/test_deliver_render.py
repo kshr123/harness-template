@@ -125,7 +125,7 @@ def test_today_line_is_drawn_inside_each_row(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     html = _html(tmp_path)
     dated_row = next(line for line in html.split("<tr") if "T-9001" in line)
-    assert 'class="today"' in dated_row
+    assert 'class="tl"' in dated_row
 
 
 def test_export_writes_a_single_file(tmp_path: Path) -> None:

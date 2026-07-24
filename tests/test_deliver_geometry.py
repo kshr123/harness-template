@@ -28,7 +28,7 @@ pytestmark = pytest.mark.unit
 
 DATA_SPAN = (date(2026, 8, 3), date(2026, 8, 12))  # 月曜〜水曜（10 日）
 WINDOW = render.drawing_window(DATA_SPAN)  # 週の境目まで広げた描画の窓
-PER_DAY = 1000.0 / ((WINDOW[1] - WINDOW[0]).days + 1)
+PER_DAY = 100.0 / ((WINDOW[1] - WINDOW[0]).days + 1)  # 1 日ぶんの幅（%）
 
 
 def _at(day: date) -> float:
@@ -53,10 +53,10 @@ def _row_markup(html: str, item_id: str) -> str:
     return next(part for part in html.split("<tr") if item_id in part)
 
 
-def _rect(markup: str, kind: str) -> tuple[float, float]:
-    """行の中の矩形の x と幅。"""
-    match = re.search(rf'<rect class="{kind}" x="([\d.]+)" y="\d+" width="([\d.]+)"', markup)
-    assert match is not None, f"{kind} の矩形が無い: {markup[:400]}"
+def _bar(markup: str) -> tuple[float, float]:
+    """行の棒の左端と幅（%）。棒は非置換の HTML 要素なので style から読む。"""
+    match = re.search(r'<i class="gbar" style="left:([\d.]+)%;width:([\d.]+)%"', markup)
+    assert match is not None, f"棒が無い: {markup[:400]}"
     return float(match.group(1)), float(match.group(2))
 
 
@@ -72,7 +72,7 @@ def test_a_bar_starts_at_its_start_day_and_covers_its_end_day(tmp_path: Path) ->
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    x, width = _rect(_row_markup(html, "T-9001"), "bar")
+    x, width = _bar(_row_markup(html, "T-9001"))
     assert x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)
     assert width == pytest.approx(5 * PER_DAY, abs=0.01)
 
@@ -85,7 +85,7 @@ def test_a_later_bar_is_offset_by_the_elapsed_days(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    x, width = _rect(_row_markup(html, "T-9002"), "bar")
+    x, width = _bar(_row_markup(html, "T-9002"))
     assert x == pytest.approx(_at(date(2026, 8, 10)), abs=0.01)
     assert width == pytest.approx(3 * PER_DAY, abs=0.01)
 
@@ -97,22 +97,23 @@ def test_a_one_day_bar_is_one_day_wide(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-12", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 3))  # 遅れの色にならない基準日にする（色でなく幅を見たいので）
-    x, width = _rect(_row_markup(html, "T-9001"), "bar")
+    x, width = _bar(_row_markup(html, "T-9001"))
     assert x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)
     assert width == pytest.approx(PER_DAY, abs=0.01)
 
 
 def test_the_today_line_sits_on_the_day_it_names(tmp_path: Path) -> None:
-    """08-05 は最初の日から 2 日後なので、線は 200 の位置に来る。"""
+    """基準日の線は、その日の帯の**真ん中**に立つ。位置は 1 か所（--today-x）に置き、各行は印を持つだけ。"""
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    match = re.search(r'<line class="today" x1="([\d.]+)"', _row_markup(html, "T-9001"))
+    match = re.search(r"--today-x:([\d.]+)%", html)
     assert match is not None
-    assert float(match.group(1)) == pytest.approx(_at(date(2026, 8, 5)) + PER_DAY / 2, abs=0.01)  # 帯の真ん中
+    assert float(match.group(1)) == pytest.approx(_at(date(2026, 8, 5)) + PER_DAY / 2, abs=0.01)
+    assert '<i class="tl"></i>' in _row_markup(html, "T-9001")
 
 
 def test_a_milestone_is_centred_on_its_day(tmp_path: Path) -> None:
@@ -143,14 +144,10 @@ def test_a_parent_row_spans_its_children_as_a_plain_bar(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    parent = _row_markup(html, "EP-90")
-    leaf = _row_markup(html, "T-9001")
-    _, parent_width = _rect(parent, "bar")
-    assert parent_width == pytest.approx(10 * PER_DAY, abs=0.01)  # 08-03〜08-12 の全体
-    assert not re.search(r'<rect class="sum"', parent)  # 脚つきのまとめ帯はもう描かない
-    assert not re.search(r'<line class="leg"', parent)
-    assert re.search(r'<rect class="bar"', leaf)  # 末端は 1 色の棒
-    assert not re.search(r'<rect class="prog"', leaf)  # 進捗の二色は無い（単色）
+    _, parent_width = _bar(_row_markup(html, "EP-90"))
+    assert parent_width == pytest.approx(10 * PER_DAY, abs=0.01)
+    assert '<i class="gbar"' in _row_markup(html, "T-9001")
+    assert "rect" not in _row_markup(html, "T-9001")
 
 
 def test_a_task_due_exactly_today_is_not_late_yet(tmp_path: Path) -> None:
@@ -304,12 +301,10 @@ def test_the_fill_is_reserved_for_late_and_stops_at_the_gantt(tmp_path: Path) ->
         {"id": "T-9001", "kind": "task", "status": "in-progress", "start": "2026-08-03", "due": "2026-08-07"},
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
-    html = _render(tmp_path, date(2026, 8, 20))  # 08-07 を過ぎた基準日＝T-9001 は遅れ
-    assert "st-in-progress" in _row_markup(html, "T-9001")  # 状態を視覚に割り当てる目印が載る
-    assert "tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }" in html
-    # 遅れの面は表の列だけ（ガントは除く）。
-    assert "tr.is-late > td:not(.gantt) { background:var(--late-row); }" in html
-    assert "td.gantt" in html and "background:var(--canvas)" in html  # ガントは専用の地色
+    html = _render(tmp_path, date(2026, 8, 20))
+    assert "st-in-progress" in _row_markup(html, "T-9001")
+    assert "tr.is-late > td:not(.gantt) { background-color:var(--late-row); }" in html
+    assert "background-color:var(--canvas)" in html
 
 
 def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:
@@ -358,81 +353,60 @@ def test_the_drawing_window_snaps_to_whole_months() -> None:
 
 
 def test_a_one_day_project_does_not_fill_the_whole_column(tmp_path: Path) -> None:
-    """期間が 1 日の木でも、棒は列いっぱいにならない（緑の帯にしか見えない状態を無くす）。"""
+    """1 日だけの案件でも棒が列いっぱいにならない（描画の窓を月の境目まで広げる）。"""
     _tree(
         tmp_path,
-        {"id": "T-9001", "kind": "task", "status": "done", "start": "2026-07-23", "due": "2026-07-23"},
+        {"id": "T-9001", "kind": "task", "status": "done", "start": "2026-08-10", "due": "2026-08-10"},
     )
-    html = _render(tmp_path, date(2026, 7, 23))
-    _, width = _rect(_row_markup(html, "T-9001"), "bar")
-    assert width < 1000.0 / 28  # 窓は 1 か月（28 日以上）あるので、1 日の棒はその 1/28 以下
+    html = _render(tmp_path, date(2026, 8, 10))
+    _, width = _bar(_row_markup(html, "T-9001"))
+    assert width < 10.0  # 1 日は窓（1 か月以上）の 1 割に満たない
 
 
 def test_every_row_carries_the_time_grid(tmp_path: Path) -> None:
-    """各行に時間軸の格子が引かれる（棒だけだと図表に見えない）。位置は軸の目盛と一致する。"""
+    """時間の格子はセルの背景として敷く（行ごとに図形を複製しない）。位置は軸の目盛と一致する。"""
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    row = _row_markup(html, "T-9001")
-    # 線には「このズームでは引かない」印が付くことがあるので、種類の後ろは何が来てもよい形で拾う。
-    grid = [float(x) for x in re.findall(r'<line class="grid g-w[^"]*" x1="([\d.]+)"', row)]
-    ticks = [render._x_of(day, WINDOW) for day in render.week_ticks(WINDOW)[1:]]
-    assert grid == pytest.approx(ticks, abs=0.01)
-    assert grid, "格子が 1 本も引かれていない"
+    rule = html.split(".scroll.u-w td.gantt")[1].split("}")[0]
+    for tick in render.week_ticks(WINDOW)[1:]:
+        assert f"{render._pct(tick, WINDOW):.4f}%" in rule
+    assert "<svg" not in _row_markup(html, "T-9001")
 
 
-def test_non_working_days_are_shaded_except_where_a_day_is_too_narrow(tmp_path: Path) -> None:
-    """非稼働日（土日・祝日・案件の休業日）は淡い面で沈める。続く日はひとまとめの面にする。
-
-    1 日の幅が狭い月表示では縞にしかならないので出さない（CSS で切る）。
-    """
-    _tree(
-        tmp_path,
-        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
-        {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
-    )
-    html = _render(tmp_path, date(2026, 8, 5))
-    row = _row_markup(html, "T-9001")
-    # 既定の暦は土日だけが非稼働日。面の数は窓の中の「連なり」の数と一致する（1 日ずつ出さない）。
+def test_non_working_days_are_shaded_except_where_a_day_is_too_narrow() -> None:
+    """非稼働日は淡い面で沈める。1 日の幅が狭い月表示では縞にしかならないので出さない。"""
+    grids = render.zoom_backgrounds(WINDOW, WorkCalendar())
     runs = render._offdays(WINDOW, WorkCalendar())
     assert runs, "窓の中に非稼働日が 1 日も無い（テストデータの前提が崩れている）"
-    assert len(re.findall(r'<rect class="off"', row)) == len(runs)
-    assert "rect.off { display:none;" in html  # 既定は出さない
-    assert ".scroll.u-w rect.off, .scroll.u-d rect.off { display:block; }" in html  # 週・日でだけ出す
+    for zoom in ("w", "d"):
+        assert "var(--off)" in grids[zoom]
+        for start, _ in runs:
+            assert f"{render._pct(start, WINDOW):.4f}%" in grids[zoom]
+    assert "var(--off)" not in grids["m"]
 
 
-def test_no_two_grid_lines_are_close_enough_to_look_like_one(tmp_path: Path) -> None:
-    """どのズームでも、罫線どうしが「1 本の太い線」に見える近さまで寄らない。
-
-    同じ日に重なる場合（距離 0）はこの規則の極端な例。月初が月曜の月を含む期間で確かめる。
-    どの種類の線がそのズームで見えるかは「選んだ単位＋1 つ細かい単位」（`_STYLE` の表示規則）。
-    """
+def test_no_two_grid_lines_are_close_enough_to_look_like_one() -> None:
+    """どのズームでも、罫線どうしが「1 本の太い線」に見える近さまで寄らない（同じ日の重なりも同じ規則）。"""
     span = (date(2027, 1, 4), date(2027, 3, 31))  # 2027-02-01 は月曜＝月の線と週の線が同じ日に来る
-    back = render.backdrop(span, date(2027, 2, 10), WorkCalendar())
-    lines = re.findall(r'<line class="grid g-(\w)([^"]*)" x1="([\d.]+)"', back.lines)
-    visible_kinds = {"m": {"m", "w"}, "w": {"m", "w", "d"}, "d": {"m", "w", "d"}}
-    days = (span[1] - span[0]).days + 1
     for zoom, px in render.PX_PER_DAY.items():
-        xs = sorted(float(x) for kind, extra, x in lines if kind in visible_kinds[zoom] and f"x-{zoom}" not in extra)
-        gaps = [(b - a) / render._CANVAS * days * px for a, b in zip(xs[:-1], xs[1:], strict=True)]
+        ticks = [tick for tick, _ in render._visible_lines(span, zoom)]
+        gaps = [(b - a).days * px for a, b in zip(ticks[:-1], ticks[1:], strict=True)]
         assert min(gaps) >= render._MIN_GAP_PX, f"{zoom} 表示で線が近すぎる（{min(gaps):.1f}px）"
 
 
 def test_both_the_week_and_month_grids_are_available(tmp_path: Path) -> None:
-    """週と月の両方の目盛を書き出しておく（単位の切り替えでサーバへ行かないため）。"""
+    """月・週・日の下敷きを全部書き出しておく（単位の切り替えでサーバへ行かない）。"""
     _tree(
         tmp_path,
-        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-12-18"},
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
-    html = _render(tmp_path, date(2026, 9, 1))
-    row = _row_markup(html, "T-9001")
-    assert re.search(r'<line class="grid g-w"', row)
-    assert re.search(r'<line class="grid g-m"', row)
-    assert 'class="axis-lab lab-w"' in html
-    assert 'class="axis-lab lab-m"' in html
+    html = _render(tmp_path, date(2026, 8, 5))
+    for zoom in ("m", "w", "d"):
+        assert f".scroll.u-{zoom} td.gantt" in html
 
 
 def test_the_view_offers_the_gantt_units(tmp_path: Path) -> None:
@@ -448,48 +422,34 @@ def test_the_view_offers_the_gantt_units(tmp_path: Path) -> None:
     assert "data-days=" in html and "data-unit=" in html  # 幅の計算と初期の単位を画面が持っている
 
 
-def test_the_grid_runs_unbroken_across_rows(tmp_path: Path) -> None:
-    """時間の格子は行の高さいっぱいに敷く（棒と同じ小さな図形の中だと行の間で途切れ、破線に見える）。
+def test_the_gantt_column_has_no_svg_and_no_z_index(tmp_path: Path) -> None:
+    """ガント列には図形（SVG）も z-index も置かない。
 
-    下敷きは棒とは別の層で、セルの上端から**下の罫を越えて**届かせる＝月をまたぐ縦線が 1 本に繋がる。
+    下敷きは背景＝箱を常に満たし・箱の外へ出られず・border より下に塗られる（CSS の定義）。前景は
+    z-index を持たないので固定列・見出しと同じ数直線に乗らない。この 2 つが「行の高さぶん通る／横罫を
+    覆わない／横スクロールで前後が入れ替わらない」を**指定の正しさでなく仕様として**保証している。
     """
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
-        {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    row = _row_markup(html, "T-9001")
-    assert '<svg class="gridbg"' in row  # 格子は棒とは別の層
-    assert '<line class="grid' not in row.split('<svg class="bar"')[-1]  # 棒の図形の中には入れない
-    # 下敷きはセルいっぱい（top:0・bottom:0）＝縦線は行の高さぶん通り、横罫は罫の位置に残る。
-    assert "td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:0;" in html
-    # ガントのセルの中の重ね順は 0 と 1 だけ（固定列 2・3／見出し 4 以上と番号がぶつからない）。
-    for rule in ("td.gantt .gridbg, td.ms-track .gridbg", "svg.bar", "td.gantt .todayline, td.ms-track .todayline"):
-        body = html.split(rule + " {")[1].split("}")[0]
-        assert "z-index:0" in body or "z-index:1" in body, rule
+    cells = re.findall(r'<td class="gantt[^"]*"[^>]*>(.*?)</td>', html, flags=re.S)
+    assert cells, "ガントのセルが無い"
+    for cell in cells:
+        assert "<svg" not in cell
+        assert "z-index" not in cell
+        for tag in re.findall(r"<(\w+)", cell):
+            assert tag in {"i", "span"}, tag
 
 
-def test_the_gantt_cell_stacks_backdrop_bar_milestone_then_today(tmp_path: Path) -> None:
-    """ガントのセルの重ね順は「下敷き → 棒 → マイルストーン → 基準日の線」。
-
-    同じ重ね番号（1）どうしは**後に書いたものが前に出る**ので、順序そのものが重ね順になる。番号を 0 と 1 に
-    抑えるのは、固定列（2・3）や見出し（4 以上）と同じ番号を使うと横スクロールで前後が入れ替わるため。
-    ズームを変えても同じ並びなので、この検査は 3 つの時間軸すべてに効く。
-    """
+def test_the_gantt_cell_orders_bar_then_today(tmp_path: Path) -> None:
+    """前景の重ね順は書いた順そのもの（棒 → マイルストーン → 基準日の線）。z-index を使わない。"""
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
-        {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True},
     )
-    html = _render(tmp_path, date(2026, 8, 5))  # 基準日を窓の中に置く＝基準日の線が出る
-    # 集約行にも◆の説明で ID が出るので、作業の行そのものを data-ref で取る。
-    row = next(part for part in html.split("<tr") if 'data-ref="T-9003"' in part)
+    html = _render(tmp_path, date(2026, 8, 5))
+    row = next(part for part in html.split("<tr") if 'data-ref="T-9001"' in part)
     cell = row.split('<td class="gantt"')[1]
-    order = [
-        cell.index('class="gridbg"'),
-        cell.index('class="bar"'),
-        cell.index('class="ms"'),
-        cell.index('class="todayline"'),
-    ]
-    assert order == sorted(order), f"ガントのセルの重ね順が違う: {order}"
+    assert cell.index('class="gbar"') < cell.index('class="tl"')

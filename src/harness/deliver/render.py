@@ -17,7 +17,6 @@ from __future__ import annotations
 import html
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date, timedelta
 
 from harness.deliver.calendar import WorkCalendar
@@ -148,89 +147,93 @@ def _offdays(span: tuple[date, date], calendar: WorkCalendar) -> list[tuple[date
     return runs
 
 
-@dataclass(frozen=True)
-class Backdrop:
-    """全行に共通の下敷きを、重ね順の違う 3 層に分けて持つ。
-
-    **面は罫線を覆わない・線は行をまたいで繋がる・基準日の線は最前面**、という 3 つの決まりを層で表す。
-    1 枚に混ぜると、面が横罫を塗り潰して「罫線が見える所と見えない所」ができ、基準日の線も棒の下に隠れる。
-    """
-
-    fills: str  # 非稼働日の面。セルの中だけに敷く（罫線の位置には届かせない）
-    lines: str  # 時間の格子。下の罫を越えて届かせる（行をまたいで 1 本に繋がる）
-    today: str  # 基準日の線。棒よりもマイルストーンよりも前に置く
+# 縦線の重み（細→太）。太い方が粗い単位。
+_GRID_COLOR: dict[str, str] = {"d": "var(--line)", "w": "var(--guide)", "m": "var(--line-strong)"}
+# そのズームで出す単位＝「選んだ単位＋1 つ細かい単位」。
+_VISIBLE_KINDS: dict[str, tuple[str, ...]] = {"m": ("m", "w"), "w": ("m", "w", "d"), "d": ("m", "w", "d")}
+# 非稼働日の面を出すズーム（1 日が狭い月では縞にしかならないので出さない）。
+_FILL_ZOOMS = ("w", "d")
 
 
-_EMPTY_BACKDROP = Backdrop("", "", "")
+def _pct(day: date, span: tuple[date, date]) -> float:
+    """描画窓の中での、その日の**左端**の位置（%）。"""
+    first, last = span
+    return (day - first).days / ((last - first).days + 1) * 100.0
 
 
-def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> Backdrop:
-    """全行に共通の下敷き（非稼働日の面・時間軸の格子・今日の線）。
+def _day_pct(span: tuple[date, date]) -> float:
+    """1 日ぶんの幅（%）。"""
+    first, last = span
+    return 100.0 / ((last - first).days + 1)
 
-    棒だけを描くと図表に見えない（時間の目盛が無いので、棒の長さが何日なのか読めない）。格子は軸の目盛と
-    同じ位置に引く＝上の見出しと目で繋がる。**非稼働日（土日・祝日・案件の休業日）はごく淡い面で沈める**＝
-    どの列が休みかを数えずに読める。1 日の幅が狭いズーム（月）では縞にしかならないので出さない。
+
+def _gradient(bands: list[tuple[str, str, str]]) -> str:
+    """[(左端, 右端, 色)] を 1 枚の linear-gradient にする（位置は CSS の長さ式のまま渡す）。"""
+    if not bands:
+        return ""
+    stops = ["transparent 0"]
+    for start, end, color in bands:
+        stops += [f"transparent {start}", f"{color} {start}", f"{color} {end}", f"transparent {end}"]
+    stops.append("transparent 100%")
+    return "linear-gradient(90deg," + ",".join(stops) + ")"
+
+
+def _visible_lines(span: tuple[date, date], zoom: str) -> list[tuple[date, str]]:
+    """そのズームで**実際に引く**縦線（日付と単位）。近すぎて 1 本に見える線はここで落とす。
+
+    表示/非表示を CSS の切り替えでなく**生成時の判断**にするので、判定は純粋な Python として検査できる。
     """
     first, last = span
-    scale = _CANVAS / ((last - first).days + 1)
-    fills: list[str] = []
-    if (last - first).days + 1 <= _MAX_DAY_TICKS:  # 日の粒度が出ない長さでは面も出さない
-        for off_start, off_end in _offdays(span, calendar):
-            x = _x_of(off_start, span)
-            width = _x_of(off_end, span) + scale - x
-            fills.append(f'<rect class="off" x="{x:.2f}" y="0" width="{width:.2f}" height="{_GRID_H}" />')
-    lines: list[str] = []
+    days = (last - first).days + 1
     coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
-    for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
-        if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
+    limit = _MIN_GAP_PX / PX_PER_DAY[zoom]
+    ticks_of = {"d": day_ticks, "w": week_ticks, "m": month_ticks}
+    out: list[tuple[date, str]] = []
+    for kind in _VISIBLE_KINDS[zoom]:
+        if kind == "d" and days > _MAX_DAY_TICKS:
             continue
-        for tick in ticks:
+        for tick in ticks_of[kind](span):
             if tick == first:  # 先頭は列の左端なので線を引かない
                 continue
-            x = _x_of(tick, span)
-            lines.append(
-                f'<line class="grid g-{kind}{_crowded_zooms(kind, tick, coarser)}" x1="{x:.2f}" y1="0"'
-                f' x2="{x:.2f}" y2="{_GRID_H}" vector-effect="non-scaling-stroke" />'
-            )
-    today_line = ""
-    if first <= today <= last:
-        tx = _x_of(today, span) + scale / 2
-        today_line = (
-            f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="{_GRID_H}"'
-            f' vector-effect="non-scaling-stroke" />'
-        )
-    return Backdrop("".join(fills), "".join(lines), today_line)
+            if any(abs((tick - other).days) <= limit for c in _COARSER[kind] for other in coarser[c]):
+                continue
+            out.append((tick, kind))
+    out.sort(key=lambda pair: pair[0])
+    return out
 
 
-def _layer(kind: str, body: str) -> str:
-    """下敷きの 1 層（行の高さいっぱいに引き伸ばす SVG）。重ね順と届く範囲は CSS が層ごとに決める。"""
-    if not body:
+def zoom_backgrounds(span: tuple[date, date], calendar: WorkCalendar) -> dict[str, str]:
+    """ズームごとの下敷きを、`background-image` の値として返す（縦の格子と非稼働日の面）。
+
+    **下敷きを背景にするのが要点**。背景は要素の箱を常に満たし（高さの計算式が存在しない）、自分の箱の外へ
+    出られず、要素の border より下に塗られる（CSS の定義）。だから「行の高さいっぱいに通る」「隣の行へ
+    はみ出さない」「横罫を塗り潰さない」が、指定の正しさではなく**仕様として**保証される。
+    重ねる順は列挙順で決まる（先頭が最前）ので、線を先・面を後に置く＝面が線を覆うことも起きない。
+    """
+    days = (span[1] - span[0]).days + 1
+    out: dict[str, str] = {}
+    for zoom in PX_PER_DAY:
+        lines = [
+            (f"calc({_pct(tick, span):.4f}% - .5px)", f"calc({_pct(tick, span):.4f}% + .5px)", _GRID_COLOR[kind])
+            for tick, kind in _visible_lines(span, zoom)
+        ]
+        fills: list[tuple[str, str, str]] = []
+        if zoom in _FILL_ZOOMS and days <= _MAX_DAY_TICKS:
+            fills = [
+                (f"{_pct(start, span):.4f}%", f"{_pct(end, span) + _day_pct(span):.4f}%", "var(--off)")
+                for start, end in _offdays(span, calendar)
+            ]
+        out[zoom] = ",".join(layer for layer in (_gradient(lines), _gradient(fills)) if layer)
+    return out
+
+
+def _bar_html(row: WbsRow, span: tuple[date, date]) -> str:
+    """その行の棒（非置換の HTML 要素）。マイルストーンは点なので棒を描かない。"""
+    if row.milestone or row.start is None or row.due is None:
         return ""
-    return (
-        f'<svg class="{kind}" viewBox="0 0 {_CANVAS:.0f} {_GRID_H}" preserveAspectRatio="none"'
-        f' aria-hidden="true">{body}</svg>'
-    )
-
-
-def _grid_svg(back: Backdrop) -> str:
-    """棒より後ろに敷く下敷き（非稼働日の面と時間の格子）。セルの中に収める。"""
-    return _layer("gridbg", back.fills + back.lines)
-
-
-def _bar_svg(row: WbsRow, span: tuple[date, date]) -> str:
-    """1 行分の棒（その行のセルに収まる小さな SVG）。下敷きは別の層（`_grid_svg`）が敷く。"""
-    first, last = span
-    scale = _CANVAS / ((last - first).days + 1)
-    parts: list[str] = [f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">']
-    if row.milestone and row.due is not None:
-        pass  # マイルストーンは図形を引き伸ばすと潰れるので、SVG でなく割合の位置に置く HTML で描く（_milestone）
-    elif row.start is not None and row.due is not None:
-        x = _x_of(row.start, span)
-        width = max(_x_of(row.due, span) + scale - x, 2.0)
-        # まとめの行（子を持つ行）も普通の棒にする。階層は番号・作業名の字下げ・フェーズの面で分かる。
-        parts.append(f'<rect class="bar" x="{x:.2f}" y="3" width="{width:.2f}" height="8" />')
-    parts.append("</svg>")
-    return "".join(parts)
+    left = _pct(row.start, span)
+    width = max(_pct(row.due, span) + _day_pct(span) - left, 0.2)
+    return f'<i class="gbar" style="left:{left:.4f}%;width:{width:.4f}%"></i>'
 
 
 def day_ticks(span: tuple[date, date]) -> list[date]:
@@ -444,7 +447,7 @@ def _row_html(
     row: WbsRow,
     span: tuple[date, date] | None,
     today: date,
-    back: Backdrop = _EMPTY_BACKDROP,
+    today_mark: str = "",
     *,
     editable: bool = False,
     rosters: dict[str, list[str]] | None = None,
@@ -508,9 +511,9 @@ def _row_html(
         f'<td class="d gs" data-col="act_start">{_day_label(row.actual_start)}</td>',
         f'<td class="d" data-col="act_end">{_day_label(row.actual_finish)}</td>',
         f'<td class="n" data-col="progress">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
-        f'<td class="gantt" data-col="gantt">{_grid_svg(back) if span else ""}'
-        f"{_bar_svg(row, span) if span else ''}{_milestone(row, span)}"
-        f"{_layer('todayline', back.today) if span else ''}</td>",
+        # 重ね順はこの並びそのもの（後に書いたものが前に出る）。z-index は 1 つも使わない。
+        f'<td class="gantt" data-col="gantt">{_bar_html(row, span) if span else ""}'
+        f"{_milestone(row, span)}{today_mark}</td>",
     ]
     holder = _esc(row.ref) if can_add else ""
     return (
@@ -542,7 +545,7 @@ def _view_script() -> str:
     return _VIEW_SCRIPT.replace("__PX__", json.dumps(PX_PER_DAY))
 
 
-def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: Backdrop) -> str:
+def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
     """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
 
     各フェーズに散らばる◆だけだと、案件全体のマイルストーン（要件確定・検収・成果物の期日など、その日に確定する
@@ -564,15 +567,13 @@ def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: Backdrop) -> 
     )
     n_cols = len(COLUMNS)
     # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の線も乗る。
-    grid = _grid_svg(back)
-    front = _layer("todayline", back.today)
     # 左は貼り付く 2 列ぶんの空き（他の行と同じ幅で埋める）、見出しはガントのすぐ左に右寄せで置く。
     # 見出しを全列またぎの貼り付くセルにすると、横スクロールでその幅がガントに被さって◆を覆う。
     return (
         '<tr class="msrow">'
         '<td class="ms-pad" colspan="2"></td>'
         f'<td class="ms-label" colspan="{n_cols - 2}">マイルストーン</td>'
-        f'<td class="gantt ms-track">{grid}{diamonds}{front}</td></tr>'
+        f'<td class="gantt ms-track">{diamonds}{today_mark}</td></tr>'
     )
 
 
@@ -686,10 +687,11 @@ th.d, th.n { text-align:right; }
 th.name, td.name { white-space:normal; min-width:150px; }
 /* 左の表（セルの格子）とガント（時間の図）は別の領域。ガント専用の淡い地色・ページ最強の縦罫・時間の
    格子で 3 重に割る。棒・格子・今日線は常に無地のキャンバスに載る（状態の行色はガントに入れない）。 */
-th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; border-left:2px solid var(--sum);
-                     background:var(--canvas); }
+th.gantt, td.gantt { width:40%; min-width:280px; padding:0; border-left:2px solid var(--sum);
+                     background-color:var(--canvas); }
+td.gantt { position:relative; overflow:hidden; }
 th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
-thead th.gantt { background:var(--canvas); }
+thead th.gantt { background-color:var(--canvas); }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 tbody td.code, tbody td.name { z-index:3; }
@@ -700,20 +702,20 @@ td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1
   opacity:0; background:linear-gradient(to right, rgba(15,20,26,.14), transparent);
   pointer-events:none; transition:opacity .15s; }
 @container scroll-state(scrollable: inline-start) { td.name::after, th.name::after { opacity:1; } }
-tr.lv0 > td { background:var(--sec); font-weight:600; border-top:1px solid var(--line-strong); }
+tr.lv0 > td { background-color:var(--sec); font-weight:600; border-top:1px solid var(--line-strong); }
 /* 階層は作業名の前に「祖先の数だけ縦ガイド線」を通して示す（罫線が無いと段差が読めない、への答え）。
    線は 1 本ぶんの span。フォルダの深さぶん生成するだけなので階層数に上限を作らない。 */
 td.name .nmwrap { display:flex; align-items:stretch; margin:-5px 0 -5px -8px; min-height:calc(1em + 10px); }
 td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
 td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
-tbody tr:hover > td { background:var(--hover); }
-tr.is-sel > td { background:var(--sel); }
+tbody tr:hover > td { background-color:var(--hover); }
+tr.is-sel > td { background-color:var(--sel); }
 /* 状態→視覚の強さ（意味の順に読める）。面（ベタ塗り）はページ最強の視覚資源なので**遅れだけ**に使う。
    完了は面を取り上げて文字だけ退け、進行中は左端の縦バーと状態語で「今ここ」を積極的に示す。棒は 1 色のまま。 */
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
 /* 遅れ＝淡赤の面。ただし表の側だけ（ガントは無地のキャンバスに載せて図を濁さない＝領域を分ける）。 */
-tr.is-late > td:not(.gantt) { background:var(--late-row); }
-tr.is-late.lv0 > td:not(.gantt) { background:var(--late-row); }  /* 遅れフェーズは節の面に勝つ（最も見る信号） */
+tr.is-late > td:not(.gantt) { background-color:var(--late-row); }
+tr.is-late.lv0 > td:not(.gantt) { background-color:var(--late-row); }  /* 遅れフェーズは節の面に勝つ（最も見る信号） */
 /* 完了＝面を敷かない（白のまま）。文字だけ退け、棒も同じ青を淡くする＝済んだ話は地に沈める。 */
 tr.is-done > td { color:var(--muted); }
 tr.is-done rect.bar { opacity:.45; }
@@ -771,16 +773,16 @@ rect.off { display:none; fill:var(--off); }
 /* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
 line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
-/* 重ね順の決まりは 1 つ：**下敷き → 棒 → マイルストーン → 基準日の線**（後ろのものほど前に出る）。
-   **セルの中だけで 0 と 1 しか使わない**のが要点。固定列（2・3）や見出し（4 以上）と同じ番号を使うと、
-   横スクロールで基準日の線が固定列の上に出る・◆が固定列と喧嘩する、といった壊れ方をする。
-   はみ出させない（top:0・bottom:0＝セルの中に収める）のも要点。隣のセルへはみ出した線は、隣のセルの
-   地色や罫に塗り潰されて**かえって消える**。セルいっぱいに引けば縦線は行の高さぶん通り、横罫は罫の位置
-   （セルの外＝border）に残るので、両方が一様に見える。左右はセルの余白（padding:0 2px）に合わせる。 */
-td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:0; left:2px; right:2px; z-index:0; }
-svg.bar { display:block; width:100%; height:16px; position:relative; z-index:1; }
-td.gantt .todayline, td.ms-track .todayline { position:absolute; top:0; bottom:0; left:2px; right:2px;
-                                              z-index:1; pointer-events:none; }
+/* ガント列には **SVG も z-index も置かない**。下敷き（格子・非稼働日の面）はセルの background で、
+   前景（棒・◆・基準日の線）は非置換の HTML 要素を**書いた順**に重ねる。
+   - 背景は箱を常に満たす（高さの式が無い＝書き忘れようがない）・箱の外へ出られない・border より下に塗る。
+     この 3 つは CSS の定義なので、「行の高さいっぱいに通る／隣へはみ出さない／横罫を覆わない」が構造で決まる。
+   - 前景は z-index を書かない＝木の順で重なる。固定列(2・3)・見出し(4 以上)と**同じ数直線に乗らない**ので、
+     横スクロールしても前後が入れ替わらない。はみ出しは overflow:hidden で不可能。 */
+td.gantt .gbar { position:absolute; top:50%; transform:translateY(-50%); height:8px; background:var(--bar); }
+tr.is-done .gbar { opacity:.45; }
+td.gantt .tl, td.ms-track .tl { position:absolute; top:0; bottom:0; left:var(--today-x); width:0;
+                                border-left:2px dashed var(--today); pointer-events:none; }
 svg.bar rect { rx:0; }
 /* ガントは 1 色（青）のベタ塗り。予定・完了・遅れを色で分けない（状態は行の面で分かる）。
    まとめ（子を持つ行）は色でなく形＝細い帯＋両端の脚で区別する。 */
@@ -789,7 +791,7 @@ rect.sum { fill:var(--bar); }
 line.leg { stroke:var(--bar); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
-      color:var(--bar-done); pointer-events:none; z-index:1; }
+      color:var(--bar-done); pointer-events:none; }
 .ops { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;
        justify-content:space-between; }
 .ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
@@ -810,12 +812,12 @@ button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:
 button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
 /* マイルストーンの集約行（ガント上部の帯）。左は貼り付き、右に全ての◆を時間軸で並べる。 */
-tr.msrow > td { background:var(--sec); border-bottom:1px solid var(--line-strong); }
+tr.msrow > td { background-color:var(--sec); border-bottom:1px solid var(--line-strong); }
 /* 左の空きだけを貼り付ける（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ＝図の近くで読める。 */
 td.ms-pad { position:sticky; left:0; z-index:3; background:var(--sec); }
 td.ms-label { text-align:right; z-index:2; background:var(--sec); font-size:11px; font-weight:600;
               color:var(--muted); letter-spacing:.02em; }
-td.ms-track { position:relative; height:20px; }
+td.ms-track { position:relative; overflow:hidden; height:20px; }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
@@ -1244,7 +1246,18 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     """
     data_span = wbs.span
     span = drawing_window(data_span) if data_span else None
-    back = backdrop(span, wbs.today, wbs.overlay.calendar.to_calendar()) if span else _EMPTY_BACKDROP
+    # 下敷きはズームごとの CSS ルール 1 本ずつ（行ごとに図形を複製しない）。
+    grids = zoom_backgrounds(span, wbs.overlay.calendar.to_calendar()) if span else {}
+    grid_css = "".join(
+        f".scroll.u-{zoom} td.gantt, .scroll.u-{zoom} th.gantt {{ background-image:{image}; }}"
+        for zoom, image in grids.items()
+        if image
+    )
+    # 基準日の線は全行で同じ位置なので、位置は 1 か所（.scroll の変数）に置き、各行は印を 1 つ持つだけ。
+    in_span = span is not None and span[0] <= wbs.today <= span[1]
+    today_x = f"{_pct(wbs.today, span) + _day_pct(span) / 2:.4f}%" if in_span and span else ""
+    today_mark = '<i class="tl"></i>' if in_span else ""
+    today_style = f' style="--today-x:{today_x}"' if today_x else ""
     # work グループは固定列(No.+作業)と流動列(チーム+担当+状態)にまたがる。1 つの colspan セルは固定と
     # 流動をまたげない（横スクロールで固定列に食い込む）ので、見出しも 2 セルに割り、左だけ固定する。
     work_n = sum(1 for _, _, g in COLUMNS if g == "work")
@@ -1261,8 +1274,16 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
-    body = _milestone_row(wbs, span, back) + "".join(
-        _row_html(row, span, wbs.today, back, editable=editable, rosters=rosters, parent=parents.get(row.code, ""))
+    body = _milestone_row(wbs, span, today_mark) + "".join(
+        _row_html(
+            row,
+            span,
+            wbs.today,
+            today_mark,
+            editable=editable,
+            rosters=rosters,
+            parent=parents.get(row.code, ""),
+        )
         for row in wbs.walk()
     )
     title = wbs.overlay.project or "WBS"
@@ -1298,11 +1319,11 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             f' data-statuses="{choices}">{_EDIT_SCRIPT}</script>'
         )
     inner = (
-        f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
+        f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}{grid_css}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
-        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}">'
+        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"{today_style}>'
         f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
         f"<tbody>{body}</tbody></table></div>"
         f"<footer></footer><script>{_view_script()}</script>{edit_bits}"
