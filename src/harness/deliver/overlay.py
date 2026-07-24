@@ -51,6 +51,45 @@ class CalendarSpec(BaseModel):
         )
 
 
+class Event(BaseModel):
+    """**完了状態を持たない出来事**（定例会議・社内の定例レビュー・最終報告会など）。
+
+    作業単位（`work/`）との違いは置き場ではなく**完了の意味論**：定例会議は「終わったか」を追う対象ではなく、
+    繰り返し起きる予定そのもの。完了を持たないものに状態欄を作ると、書く人が毎回意味の無い値を埋めることに
+    なり、進捗の分母にも入ってしまう。だから `status` の欄をそもそも持たせない（型で区別する）。
+    出典：RFC 5545（iCalendar）が、完了を持つ VTODO と持たない VEVENT を型として分けている。
+
+    出来事は木に入らないので、進捗に数えられず `depends_on` の先にもなれない（完了が無いものに依存できない）。
+    ガントの上部に**レーン**として並べる（`lane` に同じ名前を書いたものが 1 本のレーンになる）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    lane: str = "定例"  # このレーンに並べる（案件ごとに好きな名前で分けられる）
+    start: date | None = None
+    due: date | None = None
+    team: str | None = None
+
+    @model_validator(mode="after")
+    def _has_a_time(self) -> Event:
+        """いつの出来事か分からないものは置けない（ガントに並べられない）。"""
+        if self.start is None and self.due is None:
+            raise ValueError(f"{self.id}: 出来事には start か due のどちらかが要る")
+        if self.start is not None and self.due is not None and self.start > self.due:
+            raise ValueError(f"{self.id}: start が due より後になっている")
+        return self
+
+    @property
+    def span(self) -> tuple[date, date]:
+        """帯として描く期間（片端しか無ければ点として扱う）。"""
+        first = self.start or self.due
+        last = self.due or self.start
+        assert first is not None and last is not None
+        return first, last
+
+
 class ManualRow(BaseModel):
     """`work/` に置けない行（クライアント承認待ち・定例会議・先方の作業）。
 
@@ -130,6 +169,8 @@ class Overlay(BaseModel):
     calendar: CalendarSpec = Field(default_factory=CalendarSpec)
     sections: list[Section] = Field(default_factory=list)
     rows: list[ManualRow] = Field(default_factory=list)
+    # 完了を持たない出来事（定例会議・最終報告会など）。ガントの上部にレーンとして並べる。
+    events: list[Event] = Field(default_factory=list)
     # 顧客向けの WBS に**載せない**作業単位の ID（社内都合の作業など）。節構成が木を覆っていない単位は
     # 既定で検査に失敗する（黙って消えるのを止める）ので、外すなら差分に残る形でここに明示する。
     exclude: list[str] = Field(default_factory=list)

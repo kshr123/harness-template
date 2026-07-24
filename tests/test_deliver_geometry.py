@@ -472,3 +472,33 @@ def test_no_row_fill_reaches_into_the_gantt(tmp_path: Path) -> None:
         if "background" not in body or "> td" not in head:
             continue
         assert ":not(.gantt)" in head, f"行の地色がガント列にも当たっている: {line.strip()}"
+
+
+def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None:
+    """ガント上部のレーンは、種類の違うものを別の帯に分ける（同じ場所で被らせない）。
+
+    分け方は**既にあるデータの型から導く**（レーンを指定する欄を行に足さない）：マイルストーンは
+    `milestone: true` の導出、出来事は `docs/wbs.yaml` の `events` を `lane` ごとにまとめたもの。
+    出来事は木に入らないので、レーンと下の表に同じものが二重に出ることが起きない。
+    """
+    from harness.deliver.overlay import Overlay
+
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+        {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-12", "milestone": True},
+    )
+    overlay = Overlay.model_validate(
+        {
+            "events": [
+                {"id": "EV-1", "name": "定例報告会", "lane": "定例", "start": "2026-08-03", "due": "2026-08-28"},
+                {"id": "EV-2", "name": "最終報告会", "lane": "報告", "due": "2026-08-28"},
+            ]
+        }
+    )
+    html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
+    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
+    assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
+    assert html.count("gbar ev") == 2  # 出来事は帯で描く
+    # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
+    assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]

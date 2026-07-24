@@ -20,6 +20,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 from harness.deliver.calendar import WorkCalendar
+from harness.deliver.overlay import Event
 from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
@@ -545,36 +546,62 @@ def _view_script() -> str:
     return _VIEW_SCRIPT.replace("__PX__", json.dumps(PX_PER_DAY))
 
 
-def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
-    """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
-
-    各フェーズに散らばる◆だけだと、案件全体のマイルストーン（要件確定・検収・成果物の期日など、その日に確定する
-    出来事）を一目で追えない。工程表の慣習どおり、上部にマイルストーンだけの帯を 1 本置く。1 つも無ければ行を出さない。
-    繰り返す定例会議はマイルストーンではなく「期間のある行」（start..due の帯・milestone を付けない）として置く。
-    """
-    if span is None:
-        return ""
-    marks = [r for r in wbs.walk() if r.milestone and r.due is not None]
-    if not marks:
-        return ""
-    first, last = span
-    total = (last - first).days + 1
-    diamonds = "".join(
-        f'<span class="ms" style="left:{((r.due - first).days + 0.5) / total * 100:.3f}%" '
-        f'title="{_esc(r.name)}（{r.due.isoformat()}）">◆</span>'
-        for r in marks
-        if r.due is not None and first <= r.due <= last
-    )
+def _lane_row(label: str, body: str, today_mark: str) -> str:
+    """ガント上部のレーン 1 本（左に見出し・右に印や帯）。行の作りは表の行と同じ 1 つの `<tr>`。"""
     n_cols = len(COLUMNS)
-    # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の線も乗る。
-    # 左は貼り付く 2 列ぶんの空き（他の行と同じ幅で埋める）、見出しはガントのすぐ左に右寄せで置く。
-    # 見出しを全列またぎの貼り付くセルにすると、横スクロールでその幅がガントに被さって◆を覆う。
     return (
         '<tr class="msrow">'
         '<td class="ms-pad" colspan="2"></td>'
-        f'<td class="ms-label" colspan="{n_cols - 2}">マイルストーン</td>'
-        f'<td class="gantt ms-track">{diamonds}{today_mark}</td></tr>'
+        f'<td class="ms-label" colspan="{n_cols - 2}">{_esc(label)}</td>'
+        f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
     )
+
+
+def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
+    """ガントの最上部に置くレーン。
+
+    種類の違うもの（承認・検収の**マイルストーン**と、繰り返す**出来事**）を同じ場所に混ぜず、意味ごとに
+    1 本ずつの帯に分ける。分け方は**既にあるデータの型から導く**（レーンを指定する欄を行に足さない）：
+
+    - マイルストーンのレーン … `milestone: true` の行を集めた**導出**（作業単位でも手動行でも同じ）。
+    - 出来事のレーン … `docs/wbs.yaml` の `events` を `lane` ごとにまとめたもの。定例会議・社内の定例
+      レビュー・最終報告会など、**完了状態を持たない**もの。木に入らないので進捗にも数えない。
+
+    出来事は木に無いので、レーンと下の表で同じものが二重に出ることが起きない。
+    """
+    if span is None:
+        return ""
+    first, last = span
+    total = (last - first).days + 1
+    out: list[str] = []
+
+    marks = [r for r in wbs.walk() if r.milestone and r.due is not None and first <= r.due <= last]
+    if marks:
+        diamonds = "".join(
+            f'<span class="ms" style="left:{((r.due - first).days + 0.5) / total * 100:.3f}%" '
+            f'title="{_esc(r.name)}（{r.due.isoformat()}）">◆</span>'
+            for r in marks
+            if r.due is not None
+        )
+        out.append(_lane_row("マイルストーン", diamonds, today_mark))
+
+    lanes: dict[str, list[Event]] = {}
+    for event in wbs.overlay.events:
+        lanes.setdefault(event.lane, []).append(event)
+    for label, events in lanes.items():
+        parts: list[str] = []
+        for event in events:
+            begin, end = event.span
+            if end < first or begin > last:
+                continue
+            left = max((begin - first).days, 0) / total * 100
+            width = (min((end - first).days, total - 1) - max((begin - first).days, 0) + 1) / total * 100
+            parts.append(
+                f'<i class="gbar ev" style="left:{left:.4f}%;width:{width:.4f}%" title="{_esc(event.name)}"></i>'
+            )
+        if parts:
+            out.append(_lane_row(label, "".join(parts), today_mark))
+    return "".join(out)
 
 
 def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
@@ -785,6 +812,8 @@ line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
      横スクロールしても前後が入れ替わらない。はみ出しは overflow:hidden で不可能。 */
 td.gantt .gbar { position:absolute; top:50%; transform:translateY(-50%); height:8px; background:var(--bar); }
 tr.is-done .gbar { opacity:.45; }
+/* 出来事（定例など）の帯は、作業の棒と同じ青の淡い段で少し細く＝完了を追う対象でないと分かる。 */
+td.ms-track .gbar.ev { height:6px; background:var(--bar); opacity:.55; }
 td.gantt .tl, td.ms-track .tl { position:absolute; top:0; bottom:0; left:var(--today-x); width:0;
                                 border-left:2px dashed var(--today); pointer-events:none; }
 svg.bar rect { rx:0; }
@@ -1279,7 +1308,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
-    body = _milestone_row(wbs, span, today_mark) + "".join(
+    body = _lanes(wbs, span, today_mark) + "".join(
         _row_html(
             row,
             span,
