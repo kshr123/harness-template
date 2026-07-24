@@ -25,12 +25,24 @@ from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
 # 状態の表示名（顧客に見せる語）。コード側の語彙（Status）を 2 つに増やさないための表示専用の対応表。
+# 画面に出す言葉。**語そのものが意味を運ぶ**ようにする（読んで分からない名前を注釈で補うのは負け）。
+# 「確認中」は誰かが作業中に見えるが、実際は作る側の手が離れて待っている状態なので「確認待ち」。
+# 「停止」は強すぎて中止と紛らわしく、次の一手も示さないので、この分野で通用する「保留」にする。
 STATUS_LABEL: dict[Status, str] = {
     Status.todo: "未着手",
     Status.in_progress: "進行中",
-    Status.in_review: "確認中",
-    Status.blocked: "停止",
+    Status.in_review: "確認待ち",
+    Status.blocked: "保留",
     Status.done: "完了",
+}
+
+# 状態の 1 行の意味。**成果物そのものに持たせる**（docs を読まないと分からない状態を作らない）。
+STATUS_MEANING: dict[Status, str] = {
+    Status.todo: "まだ始めていない",
+    Status.in_progress: "いま手が動いている",
+    Status.in_review: "作る側の手は離れ、確認する人の判断を待っている",
+    Status.blocked: "進められない（障害・外部待ち）",
+    Status.done: "検証に成功した",
 }
 
 # 表の列（見出し・幅と寄せを決める区分・意味のまとまり）。見出しの並びは形式に依らないので、表計算もここから引く。
@@ -434,6 +446,7 @@ def _row_html(
     digest = _digest_of(row) if fields else ""
     names = rosters or {"teams": [], "members": []}
     status_label = STATUS_LABEL[row.status] if row.status is not None else ""
+    status_hint = f' title="{_esc(STATUS_MEANING[row.status])}"' if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
     # 取っ手の有無で番号がずれないよう、子を持たない行にも同じ幅の空き枠を置く（番号の左端をそろえる）。
     toggle = (
@@ -457,7 +470,15 @@ def _row_html(
             css="who",
             choices=names["members"],
         ),
-        _cell("status", _esc(status_label), row.status.value if row.status else "", row, fields, digest, css="st"),
+        _cell(
+            "status",
+            f"<span{status_hint}>{_esc(status_label)}</span>" if status_label else "",
+            row.status.value if row.status else "",
+            row,
+            fields,
+            digest,
+            css="st",
+        ),
         _cell(
             "start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d gs"
         ),
@@ -730,7 +751,7 @@ tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }
 tr.st-in-review > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
 tr.st-blocked > td:first-child { box-shadow:inset 3px 0 0 var(--ink); }
 tr.is-late > td:first-child { box-shadow:inset 3px 0 0 var(--late); }  /* 遅れは赤が勝つ */
-/* 状態語の強調：進行中・停止は太字で「動き」と「詰まり」を一目で拾えるようにする。進行中は濃青。 */
+/* 状態語の強調：進行中・保留は太字で「動き」と「詰まり」を一目で拾えるようにする。進行中は濃青。 */
 tr.st-in-progress td.st, tr.st-blocked td.st { font-weight:600; }
 tr.st-in-progress td.st { color:var(--prog); }
 .ref { display:none; }
@@ -817,7 +838,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .legend { margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap;
           align-items:center; }
 .legend i.sw { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
-/* 行の状態の見本：左バー（進行中・確認中・停止）は inset 影、遅れは淡赤の面。完了は灰文字そのもの。 */
+/* 行の状態の見本：左バー（進行中・確認待ち・保留）は inset 影、遅れは淡赤の面。完了は灰文字そのもの。 */
 .legend .rowlegend i.lb { display:inline-block; width:14px; height:12px; vertical-align:middle;
                           margin:0 3px 0 10px; border:1px solid var(--line); border-radius:2px; }
 .legend .rowlegend .donetext { color:var(--muted); margin:0 3px 0 10px; }
@@ -867,8 +888,8 @@ def _legend() -> str:
         "<span>破線＝基準日</span>"
         '<span class="rowlegend">行の状態：'
         '<i class="lb" style="box-shadow:inset 3px 0 0 var(--prog)"></i>進行中'
-        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--bar)"></i>確認中'
-        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--ink)"></i>停止'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--bar)"></i>確認待ち'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--ink)"></i>保留'
         '<i class="lb" style="background:var(--late-row);box-shadow:inset 3px 0 0 var(--late)"></i>'
         '<span style="color:var(--late-ink)">遅れ</span>'
         '<span class="donetext">完了</span>未着手</span>'
