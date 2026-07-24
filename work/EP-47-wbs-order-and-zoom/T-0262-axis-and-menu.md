@@ -13,7 +13,7 @@ verified_by:
   - tests/test_deliver_geometry.py::test_each_unit_has_its_own_ticks
   - tests/test_deliver_geometry.py::test_the_axis_shows_the_year_where_it_matters
   - tests/test_deliver_geometry.py::test_the_view_offers_the_gantt_units
-  - tests/test_deliver_geometry.py::test_a_parent_row_is_drawn_as_a_summary_not_a_bar
+  - tests/test_deliver_geometry.py::test_a_parent_row_spans_its_children_as_a_plain_bar
   - tests/test_deliver_geometry.py::test_a_milestone_is_centred_on_its_day
 ---
 # T-0262 時間軸を読める形にし、単位の切り替えを実際に効かせる

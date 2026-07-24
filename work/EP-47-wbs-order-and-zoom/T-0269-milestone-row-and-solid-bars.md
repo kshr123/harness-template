@@ -10,7 +10,7 @@ effort_days: 1
 requirements: []
 depends_on: [T-0268]
 verified_by:
-  - tests/test_deliver_geometry.py::test_a_parent_row_is_drawn_as_a_summary_not_a_bar
+  - tests/test_deliver_geometry.py::test_a_parent_row_spans_its_children_as_a_plain_bar
   - tests/test_deliver_adder.py::test_the_menu_offers_a_milestone
   - tests/test_deliver_render.py::test_milestone_is_drawn_as_a_point_not_a_bar
 ---

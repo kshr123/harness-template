@@ -140,17 +140,8 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
     elif row.start is not None and row.due is not None:
         x = _x_of(row.start, span)
         width = max(_x_of(row.due, span) + scale - x, 2.0)
-        if row.children:
-            # まとめの行（節・子を持つ単位）は、末端の棒と同じ太さで塗らない。全部同じ太さの帯が並ぶと
-            # 階層が図から読めず「ただの帯」に見える。工程表の慣習どおり、細い帯と両端の脚で表す。
-            parts.append(f'<rect class="sum" x="{x:.2f}" y="2" width="{width:.2f}" height="4" />')
-            for leg in (x, x + width):
-                parts.append(
-                    f'<line class="leg" x1="{leg:.2f}" y1="2" x2="{leg:.2f}" y2="11"'
-                    f' vector-effect="non-scaling-stroke" />'
-                )
-        else:
-            parts.append(f'<rect class="bar" x="{x:.2f}" y="3" width="{width:.2f}" height="8" />')
+        # まとめの行（子を持つ行）も普通の棒にする。階層は番号・作業名の字下げ・フェーズの面で分かる。
+        parts.append(f'<rect class="bar" x="{x:.2f}" y="3" width="{width:.2f}" height="8" />')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -556,6 +547,9 @@ thead tr:last-child th { height:22px; padding:0 8px; top:23px; }
 thead th.gantt { top:0; padding:0 2px; vertical-align:top; }
 /* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
 .gs { border-left:1px solid var(--line-strong) !important; }
+/* 作業グループの見出しの左半分（No.+作業）は固定列に合わせて貼り付ける（食い込み防止）。 */
+thead th.grp-fix { position:sticky; left:0; z-index:6; background:var(--sec); }
+thead th.grp-flow { background:var(--sec); }
 th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
          padding:5px 8px; vertical-align:middle; white-space:nowrap; }
 th:first-child, td:first-child { border-left:0; }
@@ -564,7 +558,12 @@ th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
      letter-spacing:.02em; text-align:left; }
 tr { break-inside:avoid; }
 th.code, td.code { width:64px; min-width:64px; color:var(--muted);
-                   font-variant-numeric:tabular-nums; text-align:left; padding-left:8px; }
+                   font-variant-numeric:tabular-nums; text-align:left; }
+/* 番号も階層ごとに字下げ（作業名とインデントをそろえる）。左揃えのまま。 */
+tr.lv0 td.code { padding-left:8px; }
+tr.lv1 td.code { padding-left:16px; }
+tr.lv2 td.code { padding-left:24px; }
+tr.lv3 td.code { padding-left:32px; }
 th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:ellipsis; }
 /* 要らない列は消せる（案件によってはチームも担当も無い）。まとまりの見出しの幅は JS が数え直す。 */
 .scroll.hide-team th.team, .scroll.hide-team td.team { display:none; }
@@ -677,8 +676,11 @@ td.ms-track { position:relative; height:20px; }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
-.legend span { margin-right:14px; }
-.legend i { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
+.legend { margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap;
+          align-items:center; }
+.legend i.sw { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
+.legend .rowlegend i.rw { display:inline-block; width:12px; height:12px; vertical-align:middle;
+                          margin:0 3px 0 8px; border:1px solid var(--line); border-radius:2px; }
 @media print {
   /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
   tr.hid { display:table-row !important; }
@@ -716,16 +718,17 @@ table { min-width:0; }
 
 
 def _legend() -> str:
+    """凡例。バーは 1 色なので「期間」の 1 種。状態は行の色で示すことも添える。"""
     return (
-        '<p class="legend">'
-        '<span><i style="background:var(--bar)"></i>予定</span>'
-        '<span><i style="background:var(--bar);box-shadow:inset 0 0 0 6px var(--bar-done)"></i>'
-        "完了ぶん（濃い塗り）</span>"
-        '<span><i style="background:var(--late-row);box-shadow:inset 0 0 0 1px var(--late-ink)"></i>'
-        "遅れ（予定終了を過ぎて未完＝行を淡赤で示す）</span>"
-        '<span><i style="background:var(--bar-done);height:4px"></i>まとめ（配下から導いた期間）</span>'
-        '<span><i style="background:var(--bar-done);width:8px;height:8px;transform:rotate(45deg)"></i>節目</span>'
-        "<span>破線＝基準日</span></p>"
+        '<div class="legend">'
+        '<span><i class="sw" style="background:var(--bar)"></i>期間（バー）</span>'
+        '<span><i class="sw" style="background:var(--bar-done);width:8px;height:8px;'
+        'transform:rotate(45deg)"></i>マイルストーン</span>'
+        "<span>破線＝基準日</span>"
+        '<span class="rowlegend"><i class="rw" style="background:var(--paper)"></i>未実施'
+        '<i class="rw" style="background:var(--done-row)"></i>完了'
+        '<i class="rw" style="background:var(--late-row)"></i>遅れ</span>'
+        "</div>"
     )
 
 
@@ -1015,10 +1018,14 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     data_span = wbs.span
     span = drawing_window(data_span) if data_span else None
     back = backdrop(span, wbs.today) if span else ""
-    groups = "".join(
-        f'<th class="grp-{key}{" gs" if key != "work" else ""}" data-group="{key}"'
-        f' colspan="{sum(1 for _, _, g in COLUMNS if g == key)}">{_esc(label)}</th>'
+    # work グループは固定列(No.+作業)と流動列(チーム+担当+状態)にまたがる。1 つの colspan セルは固定と
+    # 流動をまたげない（横スクロールで固定列に食い込む）ので、見出しも 2 セルに割り、左だけ固定する。
+    work_n = sum(1 for _, _, g in COLUMNS if g == "work")
+    groups = f'<th class="grp-fix" colspan="2">作業</th><th class="grp-flow" colspan="{work_n - 2}"></th>' + "".join(
+        f'<th class="grp-{key} gs" data-group="{key}" colspan="{sum(1 for _, _, g in COLUMNS if g == key)}">'
+        f"{_esc(label)}</th>"
         for key, label in COLUMN_GROUPS
+        if key != "work"
     )
     axis = f'<th class="gantt" rowspan="2">{_axis_svg(span, wbs.today) if span else ""}</th>'
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css, _ in COLUMNS)
@@ -1064,10 +1071,10 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
-        f'<div class="ops">{"".join(ops)}</div></header>'
+        f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
         f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}">'
         f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
         f"<tbody>{body}</tbody></table></div>"
-        f"<footer>{_legend()}</footer><script>{_view_script()}</script>{edit_bits}"
+        f"<footer></footer><script>{_view_script()}</script>{edit_bits}"
     )
     return _DOCUMENT.format(title=_esc(title), body=inner)

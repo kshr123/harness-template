@@ -12,7 +12,7 @@ depends_on: [T-0262]
 verified_by:
   - tests/test_deliver_script.py::test_the_embedded_scripts_parse
   - tests/test_deliver_geometry.py::test_the_output_is_a_complete_document
-  - tests/test_deliver_geometry.py::test_a_parent_row_is_drawn_as_a_summary_not_a_bar
+  - tests/test_deliver_geometry.py::test_a_parent_row_spans_its_children_as_a_plain_bar
 ---
 # T-0263 見た目を作り直す（罫線の重み・領域の分離・3 色の配色）
 

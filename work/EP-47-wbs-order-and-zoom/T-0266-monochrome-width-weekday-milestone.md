@@ -12,7 +12,7 @@ depends_on: [T-0265]
 verified_by:
   - tests/test_deliver_adder.py::test_a_milestone_can_be_added
   - tests/test_deliver_adder.py::test_the_menu_offers_a_milestone
-  - tests/test_deliver_geometry.py::test_a_parent_row_is_drawn_as_a_summary_not_a_bar
+  - tests/test_deliver_geometry.py::test_a_parent_row_spans_its_children_as_a_plain_bar
 ---
 # T-0266 ガントを単色に・粒度で幅を変える・曜日行・節目の追加
 

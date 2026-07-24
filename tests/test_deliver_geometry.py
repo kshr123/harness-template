@@ -129,8 +129,8 @@ def test_a_milestone_is_centred_on_its_day(tmp_path: Path) -> None:
     assert float(match.group(1)) == pytest.approx((offset + 0.5) / days * 100, abs=0.01)
 
 
-def test_a_parent_row_is_drawn_as_a_summary_not_a_bar(tmp_path: Path) -> None:
-    """まとめの行（子を持つ行）は、末端と同じ太さの棒で塗らない（細い帯＋脚）。"""
+def test_a_parent_row_spans_its_children_as_a_plain_bar(tmp_path: Path) -> None:
+    """まとめの行（子を持つ行）も普通の棒で、子全体の期間を覆う（階層は番号・字下げ・面で示す）。"""
     epic = tmp_path / "work" / "EP-90-alpha"
     _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
     _write(
@@ -144,9 +144,10 @@ def test_a_parent_row_is_drawn_as_a_summary_not_a_bar(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 5))
     parent = _row_markup(html, "EP-90")
     leaf = _row_markup(html, "T-9001")
-    _, summary_width = _rect(parent, "sum")
-    assert summary_width == pytest.approx(10 * PER_DAY, abs=0.01)  # 08-03〜08-12 の全体
-    assert not re.search(r'<rect class="bar"', parent)  # 親は棒で塗らない（まとめ帯だけ）
+    _, parent_width = _rect(parent, "bar")
+    assert parent_width == pytest.approx(10 * PER_DAY, abs=0.01)  # 08-03〜08-12 の全体
+    assert not re.search(r'<rect class="sum"', parent)  # 脚つきのまとめ帯はもう描かない
+    assert not re.search(r'<line class="leg"', parent)
     assert re.search(r'<rect class="bar"', leaf)  # 末端は 1 色の棒
     assert not re.search(r'<rect class="prog"', leaf)  # 進捗の二色は無い（単色）
 
