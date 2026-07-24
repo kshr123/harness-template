@@ -56,9 +56,6 @@ COLUMN_GROUPS: tuple[tuple[str, str], ...] = (("work", "作業"), ("plan", "予�
 COLUMN_LABELS: tuple[str, ...] = tuple(label for label, _, _ in COLUMNS)
 
 # ガントの SVG の内部座標の幅（viewBox の幅）。実際の表示幅は CSS が決める（preserveAspectRatio="none"）。
-_CANVAS = 1000.0
-# 下敷き（格子・非稼働日の面）の縦の内部座標。行の高さいっぱいに引き伸ばすので値そのものに意味は無い。
-_GRID_H = 10
 
 
 def _esc(value: object) -> str:
@@ -70,14 +67,7 @@ def _day_label(value: date | None) -> str:
     return "" if value is None else value.strftime("%m/%d")
 
 
-def _x_of(day: date, span: tuple[date, date]) -> float:
-    """暦日を SVG の内部座標へ移す（期間の最初の日が 0・最後の日の翌日が _CANVAS）。"""
-    first, last = span
-    total = (last - first).days + 1
-    return (day - first).days * (_CANVAS / total)
-
-
-# 日の目盛を出す上限（これを超えると 1 行あたりの図形が増えすぎてファイルが太る）。
+# 日の目盛を出す上限（これより長い期間では日の線・非稼働日の面を出さない＝細かすぎて読めない）。
 _MAX_DAY_TICKS = 400
 
 
@@ -111,21 +101,6 @@ _MIN_GAP_PX = 6.0
 
 # その単位より粗い単位（線の優先順位。粗い方を残す）。
 _COARSER: dict[str, tuple[str, ...]] = {"d": ("w", "m"), "w": ("m",), "m": ()}
-
-
-def _crowded_zooms(kind: str, tick: date, coarser: dict[str, set[date]]) -> str:
-    """その線を**引かないズーム**を class にして返す。
-
-    細かい単位の線が粗い単位の線に近すぎると、2 本が 1 本の太い線に見える。同じ日に重なる場合（距離 0）は
-    その極端な例なので、「近すぎたら細かい方を引かない」という 1 つの規則で両方を塞ぐ（ズームごとに
-    1 日の幅が違うので、近すぎるかどうかもズームごとに決まる）。
-    """
-    hide = [
-        f"x-{zoom}"
-        for zoom, px in PX_PER_DAY.items()
-        if any(abs((tick - other).days) <= _MIN_GAP_PX / px for coarse in _COARSER[kind] for other in coarser[coarse])
-    ]
-    return (" " + " ".join(hide)) if hide else ""
 
 
 def _offdays(span: tuple[date, date], calendar: WorkCalendar) -> list[tuple[date, date]]:
@@ -296,13 +271,11 @@ def _intervals(ticks: list[date], span: tuple[date, date]) -> list[tuple[date, f
     目盛の線の右に文字を寄せると、どの線の分の文字なのかが読めない。区間の中央に置けば対応が一目で分かる。
     """
     first, last = span
-    total = (last - first).days + 1
     out: list[tuple[date, float, float]] = []
     for i, tick in enumerate(ticks):
         nxt = ticks[i + 1] if i + 1 < len(ticks) else last + timedelta(days=1)
-        left = (tick - first).days / total * 100
-        width = (nxt - tick).days / total * 100
-        out.append((tick, left, width))
+        left = _pct(tick, span)
+        out.append((tick, left, _pct(nxt, span) - left if nxt <= last else 100.0 - left))
     return out
 
 
@@ -347,35 +320,16 @@ def _weekdays(span: tuple[date, date]) -> str:
     return "".join(parts)
 
 
-def _axis_svg(span: tuple[date, date], today: date) -> str:
+def _axis_html(span: tuple[date, date], today_mark: str) -> str:
     """時間軸の見出し（2 段）。上段＝大きい単位・下段＝選んだ単位。
 
     単位（月・週・日）を切り替えると**下段の中身が変わり、上段はその親の単位になる**。段数は常に 2 で
-    固定する（切り替えのたびに高さが跳ねない）。線は SVG・文字は HTML の要素で、どちらも同じ割合の座標に
-    乗せる（引き伸ばしても文字が潰れない）。
+    固定する（切り替えのたびに高さが跳ねない）。
+
+    **縦の目盛は描かない。** 見出しのセルにも本体と同じ下敷き（`zoom_backgrounds` の background）が当たって
+    いるので、ここで線を引くと同じものの 2 つ目の実装になり、いつかずれる（実際にずれた）。文字だけを置く。
     """
-    first, last = span
-    days = (last - first).days + 1
-    ticks = f'<svg class="axis" viewBox="0 0 {_CANVAS:.0f} 40" preserveAspectRatio="none" role="img">'
-    lines: list[str] = []
-    # 本体の格子と同じ規則で間引く（粗い線に近すぎる細かい線は、そのズームでは引かない）。
-    coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
-    for kind, series in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
-        if kind == "d" and days > _MAX_DAY_TICKS:
-            continue
-        for tick in series:
-            if tick == first:
-                continue
-            x = _x_of(tick, span)
-            lines.append(
-                f'<line class="g-{kind}{_crowded_zooms(kind, tick, coarser)}" x1="{x:.2f}" y1="0"'
-                f' x2="{x:.2f}" y2="40" vector-effect="non-scaling-stroke" />'
-            )
-    if first <= today <= last:
-        tx = _x_of(today, span) + _CANVAS / days / 2
-        lines.append(
-            f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="40" vector-effect="non-scaling-stroke" />'
-        )
+    days = (span[1] - span[0]).days + 1
     text = "".join(
         (
             _labels(year_ticks(span), span, "y", lambda d, _: f"{d.year}年", min_days=40),
@@ -392,7 +346,7 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
             _weekdays(span) if days <= _MAX_DAY_TICKS else "",
         )
     )
-    return f'<div class="axis-wrap">{ticks}{"".join(lines)}</svg>{text}</div>'
+    return f'<div class="axis-wrap">{text}{today_mark}</div>'
 
 
 def _editable_fields(row: WbsRow) -> dict[str, str]:
@@ -546,6 +500,35 @@ def _view_script() -> str:
     return _VIEW_SCRIPT.replace("__PX__", json.dumps(PX_PER_DAY))
 
 
+def _runs(days: tuple[date, ...]) -> list[tuple[date, date]]:
+    """続いている日をひとまとめにする（1 日きりは長さ 1 の塊）。"""
+    runs: list[tuple[date, date]] = []
+    for day in days:
+        if runs and day == runs[-1][1] + timedelta(days=1):
+            runs[-1] = (runs[-1][0], day)
+        else:
+            runs.append((day, day))
+    return runs
+
+
+def _event_marks(event: Event, span: tuple[date, date]) -> list[str]:
+    """出来事を**開催日ごとの印**として描く。
+
+    繰り返す会議に 1 本の帯を引くと「その間ずっとやっている」という嘘になる。開催日の集合をそのまま点で
+    描き、続いている日（合宿など）だけその幅を持つ＝印と期間の区別は**描画時の導出**で、欄は増えない。
+    """
+    first, last = span
+    out: list[str] = []
+    for begin, end in _runs(tuple(d for d in event.occurrences if first <= d <= last)):
+        left = _pct(begin, span)
+        width = _pct(end, span) + _day_pct(span) - left
+        out.append(
+            f'<i class="gbar ev" style="left:{left:.4f}%;width:{width:.4f}%"'
+            f' title="{_esc(event.name)}（{begin.isoformat()}）"></i>'
+        )
+    return out
+
+
 def _lane_row(label: str, body: str, today_mark: str) -> str:
     """ガント上部のレーン 1 本（左に見出し・右に印や帯）。行の作りは表の行と同じ 1 つの `<tr>`。"""
     n_cols = len(COLUMNS)
@@ -589,16 +572,7 @@ def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
     for event in wbs.overlay.events:
         lanes.setdefault(event.lane, []).append(event)
     for label, events in lanes.items():
-        parts: list[str] = []
-        for event in events:
-            begin, end = event.span
-            if end < first or begin > last:
-                continue
-            left = max((begin - first).days, 0) / total * 100
-            width = (min((end - first).days, total - 1) - max((begin - first).days, 0) + 1) / total * 100
-            parts.append(
-                f'<i class="gbar ev" style="left:{left:.4f}%;width:{width:.4f}%" title="{_esc(event.name)}"></i>'
-            )
+        parts = [mark for event in events for mark in _event_marks(event, span)]
         if parts:
             out.append(_lane_row(label, "".join(parts), today_mark))
     return "".join(out)
@@ -718,7 +692,8 @@ th.gantt, td.gantt { width:40%; min-width:280px; padding:0; border-left:2px soli
                      background-color:var(--canvas); }
 td.gantt { position:relative; overflow:hidden; }
 th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
-thead th.gantt { background-color:var(--canvas); }
+/* 見出しと本体で**同じ箱**にする（% は padding-box 基準。余白が違うと見出しだけ横にずれる）。 */
+thead th.gantt { background-color:var(--canvas); padding:0; position:relative; overflow:hidden; }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 tbody td.code, tbody td.name { z-index:3; }
@@ -763,7 +738,6 @@ tr.st-in-progress td.st { color:var(--prog); }
        padding:0 5px; margin-left:6px; border-radius:3px; }
 /* 時間軸：2 段（上＝大きい単位・下＝選んだ単位）。段の間に横罫、区間ごとに縦罫を引く。 */
 .axis-wrap { position:relative; height:44px; }
-svg.axis { display:block; width:100%; height:44px; }
 .axis-wrap::before { content:""; position:absolute; top:22px; left:0; right:0; border-top:1px solid var(--line); }
 /* 日付は区間の**左**に寄せる（線の右すぐ＝その区間の始まりの日、と読める）。 */
 .axis-lab { display:none; position:absolute; height:22px; line-height:22px; font-size:10px;
@@ -788,22 +762,7 @@ svg.axis { display:block; width:100%; height:44px; }
 .scroll.u-d .axis-wrap::after { content:""; position:absolute; top:33px; left:0; right:0;
                                 border-top:1px solid var(--line); }
 /* 格子の重み：日 < 週 < 月の 3 段を線種で固定（消えかけの薄線をやめ、空白でも方眼に見えるようにする）。 */
-.g-d, .g-w, .g-m { display:none; }
-line.g-d { stroke:var(--line); stroke-width:1; }
-line.g-w { stroke:var(--guide); stroke-width:1; }
-line.g-m { stroke:var(--line-strong); stroke-width:1; }
-/* どのズームでも「選んだ単位＋1 つ細かい単位」を常時出す（月表示の広い空白を週線で方眼にする）。 */
-.scroll.u-m .g-m, .scroll.u-m .g-w,
-.scroll.u-w .g-m, .scroll.u-w .g-w, .scroll.u-w .g-d,
-.scroll.u-d .g-m, .scroll.u-d .g-w, .scroll.u-d .g-d { display:block; }
-/* 粗い線に近すぎて 1 本ににじむ線は、そのズームでは引かない（同じ日に重なる場合もこの規則で消える）。 */
-.scroll.u-m .x-m, .scroll.u-w .x-w, .scroll.u-d .x-d { display:none !important; }
 /* 非稼働日（土日・祝日・案件の休業日）の面。1 日が狭い月表示では縞になるだけなので出さない。 */
-rect.off { display:none; fill:var(--off); }
-.scroll.u-w rect.off, .scroll.u-d rect.off { display:block; }
-/* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
-line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
-/* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
 /* ガント列には **SVG も z-index も置かない**。下敷き（格子・非稼働日の面）はセルの background で、
    前景（棒・◆・基準日の線）は非置換の HTML 要素を**書いた順**に重ねる。
    - 背景は箱を常に満たす（高さの式が無い＝書き忘れようがない）・箱の外へ出られない・border より下に塗る。
@@ -812,8 +771,8 @@ line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
      横スクロールしても前後が入れ替わらない。はみ出しは overflow:hidden で不可能。 */
 td.gantt .gbar { position:absolute; top:50%; transform:translateY(-50%); height:8px; background:var(--bar); }
 tr.is-done .gbar { opacity:.45; }
-/* 出来事（定例など）の帯は、作業の棒と同じ青の淡い段で少し細く＝完了を追う対象でないと分かる。 */
-td.ms-track .gbar.ev { height:6px; background:var(--bar); opacity:.55; }
+/* 出来事の印は開催日ごとに 1 つ（帯ではない）。1 日ぶんは狭いので、縦に伸ばして刻みとして読ませる。 */
+td.ms-track .gbar.ev { height:12px; min-width:2px; background:var(--bar-done); }
 td.gantt .tl, td.ms-track .tl { position:absolute; top:0; bottom:0; left:var(--today-x); width:0;
                                 border-left:2px dashed var(--today); pointer-events:none; }
 svg.bar rect { rx:0; }
@@ -1301,7 +1260,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         for key, label in COLUMN_GROUPS
         if key != "work"
     )
-    axis = f'<th class="gantt" rowspan="2">{_axis_svg(span, wbs.today) if span else ""}</th>'
+    axis = f'<th class="gantt" rowspan="2">{_axis_html(span, today_mark) if span else ""}</th>'
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css, _ in COLUMNS)
     days = ((span[1] - span[0]).days + 1) if span else 0
     # 初期の単位は期間の長さで決める（短い案件は週・長い案件は月）。以後は利用者が選んだ単位が状態。

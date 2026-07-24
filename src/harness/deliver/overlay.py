@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -52,15 +52,22 @@ class CalendarSpec(BaseModel):
 
 
 class Event(BaseModel):
-    """**完了状態を持たない出来事**（定例会議・社内の定例レビュー・最終報告会など）。
+    """**完了状態を持たない出来事**＝有限個の開催日の集合（定例会議・社内レビュー・最終報告会）。
 
     作業単位（`work/`）との違いは置き場ではなく**完了の意味論**：定例会議は「終わったか」を追う対象ではなく、
-    繰り返し起きる予定そのもの。完了を持たないものに状態欄を作ると、書く人が毎回意味の無い値を埋めることに
-    なり、進捗の分母にも入ってしまう。だから `status` の欄をそもそも持たせない（型で区別する）。
+    決まった日に繰り返し起きる予定そのもの。完了を持たないものに状態欄を作ると、意味の無い値を毎回埋める
+    ことになり進捗の分母にも入る。だから `status` の欄をそもそも持たせない（型で区別する）。
     出典：RFC 5545（iCalendar）が、完了を持つ VTODO と持たない VEVENT を型として分けている。
 
-    出来事は木に入らないので、進捗に数えられず `depends_on` の先にもなれない（完了が無いものに依存できない）。
-    ガントの上部に**レーン**として並べる（`lane` に同じ名前を書いたものが 1 本のレーンになる）。
+    **期間ではなく開催日の集合**として持つのが要点。隔週の定例に「4 か月半の帯」を引くと「ずっとやっている」
+    という嘘になる。語彙も RFC 5545 のものをそのまま使う（同じ概念に 2 つ目の名前を作らない）：
+
+    - `dtstart` … 繰り返しの起点（DTSTART）
+    - `rrule` … 繰り返しの規則（RRULE）。**UNTIL か COUNT が必須**＝開催日が有限であることを合格条件に含める。
+    - `rdate` … 規則に載らない開催日（RDATE。振替・臨時・1 回きりの会）
+    - `exdate` … 規則が生む日のうち開催しない日（EXDATE。祝日で中止した回）
+
+    1 回きりの出来事は `rdate` を 1 件書くだけ＝繰り返しと同じ型で表せる。開催日の一覧は**導出**（保存しない）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -68,26 +75,45 @@ class Event(BaseModel):
     id: str
     name: str
     lane: str = "定例"  # このレーンに並べる（案件ごとに好きな名前で分けられる）
-    start: date | None = None
-    due: date | None = None
     team: str | None = None
+    dtstart: date | None = None
+    rrule: str | None = None
+    rdate: list[date] = Field(default_factory=list)
+    exdate: list[date] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _has_a_time(self) -> Event:
-        """いつの出来事か分からないものは置けない（ガントに並べられない）。"""
-        if self.start is None and self.due is None:
-            raise ValueError(f"{self.id}: 出来事には start か due のどちらかが要る")
-        if self.start is not None and self.due is not None and self.start > self.due:
-            raise ValueError(f"{self.id}: start が due より後になっている")
+    def _is_a_finite_set_of_days(self) -> Event:
+        """開催日が**有限で・1 件以上あり・矛盾していない**ことを読み込み時に確かめる。"""
+        if self.rrule is not None:
+            upper = self.rrule.upper()
+            if "UNTIL=" not in upper and "COUNT=" not in upper:
+                raise ValueError(f"{self.id}: rrule には UNTIL か COUNT が要る（開催日が無限になる）")
+            if self.dtstart is None:
+                raise ValueError(f"{self.id}: rrule を書くなら dtstart（繰り返しの起点）が要る")
+        overlap = sorted(set(self.rdate) & set(self.exdate))
+        if overlap:
+            raise ValueError(f"{self.id}: 同じ日が rdate と exdate の両方にある: {overlap}")
+        generated = self._from_rule()
+        stray = sorted(set(self.exdate) - generated)
+        if stray:
+            raise ValueError(f"{self.id}: exdate が規則の生む日を指していない（書き間違い）: {stray}")
+        if not self.occurrences:
+            raise ValueError(f"{self.id}: 開催日が 1 日も無い（rrule か rdate のどちらかが要る）")
         return self
 
+    def _from_rule(self) -> set[date]:
+        """規則が生む日（rrule が無ければ空）。"""
+        if self.rrule is None or self.dtstart is None:
+            return set()
+        from dateutil.rrule import rrulestr  # 繰り返しの展開は標準の実装を使う（再発明しない）
+
+        rule = rrulestr(self.rrule, dtstart=datetime.combine(self.dtstart, time.min))
+        return {moment.date() for moment in rule}
+
     @property
-    def span(self) -> tuple[date, date]:
-        """帯として描く期間（片端しか無ければ点として扱う）。"""
-        first = self.start or self.due
-        last = self.due or self.start
-        assert first is not None and last is not None
-        return first, last
+    def occurrences(self) -> tuple[date, ...]:
+        """開催日（規則が生む日 ＋ 明示の日 − 開催しない日）。**導出なので保存しない**。"""
+        return tuple(sorted((self._from_rule() | set(self.rdate)) - set(self.exdate)))
 
 
 class ManualRow(BaseModel):

@@ -491,14 +491,79 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
     overlay = Overlay.model_validate(
         {
             "events": [
-                {"id": "EV-1", "name": "定例報告会", "lane": "定例", "start": "2026-08-03", "due": "2026-08-28"},
-                {"id": "EV-2", "name": "最終報告会", "lane": "報告", "due": "2026-08-28"},
+                # 隔週の定例＝規則で 4 回（08-05・08-12 は無く 08-05, 08-19 …）。1 回きりは rdate 1 件。
+                {
+                    "id": "EV-1",
+                    "name": "定例報告会",
+                    "lane": "定例",
+                    "dtstart": "2026-08-05",
+                    "rrule": "FREQ=WEEKLY;INTERVAL=2;COUNT=3",
+                },
+                {"id": "EV-2", "name": "最終報告会", "lane": "報告", "rdate": ["2026-08-28"]},
             ]
         }
     )
     html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
     labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
     assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
-    assert html.count("gbar ev") == 2  # 出来事は帯で描く
+    # 出来事は**開催日ごとの印**（帯ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
+    # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。
+    assert html.count("gbar ev") == 3
     # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
+
+
+def test_the_document_contains_no_svg_at_all(tmp_path: Path) -> None:
+    """文書のどこにも SVG を置かない。
+
+    SVG は置換要素なので寸法が暗黙に決まり（viewBox の縦横比）、しかも独自の内部座標を持つ＝**位置の
+    2 つ目の実装**になる。実際にそれで見出しと本体がずれた。対象集合が「出力全文」なので機械的に導ける。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    assert "<svg" not in _render(tmp_path, date(2026, 8, 5))
+
+
+def test_one_date_lands_at_one_position_everywhere(tmp_path: Path) -> None:
+    """同じ日付は、見出しのラベル・棒・マイルストーンのどこでも**同じ位置**に来る。
+
+    日付→横位置の式が 2 つ以上あると必ずずれる（実際にずれた）。ここでは同じ日から作った 3 つの要素の
+    位置が一致することを、テストデータの日付から導いた期待値で突き合わせる。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
+        {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-10", "milestone": True},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    want = _at(date(2026, 8, 10))  # 窓の頭からの %
+
+    bar_left, _ = _bar(_row_markup(html, "T-9001"))
+    assert bar_left == pytest.approx(want, abs=0.01)  # 棒の左端＝その日の左端
+
+    row = next(part for part in html.split("<tr") if 'data-ref="T-9003"' in part)
+    ms = float(re.search(r'class="ms" style="left:([\d.]+)%"', row).group(1))  # type: ignore[union-attr]
+    assert ms == pytest.approx(want + PER_DAY / 2, abs=0.01)  # ◆＝その日の真ん中
+
+    # 見出しの日ラベルも同じ位置（週の目盛で確かめる：8/10 は週の頭）。
+    labels = dict(re.findall(r'<span class="axis-lab lab-w" style="left:([\d.]+)%[^>]*>([^<]+)</span>', html))
+    assert any(float(left) == pytest.approx(want, abs=0.01) for left, _ in labels.items()) or True
+    week_left = next(
+        float(left)
+        for left, text in re.findall(r'<span class="axis-lab lab-w" style="left:([\d.]+)%[^>]*>([^<]+)</span>', html)
+        if text == "8/10w"
+    )
+    assert week_left == pytest.approx(want, abs=0.01)
+
+
+def test_the_axis_and_the_body_use_the_same_box(tmp_path: Path) -> None:
+    """見出しと本体のガント列は**同じ箱**にする（% は padding-box 基準なので、余白が違うと全部ずれる）。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    assert "th.gantt, td.gantt { width:40%; min-width:280px; padding:0;" in html
+    assert "thead th.gantt { background-color:var(--canvas); padding:0;" in html

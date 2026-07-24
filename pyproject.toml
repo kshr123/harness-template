@@ -61,7 +61,7 @@ stats = ["pymc>=6.0", "nutpie>=0.16", "arviz>=1.2", "h5netcdf>=1.0", "h5py>=3.0"
 # 顧客向け成果物（harness.deliver プロファイル）。WBS・ガントを作業単位の木から出す。
 # holidays（vacanza・MIT）は営業日計算の祝日。自前の祝日表を持たない（業界標準を再発明しない）。
 # 編集面のローカルサーバは fastapi/uvicorn（serve と同じピン）。導入例: uv sync --extra deliver
-deliver = ["holidays>=0.100", "fastapi>=0.139", "uvicorn>=0.50"]
+deliver = ["holidays>=0.100", "fastapi>=0.139", "uvicorn>=0.50", "python-dateutil>=2.9", "types-python-dateutil>=2.9"]
 # 表計算の出力（先方の様式指定がある案件だけ）。入れれば `wbs formats` に xlsx が増える（条件登録）。
 # 取り込みは作らない（返送された表を読む口は二重台帳への入口）。導入例: uv sync --extra deliver --extra openpyxl
 openpyxl = ["openpyxl>=3.1"]

@@ -596,6 +596,8 @@ agent = [
 deliver = [
     { name = "fastapi" },
     { name = "holidays" },
+    { name = "python-dateutil" },
+    { name = "types-python-dateutil" },
     { name = "uvicorn" },
 ]
 ds = [
@@ -684,6 +686,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'ds'", specifier = ">=1.42" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "pymc", marker = "extra == 'stats'", specifier = ">=6.0" },
+    { name = "python-dateutil", marker = "extra == 'deliver'", specifier = ">=2.9" },
     { name = "python-frontmatter", specifier = ">=1.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scikit-learn", marker = "extra == 'ds'", specifier = ">=1.9" },
@@ -691,6 +694,7 @@ requires-dist = [
     { name = "skops", marker = "extra == 'skops'", specifier = ">=0.11" },
     { name = "statsmodels", marker = "extra == 'statsmodels'", specifier = ">=0.14" },
     { name = "typer", specifier = ">=0.15" },
+    { name = "types-python-dateutil", marker = "extra == 'deliver'", specifier = ">=2.9" },
     { name = "uvicorn", marker = "extra == 'agent'", specifier = ">=0.50" },
     { name = "uvicorn", marker = "extra == 'deliver'", specifier = ">=0.50" },
     { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.50" },
@@ -2338,6 +2342,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f5/d1/a1e23040a758746ad5bb6b8849a011c3c901775618bc7e1fec3a1a8b7142/types_openpyxl-3.1.5.20260518.tar.gz", hash = "sha256:da9cd644e4e80215a3f60a8c2c2c8e980e941a9b581cffa3876285aa791ca5af", size = 101550, upload-time = "2026-05-18T06:03:57.59Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/96/0e/d745ce95fc74e34df802010fd0387e33db468179e6ff42b708280ab268c7/types_openpyxl-3.1.5.20260518-py3-none-any.whl", hash = "sha256:e6ca4b116c8b979ed57f3045edcd3d49c25917d6dae99e90358f41322a19d375", size = 165744, upload-time = "2026-05-18T06:03:56.036Z" },
+]
+
+[[package]]
+name = "types-python-dateutil"
+version = "2.9.0.20260716"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/9a/aefb9f80ff79641d36149352afe66ca835c5e6894deb518418f786f4b8ad/types_python_dateutil-2.9.0.20260716.tar.gz", hash = "sha256:1d55d1c3024bdb4861bb6a6622c9ec800c433d87bdc5b16fb84cdd0eed4ef2cb", size = 17516, upload-time = "2026-07-16T04:48:06.604Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/16/85/cff97326a81e7e8877803e78e3ea56c840b85bb811934b9c936f7c40f185/types_python_dateutil-2.9.0.20260716-py3-none-any.whl", hash = "sha256:1ae41d51a5c5f6bbeeb7f1f34df7086d55ff1605cf88d2ed71a7a276e1a7794e", size = 18443, upload-time = "2026-07-16T04:48:05.793Z" },
 ]
 
 [[package]]
