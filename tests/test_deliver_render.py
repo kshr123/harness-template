@@ -102,11 +102,12 @@ def test_late_row_is_marked_and_finished_one_is_not(tmp_path: Path) -> None:
 
 
 def test_unscheduled_row_is_marked(tmp_path: Path) -> None:
+    """日程の無い行はクラスで区別する（ガントが空なので見れば分かる。クライアント向けの一覧は出さない）。"""
     _scaffold(tmp_path)
     html = _html(tmp_path)
     unscheduled_row = next(line for line in html.split("<tr") if "EP-92" in line)
     assert "is-unscheduled" in unscheduled_row
-    assert "未日程" in unscheduled_row
+    assert "未日程（" not in html  # 末尾の一覧は出さない
 
 
 def test_milestone_is_drawn_as_a_point_not_a_bar(tmp_path: Path) -> None:

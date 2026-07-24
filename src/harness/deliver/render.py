@@ -520,7 +520,8 @@ header { border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:1
 h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 .meta { color:var(--muted); font-size:11px; }
 /* 表の外枠は入れ物 1 枚に集める（セルの外周罫を撤去＝方眼に見えないようにする）。 */
-.scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; container-type:scroll-state; }
+.scroll { overflow:auto; max-height:calc(100vh - 150px); border:1px solid var(--line); border-radius:8px;
+          container-type:scroll-state; }
 table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }
 thead { display:table-header-group; }
 thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
@@ -576,7 +577,7 @@ tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
 /* 終わった行は面ごと落とす（残っている作業に目が行くように）。 */
 tr.is-done > td { color:var(--muted); background:var(--done-row); }
 tr.is-done.lv0 > td { background:var(--sec); }
-.ref { color:var(--muted); font-size:10px; margin-left:6px; }
+.ref { display:none; }
 .tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; font-weight:600;
        padding:0 5px; margin-left:6px; border-radius:3px; }
 /* 時間軸：2 段（上＝大きい単位・下＝選んだ単位）。段の間に横罫、区間ごとに縦罫を引く。 */
@@ -597,8 +598,8 @@ svg.axis { display:block; width:100%; height:44px; }
 /* 日表示は 3 段（年月・日・曜日）を 44px に詰める。 */
 .scroll.u-d .lab-my { top:0; height:15px; line-height:15px; font-size:10px; font-weight:600; }
 .scroll.u-d .lab-d { top:15px; height:15px; line-height:15px; }
-.scroll.u-d .lab-wd { top:30px; height:14px; line-height:14px; font-size:9px; text-align:center;
-                      padding-left:0; border-left:0; }
+.scroll.u-d .lab-wd { top:30px; height:14px; line-height:14px; font-size:9px;
+                      padding-left:4px; }
 .scroll.u-d .lab-wd.we { color:var(--muted); }
 /* 3 段目の区切り線（日表示だけ）。 */
 .scroll.u-d .axis-wrap::after { content:""; position:absolute; top:30px; left:0; right:0;
@@ -660,7 +661,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   }
   @page { size:A3 landscape; margin:8mm; }
   body { padding:0; font-size:10px; }
-  .scroll { overflow:visible; border:1px solid var(--line-strong); border-radius:0; }
+  .scroll { overflow:visible; max-height:none; border:1px solid var(--line-strong); border-radius:0; }
   table { min-width:0; }
   td.gantt { min-width:0; }
   /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す。 */
@@ -994,11 +995,6 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     )
     title = wbs.overlay.project or "WBS"
     client = f"<div>提出先: {_esc(wbs.overlay.client)}</div>" if wbs.overlay.client else ""
-    unscheduled = wbs.unscheduled
-    notes = ""
-    if unscheduled:
-        ids = "、".join(_esc(r.ref or r.name) for r in unscheduled)
-        notes = f"<h2>未日程（{len(unscheduled)} 件）</h2><p>予定を置いていない作業: {ids}</p>"
     period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
     left = [
@@ -1034,6 +1030,6 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}">'
         f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
         f"<tbody>{body}</tbody></table></div>"
-        f"<footer>{_legend()}{notes}</footer><script>{_view_script()}</script>{edit_bits}"
+        f"<footer>{_legend()}</footer><script>{_view_script()}</script>{edit_bits}"
     )
     return _DOCUMENT.format(title=_esc(title), body=inner)
