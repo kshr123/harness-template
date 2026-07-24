@@ -162,3 +162,13 @@ def test_rows_carry_what_the_menu_needs(tmp_path: Path) -> None:
     assert 'data-parent="EP-90"' in task_row  # 同じ階層＝EP-90 の下
     assert 'data-holder="T-9001"' in task_row  # どの作業単位にも中に足せる（足すときに分解される）
     assert 'id="menu"' in page
+
+
+def test_each_cell_carries_its_column_so_the_menu_can_branch(tmp_path: Path) -> None:
+    """右クリックのメニューを列ごとに出し分けるため、各セルが表示列の名前（data-col）を持っている。"""
+    _scaffold(tmp_path)
+    page = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1").get("/").text
+    task_row = next(part for part in page.split("<tr") if "T-9001" in part)
+    # 末端行なので、編集できる列（状態・日付）も導出だけの列（進捗・ガント）も同じ行に揃う。
+    for col in ("no", "name", "status", "start", "due", "days", "act_start", "progress", "gantt"):
+        assert f'data-col="{col}"' in task_row, col

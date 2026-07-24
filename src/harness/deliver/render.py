@@ -338,12 +338,13 @@ def _cell(
     名簿に無い名前を入れる口も残し、入れたらその名簿にも足す。
     """
     field = fields.get(column)
+    col = f' data-col="{column}"'  # 右クリックのメニューを列で出し分けるための表示列の名前
     klass = f' class="{css}"' if css else ""
     if field is None or row.ref is None:
-        return f"<td{klass}>{inner}</td>"
+        return f"<td{klass}{col}>{inner}</td>"
     picks = f' data-choices="{_esc(json.dumps(choices, ensure_ascii=False))}"' if choices is not None else ""
     attrs = (
-        f' class="edit{" " + css if css else ""}" data-ref="{_esc(row.ref)}" data-field="{_esc(field)}"'
+        f' class="edit{" " + css if css else ""}"{col} data-ref="{_esc(row.ref)}" data-field="{_esc(field)}"'
         f' data-value="{_esc(raw)}" data-base="{_esc(digest)}"{picks}'
     )
     return f'<td{attrs} tabindex="0">{inner or '<span class="blank">＋</span>'}</td>'
@@ -393,7 +394,7 @@ def _row_html(
     # 下の階層はどの作業単位にも足せる（ファイル 1 つの単位は、足すときにフォルダの単位へ変わる＝分解）。
     can_add = editable and row.source == "work" and row.ref is not None
     cells = [
-        f'<td class="code">{toggle}{_esc(row.code)}</td>',
+        f'<td class="code" data-col="no">{toggle}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
         _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="team", choices=names["teams"]),
         _cell(
@@ -411,11 +412,11 @@ def _row_html(
             "start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d gs"
         ),
         _cell("due", _day_label(row.due), row.due.isoformat() if row.due else "", row, fields, digest, css="d"),
-        f'<td class="n">{"" if row.workdays is None else row.workdays}</td>',
-        f'<td class="d gs">{_day_label(row.actual_start)}</td>',
-        f'<td class="d">{_day_label(row.actual_finish)}</td>',
-        f'<td class="n">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
-        f'<td class="gantt">{_bar_svg(row, span, back) if span else ""}{_milestone(row, span)}</td>',
+        f'<td class="n" data-col="days">{"" if row.workdays is None else row.workdays}</td>',
+        f'<td class="d gs" data-col="act_start">{_day_label(row.actual_start)}</td>',
+        f'<td class="d" data-col="act_end">{_day_label(row.actual_finish)}</td>',
+        f'<td class="n" data-col="progress">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
+        f'<td class="gantt" data-col="gantt">{_bar_svg(row, span, back) if span else ""}{_milestone(row, span)}</td>',
     ]
     holder = _esc(row.ref) if can_add else ""
     return (
@@ -447,8 +448,9 @@ def _view_script() -> str:
 def _milestone_row(wbs: Wbs, span: tuple[date, date] | None) -> str:
     """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
 
-    各フェーズに散らばる◆だけだと、案件全体の節目（要件確定・検収・定例など）を一目で追えない。
-    工程表の慣習どおり、上部に節目だけの帯を 1 本置く。マイルストーンが 1 つも無ければ行を出さない。
+    各フェーズに散らばる◆だけだと、案件全体の節目（要件確定・検収・成果物の期日など、その日に確定する
+    出来事）を一目で追えない。工程表の慣習どおり、上部に節目だけの帯を 1 本置く。1 つも無ければ行を出さない。
+    繰り返す定例会議は節目ではなく「期間のある行」（start..due の帯・milestone を付けない）として置く。
     """
     if span is None:
         return ""
@@ -730,9 +732,9 @@ def _legend() -> str:
     """凡例。バーは 1 色なので「期間」の 1 種。状態は行の色で示すことも添える。"""
     return (
         '<div class="legend">'
-        '<span><i class="sw" style="background:var(--bar)"></i>期間（バー）</span>'
+        '<span><i class="sw" style="background:var(--bar)"></i>期間（作業・定例会議）</span>'
         '<span><i class="sw" style="background:var(--bar-done);width:8px;height:8px;'
-        'transform:rotate(45deg)"></i>マイルストーン</span>'
+        'transform:rotate(45deg)"></i>節目（承認・検収などその日に確定する出来事）</span>'
         "<span>破線＝基準日</span>"
         '<span class="rowlegend"><i class="rw" style="background:var(--paper)"></i>未実施'
         '<i class="rw" style="background:var(--done-row)"></i>完了'
@@ -768,6 +770,8 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
             border-radius:2px; }
 #menu .mgroup { padding:6px 14px 2px; font-size:10px; color:var(--muted); }
 #menu .mrule { border-top:1px solid var(--line); margin:3px 0; }
+/* 説明・道しるべ（押せない・薄字）。導出列の無反応を避け、正本の在り処を毎回教える。 */
+#menu .mnote { padding:6px 14px; font-size:11px; color:var(--muted); white-space:normal; max-width:230px; }
 #menu button.danger { color:var(--late-ink); }
 """
 
@@ -863,7 +867,8 @@ _VIEW_SCRIPT = r"""
 # 1 か所直すと他の行の値も動く。画面側で導出をやり直すと計算が 2 か所になるため、再読込で全部やり直す。
 _EDIT_SCRIPT = r"""
 (function(){
-  var token=document.currentScript.dataset.token, say=document.getElementById('say'), busy=false;
+  var token=document.currentScript.dataset.token, today=document.currentScript.dataset.today||'';
+  var say=document.getElementById('say'), busy=false;
   function tell(msg,bad){ say.textContent=msg; say.className=bad?'bad':''; say.style.display='block';
     if(!bad) setTimeout(function(){ say.style.display='none'; },1600); }
   function send(td,value){
@@ -963,14 +968,12 @@ _EDIT_SCRIPT = r"""
     var g=document.createElement('div'); g.className='mgroup'; g.textContent=text; return g;
   }
   function rule(){ var r=document.createElement('div'); r.className='mrule'; return r; }
-  document.addEventListener('contextmenu',function(e){
-    var tr=e.target.closest && e.target.closest('tr[data-ref]');
-    if(!tr || !menu || !tr.dataset.ref) return;
-    e.preventDefault();
-    menu.textContent='';
-    var ref=tr.dataset.ref, holder=tr.dataset.holder;
-    var code=tr.dataset.code, name=tr.dataset.name||'', lv=Number(tr.dataset.level);
-    menu.appendChild(head(code,name,lv));
+  function note(text){ var d=document.createElement('div'); d.className='mnote'; d.textContent=text; return d; }
+  // 作業列以外のメニューの末尾に置く道しるべ（構造の操作は作業列に集約した、の案内）。
+  function signpost(){ return note('行の追加・削除は「作業」列で右クリック'); }
+  // 右クリックのメニューは「クリックでは出来ないこと」だけを出す（クリック＝編集・右クリック＝一発コマンド）。
+  // 一発コマンドは、その列の編集セルに対する send() をそのまま呼ぶ（競合検出の base もセルから引く）。
+  function structureMenu(tr,ref,code,name,lv,holder){
     menu.appendChild(group('行を追加'));
     menu.appendChild(item('上に追加（同じ Lv'+lv+'）',function(){ add(ref,'above'); }));
     menu.appendChild(item('下に追加（同じ Lv'+lv+'）',function(){ add(ref,'below'); }));
@@ -978,16 +981,58 @@ _EDIT_SCRIPT = r"""
     menu.appendChild(rule());
     menu.appendChild(item('マイルストーンを下に追加（◆）',function(){ add(ref,'below',true); }));
     menu.appendChild(rule());
-    menu.appendChild(item('名前を変更',function(){
-      var cell=tr.querySelector('td.edit.name'); if(cell) open(cell); }));
-    menu.appendChild(rule());
-    var kids=tr.dataset.kids==='1';
     var danger=item('この行を削除…',function(){
       var msg='「'+code+' '+name+'」（'+ref+'）を削除します。';
-      if(kids) msg+='\n配下の行も一緒に削除されます。';
+      if(tr.dataset.kids==='1') msg+='\n配下の行も一緒に削除されます。';
       if(window.confirm(msg+'\nよろしいですか？')) del(ref); });
     danger.className='danger';
     menu.appendChild(danger);
+  }
+  function statusMenu(td){
+    menu.appendChild(group('状態を変更'));
+    var cur=td.dataset.value;
+    ['todo','in-progress','in-review','blocked','done'].forEach(function(v){
+      if(v===cur){ menu.appendChild(note('✓ '+v)); return; }
+      menu.appendChild(item(v,function(){ send(td,v); }));
+    });
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  function dateMenu(td){
+    menu.appendChild(group(td.dataset.col==='start'?'予定開始':'予定終了'));
+    menu.appendChild(item('今日（'+today+'）にする',function(){ send(td,today); }));
+    menu.appendChild(item('クリア（日付を消す）',function(){ send(td,''); }));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  function clearMenu(td){
+    var what=td.dataset.col==='team'?'チーム':'担当';
+    menu.appendChild(group(what));
+    menu.appendChild(item('クリア（'+what+'なしにする）',function(){ send(td,''); }));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  // 導出列は「何も出さない」にしない（無反応は故障に見える）。何から導かれるかを説明する。
+  var EXPLAIN={no:'並び順から自動で振られる（正本は work/ の木）',days:'予定開始・終了と暦から導出',
+    act_start:'状態の変化（実績）から導出',act_end:'状態の変化（実績）から導出',
+    progress:'配下の done の割合から導出',gantt:'予定・実績の日付から描画。日付は日付の列で直す'};
+  function explainMenu(col,editable){
+    var t=EXPLAIN[col]||(editable?'この列はクリックで直せる':'子の値から導出（親に直接の値は持たない）');
+    menu.appendChild(note(t));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  document.addEventListener('contextmenu',function(e){
+    var td=e.target.closest && e.target.closest('td');
+    var tr=e.target.closest && e.target.closest('tr[data-ref]');
+    if(!tr || !td || !menu || !tr.dataset.ref) return;
+    e.preventDefault();
+    menu.textContent='';
+    var ref=tr.dataset.ref, holder=tr.dataset.holder;
+    var code=tr.dataset.code, name=tr.dataset.name||'', lv=Number(tr.dataset.level);
+    var col=td.dataset.col, editable=td.classList.contains('edit');
+    menu.appendChild(head(code,name,lv));
+    if(col==='name'){ structureMenu(tr,ref,code,name,lv,holder); }
+    else if(col==='status' && editable){ statusMenu(td); }
+    else if((col==='start'||col==='due') && editable){ dateMenu(td); }
+    else if((col==='team'||col==='assignees') && editable){ clearMenu(td); }
+    else { explainMenu(col,editable); }
     hideMenu();
     tr.classList.add('is-sel');   // どの行を触っているかを画面でも示す
     menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
@@ -1070,7 +1115,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
         )
         edit_bits = (
-            f'<div id="say"></div><div id="menu"></div><script data-token="{_esc(token)}">{_EDIT_SCRIPT}</script>'
+            f'<div id="say"></div><div id="menu"></div>'
+            f'<script data-token="{_esc(token)}" data-today="{wbs.today.isoformat()}">{_EDIT_SCRIPT}</script>'
         )
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"
