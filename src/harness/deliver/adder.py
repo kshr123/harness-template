@@ -30,7 +30,7 @@ _ID_DIGITS = 4
 _MOVED_TO_CHILD = ("start", "due", "effort_days")
 
 _NEW_TITLE = "新しい作業"
-_NEW_MILESTONE = "新しい節目"
+_NEW_MILESTONE = "新しいマイルストーン"
 
 
 def _next_id(nodes: list[pm.Node]) -> str:

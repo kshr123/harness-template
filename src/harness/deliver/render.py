@@ -140,7 +140,6 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
     elif row.start is not None and row.due is not None:
         x = _x_of(row.start, span)
         width = max(_x_of(row.due, span) + scale - x, 2.0)
-        kind = "late" if row.late else ("done" if row.status is Status.done else "plan")
         if row.children:
             # まとめの行（節・子を持つ単位）は、末端の棒と同じ太さで塗らない。全部同じ太さの帯が並ぶと
             # 階層が図から読めず「ただの帯」に見える。工程表の慣習どおり、細い帯と両端の脚で表す。
@@ -151,9 +150,7 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
                     f' vector-effect="non-scaling-stroke" />'
                 )
         else:
-            parts.append(f'<rect class="{kind}" x="{x:.2f}" y="3" width="{width:.2f}" height="8" />')
-            if row.done_leaves:
-                parts.append(f'<rect class="prog" x="{x:.2f}" y="5" width="{width * row.progress:.2f}" height="4" />')
+            parts.append(f'<rect class="bar" x="{x:.2f}" y="3" width="{width:.2f}" height="8" />')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -448,6 +445,33 @@ def _view_script() -> str:
     return _VIEW_SCRIPT.replace("__COLS__", json.dumps(sizes))
 
 
+def _milestone_row(wbs: Wbs, span: tuple[date, date] | None) -> str:
+    """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
+
+    各フェーズに散らばる◆だけだと、案件全体の節目（要件確定・検収・定例など）を一目で追えない。
+    工程表の慣習どおり、上部に節目だけの帯を 1 本置く。マイルストーンが 1 つも無ければ行を出さない。
+    """
+    if span is None:
+        return ""
+    marks = [r for r in wbs.walk() if r.milestone and r.due is not None]
+    if not marks:
+        return ""
+    first, last = span
+    total = (last - first).days + 1
+    diamonds = "".join(
+        f'<span class="ms" style="left:{((r.due - first).days + 0.5) / total * 100:.3f}%" '
+        f'title="{_esc(r.name)}（{r.due.isoformat()}）">◆</span>'
+        for r in marks
+        if r.due is not None and first <= r.due <= last
+    )
+    n_cols = len(COLUMNS)
+    return (
+        '<tr class="msrow">'
+        f'<td class="ms-label" colspan="{n_cols}">マイルストーン</td>'
+        f'<td class="gantt ms-track">{diamonds}</td></tr>'
+    )
+
+
 def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
     """節目の印。引き伸ばす図形の中に置くと横に潰れるので、割合の位置に重ねる要素として描く。"""
     if span is None or not row.milestone or row.due is None:
@@ -557,9 +581,10 @@ th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
 thead th.gantt { background:var(--paper); }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
+tbody td.code, tbody td.name { z-index:3; }
 th.code, td.code { left:0; }
 th.name, td.name { left:64px; border-right:1px solid var(--line-strong); }
-thead th.code, thead th.name { z-index:3; background:var(--sec); }
+thead th.code, thead th.name { z-index:6; background:var(--sec); }
 td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1px; right:-9px; width:8px;
   opacity:0; background:linear-gradient(to right, rgba(15,20,26,.14), transparent);
   pointer-events:none; transition:opacity .15s; }
@@ -619,11 +644,11 @@ line.today { stroke:var(--ink); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
 svg.bar { display:block; width:100%; height:16px; }
 svg.bar rect { rx:0; }
-/* ガントは 1 色（青）。予定・完了・遅れは色で分けず、完了ぶんを同じ色の濃い塗りで重ねて示す。 */
-rect.plan, rect.late, rect.done { fill:var(--bar); }
-rect.prog { fill:var(--bar-done); }
-rect.sum { fill:var(--bar-done); }
-line.leg { stroke:var(--bar-done); stroke-width:2; }
+/* ガントは 1 色（青）のベタ塗り。予定・完了・遅れを色で分けない（状態は行の面で分かる）。
+   まとめ（子を持つ行）は色でなく形＝細い帯＋両端の脚で区別する。 */
+rect.bar { fill:var(--bar); }
+rect.sum { fill:var(--bar); }
+line.leg { stroke:var(--bar); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
       color:var(--bar-done); pointer-events:none; }
@@ -644,6 +669,12 @@ button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:
             padding:0 4px 0 0; line-height:1; }
 button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
+/* マイルストーンの集約行（ガント上部の帯）。左は貼り付き、右に全ての◆を時間軸で並べる。 */
+tr.msrow > td { background:var(--sec); border-bottom:1px solid var(--line-strong); }
+td.ms-label { position:sticky; left:0; z-index:3; background:var(--sec); font-size:11px; font-weight:600;
+              color:var(--muted); letter-spacing:.02em; }
+td.ms-track { position:relative; height:20px; }
+td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .legend span { margin-right:14px; }
@@ -933,7 +964,7 @@ _EDIT_SCRIPT = r"""
     menu.appendChild(item('下に追加（同じ Lv'+lv+'）',function(){ add(ref,'below'); }));
     if(holder) menu.appendChild(item('子として追加（1 つ下の Lv'+(lv+1)+'）',function(){ add(ref,'child'); }));
     menu.appendChild(rule());
-    menu.appendChild(item('節目を下に追加（◆）',function(){ add(ref,'below',true); }));
+    menu.appendChild(item('マイルストーンを下に追加（◆）',function(){ add(ref,'below',true); }));
     menu.appendChild(rule());
     menu.appendChild(item('名前を変更',function(){
       var cell=tr.querySelector('td.edit.name'); if(cell) open(cell); }));
@@ -996,7 +1027,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
-    body = "".join(
+    body = _milestone_row(wbs, span) + "".join(
         _row_html(row, span, wbs.today, back, editable=editable, rosters=rosters, parent=parents.get(row.code, ""))
         for row in wbs.walk()
     )

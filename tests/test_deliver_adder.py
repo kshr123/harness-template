@@ -241,4 +241,4 @@ def test_a_milestone_can_be_added(tmp_path: Path) -> None:
 def test_the_menu_offers_a_milestone(tmp_path: Path) -> None:
     _write(tmp_path / "work" / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
     page = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1").get("/").text
-    assert "節目を下に追加" in page
+    assert "マイルストーンを下に追加" in page

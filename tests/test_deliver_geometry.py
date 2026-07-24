@@ -71,7 +71,7 @@ def test_a_bar_starts_at_its_start_day_and_covers_its_end_day(tmp_path: Path) ->
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    x, width = _rect(_row_markup(html, "T-9001"), "plan")
+    x, width = _rect(_row_markup(html, "T-9001"), "bar")
     assert x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)
     assert width == pytest.approx(5 * PER_DAY, abs=0.01)
 
@@ -84,7 +84,7 @@ def test_a_later_bar_is_offset_by_the_elapsed_days(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    x, width = _rect(_row_markup(html, "T-9002"), "plan")
+    x, width = _rect(_row_markup(html, "T-9002"), "bar")
     assert x == pytest.approx(_at(date(2026, 8, 10)), abs=0.01)
     assert width == pytest.approx(3 * PER_DAY, abs=0.01)
 
@@ -96,7 +96,7 @@ def test_a_one_day_bar_is_one_day_wide(tmp_path: Path) -> None:
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-12", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 3))  # 遅れの色にならない基準日にする（色でなく幅を見たいので）
-    x, width = _rect(_row_markup(html, "T-9001"), "plan")
+    x, width = _rect(_row_markup(html, "T-9001"), "bar")
     assert x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)
     assert width == pytest.approx(PER_DAY, abs=0.01)
 
@@ -130,11 +130,7 @@ def test_a_milestone_is_centred_on_its_day(tmp_path: Path) -> None:
 
 
 def test_a_parent_row_is_drawn_as_a_summary_not_a_bar(tmp_path: Path) -> None:
-    """まとめの行（子を持つ行）は、末端と同じ太さの棒で塗らない。
-
-    全部同じ太さの帯が並ぶと階層が図から読めず「ただの帯」に見える。工程表の慣習どおり、
-    細い帯と両端の脚で表す。
-    """
+    """まとめの行（子を持つ行）は、末端と同じ太さの棒で塗らない（細い帯＋脚）。"""
     epic = tmp_path / "work" / "EP-90-alpha"
     _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
     _write(
@@ -150,10 +146,9 @@ def test_a_parent_row_is_drawn_as_a_summary_not_a_bar(tmp_path: Path) -> None:
     leaf = _row_markup(html, "T-9001")
     _, summary_width = _rect(parent, "sum")
     assert summary_width == pytest.approx(10 * PER_DAY, abs=0.01)  # 08-03〜08-12 の全体
-    assert not re.search(r'<rect class="(plan|done|late)"', parent)  # 親は棒で塗らない
-    assert re.search(r'<rect class="done"', leaf)  # 末端は従来どおりの棒
-    _, progress_width = _rect(leaf, "prog")
-    assert progress_width == pytest.approx(_rect(leaf, "done")[1], abs=0.01)  # 末端は 1/1 完了
+    assert not re.search(r'<rect class="bar"', parent)  # 親は棒で塗らない（まとめ帯だけ）
+    assert re.search(r'<rect class="bar"', leaf)  # 末端は 1 色の棒
+    assert not re.search(r'<rect class="prog"', leaf)  # 進捗の二色は無い（単色）
 
 
 def test_a_task_due_exactly_today_is_not_late_yet(tmp_path: Path) -> None:
@@ -332,7 +327,7 @@ def test_a_one_day_project_does_not_fill_the_whole_column(tmp_path: Path) -> Non
         {"id": "T-9001", "kind": "task", "status": "done", "start": "2026-07-23", "due": "2026-07-23"},
     )
     html = _render(tmp_path, date(2026, 7, 23))
-    _, width = _rect(_row_markup(html, "T-9001"), "done")
+    _, width = _rect(_row_markup(html, "T-9001"), "bar")
     assert width < 1000.0 / 28  # 窓は 1 か月（28 日以上）あるので、1 日の棒はその 1/28 以下
 
 
