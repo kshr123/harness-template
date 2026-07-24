@@ -411,8 +411,8 @@ def test_no_two_grid_lines_are_close_enough_to_look_like_one(tmp_path: Path) -> 
     どの種類の線がそのズームで見えるかは「選んだ単位＋1 つ細かい単位」（`_STYLE` の表示規則）。
     """
     span = (date(2027, 1, 4), date(2027, 3, 31))  # 2027-02-01 は月曜＝月の線と週の線が同じ日に来る
-    html = render.backdrop(span, date(2027, 2, 10), WorkCalendar())
-    lines = re.findall(r'<line class="grid g-(\w)([^"]*)" x1="([\d.]+)"', html)
+    back = render.backdrop(span, date(2027, 2, 10), WorkCalendar())
+    lines = re.findall(r'<line class="grid g-(\w)([^"]*)" x1="([\d.]+)"', back.lines)
     visible_kinds = {"m": {"m", "w"}, "w": {"m", "w", "d"}, "d": {"m", "w", "d"}}
     days = (span[1] - span[0]).days + 1
     for zoom, px in render.PX_PER_DAY.items():
@@ -460,7 +460,8 @@ def test_the_grid_runs_unbroken_across_rows(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     row = _row_markup(html, "T-9001")
-    assert '<svg class="gridbg"' in row  # 格子は棒とは別の層
+    assert '<svg class="gridline"' in row  # 格子は棒とは別の層
     assert '<line class="grid' not in row.split('<svg class="bar"')[-1]  # 棒の図形の中には入れない
-    # セルの下の罫を越えて敷く（bottom:-1px）＝行の間で途切れない。
-    assert "td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:-1px;" in html
+    # 線は下の罫を越えて届かせる（行の間で途切れない）。面は罫線の位置に届かせない（横罫を塗り潰さない）。
+    assert "td.gantt .gridline, td.ms-track .gridline { position:absolute; top:0; bottom:-1px;" in html
+    assert "td.gantt .gridfill, td.ms-track .gridfill { position:absolute; top:0; bottom:0;" in html

@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from harness.deliver.calendar import WorkCalendar
@@ -147,7 +148,23 @@ def _offdays(span: tuple[date, date], calendar: WorkCalendar) -> list[tuple[date
     return runs
 
 
-def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> str:
+@dataclass(frozen=True)
+class Backdrop:
+    """全行に共通の下敷きを、重ね順の違う 3 層に分けて持つ。
+
+    **面は罫線を覆わない・線は行をまたいで繋がる・基準日の線は最前面**、という 3 つの決まりを層で表す。
+    1 枚に混ぜると、面が横罫を塗り潰して「罫線が見える所と見えない所」ができ、基準日の線も棒の下に隠れる。
+    """
+
+    fills: str  # 非稼働日の面。セルの中だけに敷く（罫線の位置には届かせない）
+    lines: str  # 時間の格子。下の罫を越えて届かせる（行をまたいで 1 本に繋がる）
+    today: str  # 基準日の線。棒よりもマイルストーンよりも前に置く
+
+
+_EMPTY_BACKDROP = Backdrop("", "", "")
+
+
+def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> Backdrop:
     """全行に共通の下敷き（非稼働日の面・時間軸の格子・今日の線）。
 
     棒だけを描くと図表に見えない（時間の目盛が無いので、棒の長さが何日なのか読めない）。格子は軸の目盛と
@@ -156,12 +173,13 @@ def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> st
     """
     first, last = span
     scale = _CANVAS / ((last - first).days + 1)
-    parts: list[str] = []
+    fills: list[str] = []
     if (last - first).days + 1 <= _MAX_DAY_TICKS:  # 日の粒度が出ない長さでは面も出さない
         for off_start, off_end in _offdays(span, calendar):
             x = _x_of(off_start, span)
             width = _x_of(off_end, span) + scale - x
-            parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{width:.2f}" height="{_GRID_H}" />')
+            fills.append(f'<rect class="off" x="{x:.2f}" y="0" width="{width:.2f}" height="{_GRID_H}" />')
+    lines: list[str] = []
     coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
     for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
@@ -170,29 +188,33 @@ def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> st
             if tick == first:  # 先頭は列の左端なので線を引かない
                 continue
             x = _x_of(tick, span)
-            parts.append(
+            lines.append(
                 f'<line class="grid g-{kind}{_crowded_zooms(kind, tick, coarser)}" x1="{x:.2f}" y1="0"'
                 f' x2="{x:.2f}" y2="{_GRID_H}" vector-effect="non-scaling-stroke" />'
             )
+    today_line = ""
     if first <= today <= last:
         tx = _x_of(today, span) + scale / 2
-        parts.append(
+        today_line = (
             f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="{_GRID_H}"'
             f' vector-effect="non-scaling-stroke" />'
         )
-    return "".join(parts)
+    return Backdrop("".join(fills), "".join(lines), today_line)
 
 
-def _grid_svg(back: str) -> str:
-    """行の高さいっぱいに敷く下敷き（時間の格子・非稼働日の面・今日の線）。
-
-    棒と同じ小さな SVG の中に入れると、線が行ごとに棒の高さぶんしか引かれず、**行の間で途切れて破線に見える**。
-    下敷きだけをセルの上端から下の罫まで届く別の層にして、月をまたぐ縦線が行をまたいで 1 本に繋がるようにする。
-    """
+def _layer(kind: str, body: str) -> str:
+    """下敷きの 1 層（行の高さいっぱいに引き伸ばす SVG）。重ね順と届く範囲は CSS が層ごとに決める。"""
+    if not body:
+        return ""
     return (
-        f'<svg class="gridbg" viewBox="0 0 {_CANVAS:.0f} {_GRID_H}" preserveAspectRatio="none"'
-        f' aria-hidden="true">{back}</svg>'
+        f'<svg class="{kind}" viewBox="0 0 {_CANVAS:.0f} {_GRID_H}" preserveAspectRatio="none"'
+        f' aria-hidden="true">{body}</svg>'
     )
+
+
+def _grid_svg(back: Backdrop) -> str:
+    """下敷きの層のうち、棒より**後ろ**に置くもの（非稼働日の面と時間の格子）。"""
+    return _layer("gridfill", back.fills) + _layer("gridline", back.lines)
 
 
 def _bar_svg(row: WbsRow, span: tuple[date, date]) -> str:
@@ -422,7 +444,7 @@ def _row_html(
     row: WbsRow,
     span: tuple[date, date] | None,
     today: date,
-    back: str = "",
+    back: Backdrop = _EMPTY_BACKDROP,
     *,
     editable: bool = False,
     rosters: dict[str, list[str]] | None = None,
@@ -487,7 +509,8 @@ def _row_html(
         f'<td class="d" data-col="act_end">{_day_label(row.actual_finish)}</td>',
         f'<td class="n" data-col="progress">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
         f'<td class="gantt" data-col="gantt">{_grid_svg(back) if span else ""}'
-        f"{_bar_svg(row, span) if span else ''}{_milestone(row, span)}</td>",
+        f"{_bar_svg(row, span) if span else ''}{_milestone(row, span)}"
+        f"{_layer('todayline', back.today) if span else ''}</td>",
     ]
     holder = _esc(row.ref) if can_add else ""
     return (
@@ -519,7 +542,7 @@ def _view_script() -> str:
     return _VIEW_SCRIPT.replace("__PX__", json.dumps(PX_PER_DAY))
 
 
-def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
+def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: Backdrop) -> str:
     """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
 
     各フェーズに散らばる◆だけだと、案件全体のマイルストーン（要件確定・検収・成果物の期日など、その日に確定する
@@ -542,13 +565,14 @@ def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
     n_cols = len(COLUMNS)
     # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の線も乗る。
     grid = _grid_svg(back)
+    front = _layer("todayline", back.today)
     # 左は貼り付く 2 列ぶんの空き（他の行と同じ幅で埋める）、見出しはガントのすぐ左に右寄せで置く。
     # 見出しを全列またぎの貼り付くセルにすると、横スクロールでその幅がガントに被さって◆を覆う。
     return (
         '<tr class="msrow">'
         '<td class="ms-pad" colspan="2"></td>'
         f'<td class="ms-label" colspan="{n_cols - 2}">マイルストーン</td>'
-        f'<td class="gantt ms-track">{grid}{diamonds}</td></tr>'
+        f'<td class="gantt ms-track">{grid}{diamonds}{front}</td></tr>'
     )
 
 
@@ -747,10 +771,15 @@ rect.off { display:none; fill:var(--off); }
 /* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
 line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
-svg.bar { display:block; width:100%; height:16px; position:relative; z-index:1; }
-/* 下敷きはセルの上端から**下の罫を越えて**（bottom:-1px）敷く＝縦線が行の間で途切れず 1 本に繋がる。
+/* 重ね順は 1 つの決まりで通す：**面は罫線を覆わない／線は行をまたいで繋がる／基準日の線は最前面**。
+   面（非稼働日）はセルの中だけに敷く（top:0・bottom:0＝罫線の位置には届かない）ので、横罫が
+   「見える所と見えない所」に分かれない。線と基準日は下の罫を越えて（bottom:-1px）届かせて 1 本に繋げる。
    左右はセルの余白（padding:0 2px）に合わせて棒と同じ幅にそろえる。 */
-td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:-1px; left:2px; right:2px; z-index:0; }
+td.gantt .gridfill, td.ms-track .gridfill { position:absolute; top:0; bottom:0; left:2px; right:2px; z-index:0; }
+td.gantt .gridline, td.ms-track .gridline { position:absolute; top:0; bottom:-1px; left:2px; right:2px; z-index:1; }
+svg.bar { display:block; width:100%; height:16px; position:relative; z-index:2; }
+td.gantt .todayline, td.ms-track .todayline { position:absolute; top:0; bottom:-1px; left:2px; right:2px;
+                                              z-index:4; pointer-events:none; }
 svg.bar rect { rx:0; }
 /* ガントは 1 色（青）のベタ塗り。予定・完了・遅れを色で分けない（状態は行の面で分かる）。
    まとめ（子を持つ行）は色でなく形＝細い帯＋両端の脚で区別する。 */
@@ -759,7 +788,7 @@ rect.sum { fill:var(--bar); }
 line.leg { stroke:var(--bar); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
-      color:var(--bar-done); pointer-events:none; }
+      color:var(--bar-done); pointer-events:none; z-index:3; }
 .ops { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;
        justify-content:space-between; }
 .ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
@@ -1214,7 +1243,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     """
     data_span = wbs.span
     span = drawing_window(data_span) if data_span else None
-    back = backdrop(span, wbs.today, wbs.overlay.calendar.to_calendar()) if span else ""
+    back = backdrop(span, wbs.today, wbs.overlay.calendar.to_calendar()) if span else _EMPTY_BACKDROP
     # work グループは固定列(No.+作業)と流動列(チーム+担当+状態)にまたがる。1 つの colspan セルは固定と
     # 流動をまたげない（横スクロールで固定列に食い込む）ので、見出しも 2 セルに割り、左だけ固定する。
     work_n = sum(1 for _, _, g in COLUMNS if g == "work")
