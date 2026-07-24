@@ -13,7 +13,7 @@ verified_by:
   - tests/test_deliver_adder.py::test_a_file_unit_becomes_a_folder_when_it_gets_a_child
   - tests/test_deliver_adder.py::test_the_edit_page_lets_any_work_row_take_a_child
   - tests/test_deliver_geometry.py::test_the_gantt_is_the_last_column_right_of_progress
-  - tests/test_deliver_geometry.py::test_a_finished_row_is_toned_down
+  - tests/test_deliver_geometry.py::test_a_finished_row_recedes_without_a_fill
 ---
 # T-0264 列を意味のまとまりで括り、どの階層にも子を足せるようにする
 

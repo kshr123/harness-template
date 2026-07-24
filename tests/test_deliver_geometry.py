@@ -280,8 +280,8 @@ def test_the_axis_shows_the_year_where_it_matters(tmp_path: Path) -> None:
     assert years == ["2026年", "2027年"]
 
 
-def test_a_finished_row_is_toned_down(tmp_path: Path) -> None:
-    """完了した行は落ち着かせる（残っている作業が目に入るように）。"""
+def test_a_finished_row_recedes_without_a_fill(tmp_path: Path) -> None:
+    """完了は退ける：面（ベタ塗り）を敷かず文字だけ灰にし、棒も淡くする（面は遅れ専用）。"""
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "done", "start": "2026-08-03", "due": "2026-08-07"},
@@ -290,7 +290,25 @@ def test_a_finished_row_is_toned_down(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 11))
     assert "is-done" in _row_markup(html, "T-9001")
     assert "is-done" not in _row_markup(html, "T-9002")
-    assert "tr.is-done > td { color:var(--muted); background:var(--done-row); }" in html
+    # 完了は文字だけ退け、面は敷かない（面＝遅れ専用）。棒も淡くする。
+    assert "tr.is-done > td { color:var(--muted); }" in html
+    assert "background:var(--done-row)" not in html  # 完了の面は撤去した
+    assert "tr.is-done rect.bar { opacity:.45; }" in html
+
+
+def test_the_fill_is_reserved_for_late_and_stops_at_the_gantt(tmp_path: Path) -> None:
+    """面（ベタ塗り）は遅れだけに使い、状態の行色はガントに入れない（図を無地のキャンバスに載せる）。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "in-progress", "start": "2026-08-03", "due": "2026-08-07"},
+        {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
+    )
+    html = _render(tmp_path, date(2026, 8, 20))  # 08-07 を過ぎた基準日＝T-9001 は遅れ
+    assert "st-in-progress" in _row_markup(html, "T-9001")  # 状態を視覚に割り当てる目印が載る
+    assert "tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }" in html
+    # 遅れの面は表の列だけ（ガントは除く）。
+    assert "tr.is-late > td:not(.gantt) { background:var(--late-row); }" in html
+    assert "td.gantt" in html and "background:var(--canvas)" in html  # ガントは専用の地色
 
 
 def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:

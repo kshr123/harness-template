@@ -367,6 +367,8 @@ def _row_html(
     """
     depth = row.code.count(".")
     classes = [f"lv{depth}", f"src-{row.source}"]
+    if row.status is not None:
+        classes.append(f"st-{row.status.value}")  # 状態を視覚の強さに割り当てる（面・左バー・文字）
     if row.late:
         classes.append("is-late")
     if row.status is Status.done:
@@ -444,7 +446,7 @@ def _view_script() -> str:
     return _VIEW_SCRIPT
 
 
-def _milestone_row(wbs: Wbs, span: tuple[date, date] | None) -> str:
+def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
     """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
 
     各フェーズに散らばる◆だけだと、案件全体の節目（要件確定・検収・成果物の期日など、その日に確定する
@@ -465,10 +467,12 @@ def _milestone_row(wbs: Wbs, span: tuple[date, date] | None) -> str:
         if r.due is not None and first <= r.due <= last
     )
     n_cols = len(COLUMNS)
+    # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の破線も乗る。
+    grid = f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">{back}</svg>'
     return (
         '<tr class="msrow">'
         f'<td class="ms-label" colspan="{n_cols}">マイルストーン</td>'
-        f'<td class="gantt ms-track">{diamonds}</td></tr>'
+        f'<td class="gantt ms-track">{grid}{diamonds}</td></tr>'
     )
 
 
@@ -496,7 +500,7 @@ def _digest_of(row: WbsRow) -> str:
 # 2px＝表とガントの領域の境目）。すべて同じ太さで引くと表計算の初期状態に見える。
 _STYLE = """
 :root {
-  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
   --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
@@ -507,7 +511,7 @@ _STYLE = """
 }
 @media (prefers-color-scheme: dark) {
   :root {
-  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349;
+  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349; --canvas:#10141a;
   --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
@@ -518,7 +522,7 @@ _STYLE = """
   }
 }
 :root[data-theme="dark"] {
-  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349;
+  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349; --canvas:#10141a;
   --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
@@ -528,7 +532,7 @@ _STYLE = """
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
 :root[data-theme="light"] {
-  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
   --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
@@ -580,10 +584,12 @@ th.n, td.n { width:34px; }
 td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
 th.d, th.n { text-align:right; }
 th.name, td.name { white-space:normal; min-width:150px; }
-/* 左の表（セルの格子）とガント（時間の格子）は別の領域。2px の罫・見出しの地色・格子の作法で 3 重に割る。 */
-th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; border-left:2px solid var(--line-strong); }
+/* 左の表（セルの格子）とガント（時間の図）は別の領域。ガント専用の淡い地色・ページ最強の縦罫・時間の
+   格子で 3 重に割る。棒・格子・今日線は常に無地のキャンバスに載る（状態の行色はガントに入れない）。 */
+th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; border-left:2px solid var(--sum);
+                     background:var(--canvas); }
 th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
-thead th.gantt { background:var(--paper); }
+thead th.gantt { background:var(--canvas); }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 tbody td.code, tbody td.name { z-index:3; }
@@ -602,15 +608,23 @@ td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
 td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
 tbody tr:hover > td { background:var(--hover); }
 tr.is-sel > td { background:var(--sel); }
+/* 状態→視覚の強さ（意味の順に読める）。面（ベタ塗り）はページ最強の視覚資源なので**遅れだけ**に使う。
+   完了は面を取り上げて文字だけ退け、進行中は左端の縦バーと状態語で「今ここ」を積極的に示す。棒は 1 色のまま。 */
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
-/* 状態を行の面で示す：未実施＝白（地のまま）・完了＝グレー・遅れ＝淡ピンク（明度・彩度をそろえた 3 淡色）。
-   貼り付く 2 列（code・name）は不透明なので、行の色を明示的に上書きする（宣言順が効く＝background 指定の後）。 */
-tr.is-done > td { color:var(--muted); background:var(--done-row); }
-tr.is-done td.code, tr.is-done td.name { background:var(--done-row); }
-tr.is-done.lv0 > td { background:var(--sec); }        /* 完了フェーズは節の面を保つ */
-tr.is-late > td { background:var(--late-row); }
-tr.is-late td.code, tr.is-late td.name { background:var(--late-row); }
-tr.is-late.lv0 > td { background:var(--late-row); }   /* 遅れフェーズは淡ピンクが節に勝つ（経営で最も見る信号） */
+/* 遅れ＝淡赤の面。ただし表の側だけ（ガントは無地のキャンバスに載せて図を濁さない＝領域を分ける）。 */
+tr.is-late > td:not(.gantt) { background:var(--late-row); }
+tr.is-late.lv0 > td:not(.gantt) { background:var(--late-row); }  /* 遅れフェーズは節の面に勝つ（最も見る信号） */
+/* 完了＝面を敷かない（白のまま）。文字だけ退け、棒も同じ青を淡くする＝済んだ話は地に沈める。 */
+tr.is-done > td { color:var(--muted); }
+tr.is-done rect.bar { opacity:.45; }
+/* 左端 3px の縦バーで「動いているもの」を示す（border だと該当行だけ番号がずれるので inset 影で描く）。 */
+tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }
+tr.st-in-review > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
+tr.st-blocked > td:first-child { box-shadow:inset 3px 0 0 var(--ink); }
+tr.is-late > td:first-child { box-shadow:inset 3px 0 0 var(--late); }  /* 遅れは赤が勝つ */
+/* 状態語の強調：進行中・停止は太字で「動き」と「詰まり」を一目で拾えるようにする。進行中は濃青。 */
+tr.st-in-progress td.st, tr.st-blocked td.st { font-weight:600; }
+tr.st-in-progress td.st { color:var(--prog); }
 .ref { display:none; }
 .tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; font-weight:600;
        padding:0 5px; margin-left:6px; border-radius:3px; }
@@ -640,13 +654,15 @@ svg.axis { display:block; width:100%; height:44px; }
 /* 3 段目の区切り線（日表示だけ）。 */
 .scroll.u-d .axis-wrap::after { content:""; position:absolute; top:33px; left:0; right:0;
                                 border-top:1px solid var(--line); }
-/* 格子の重み：日 < 週 < 月。月の線だけが見出しから本体まで同じ濃さで縦に通る。 */
+/* 格子の重み：日 < 週 < 月の 3 段を線種で固定（消えかけの薄線をやめ、空白でも方眼に見えるようにする）。 */
 .g-d, .g-w, .g-m { display:none; }
-line.g-d { stroke:var(--line); stroke-width:.5; opacity:.45; }
-line.g-w { stroke:var(--line); stroke-width:1; }
+line.g-d { stroke:var(--line); stroke-width:1; }
+line.g-w { stroke:var(--guide); stroke-width:1; }
 line.g-m { stroke:var(--line-strong); stroke-width:1; }
-.scroll.u-m .g-m, .scroll.u-w .g-w, .scroll.u-w .g-m,
-.scroll.u-d .g-d, .scroll.u-d .g-w, .scroll.u-d .g-m { display:block; }
+/* どのズームでも「選んだ単位＋1 つ細かい単位」を常時出す（月表示の広い空白を週線で方眼にする）。 */
+.scroll.u-m .g-m, .scroll.u-m .g-w,
+.scroll.u-w .g-m, .scroll.u-w .g-w, .scroll.u-w .g-d,
+.scroll.u-d .g-m, .scroll.u-d .g-w, .scroll.u-d .g-d { display:block; }
 line.today { stroke:var(--ink); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
 svg.bar { display:block; width:100%; height:16px; }
@@ -689,15 +705,17 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .legend { margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap;
           align-items:center; }
 .legend i.sw { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
-.legend .rowlegend i.rw { display:inline-block; width:12px; height:12px; vertical-align:middle;
-                          margin:0 3px 0 8px; border:1px solid var(--line); border-radius:2px; }
+/* 行の状態の見本：左バー（進行中・確認中・停止）は inset 影、遅れは淡赤の面。完了は灰文字そのもの。 */
+.legend .rowlegend i.lb { display:inline-block; width:14px; height:12px; vertical-align:middle;
+                          margin:0 3px 0 10px; border:1px solid var(--line); border-radius:2px; }
+.legend .rowlegend .donetext { color:var(--muted); margin:0 3px 0 10px; }
 @media print {
   /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
   tr.hid { display:table-row !important; }
   button.tw { visibility:hidden; }  /* 枠幅は残して番号の整列を保つ（▾ だけ消す） */
   /* 紙は常に明るい版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
   :root {
-  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
   --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
@@ -735,9 +753,13 @@ def _legend() -> str:
         '<span><i class="sw" style="background:var(--bar-done);width:8px;height:8px;'
         'transform:rotate(45deg)"></i>節目（承認・検収などその日に確定する出来事）</span>'
         "<span>破線＝基準日</span>"
-        '<span class="rowlegend"><i class="rw" style="background:var(--paper)"></i>未実施'
-        '<i class="rw" style="background:var(--done-row)"></i>完了'
-        '<i class="rw" style="background:var(--late-row)"></i>遅れ</span>'
+        '<span class="rowlegend">行の状態：'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--prog)"></i>進行中'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--bar)"></i>確認中'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--ink)"></i>停止'
+        '<i class="lb" style="background:var(--late-row);box-shadow:inset 3px 0 0 var(--late)"></i>'
+        '<span style="color:var(--late-ink)">遅れ</span>'
+        '<span class="donetext">完了</span>未着手</span>'
         "</div>"
     )
 
@@ -1095,7 +1117,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
-    body = _milestone_row(wbs, span) + "".join(
+    body = _milestone_row(wbs, span, back) + "".join(
         _row_html(row, span, wbs.today, back, editable=editable, rosters=rosters, parent=parents.get(row.code, ""))
         for row in wbs.walk()
     )
