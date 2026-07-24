@@ -460,8 +460,36 @@ def test_the_grid_runs_unbroken_across_rows(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     row = _row_markup(html, "T-9001")
-    assert '<svg class="gridline"' in row  # 格子は棒とは別の層
+    assert '<svg class="gridbg"' in row  # 格子は棒とは別の層
     assert '<line class="grid' not in row.split('<svg class="bar"')[-1]  # 棒の図形の中には入れない
-    # 線は下の罫を越えて届かせる（行の間で途切れない）。面は罫線の位置に届かせない（横罫を塗り潰さない）。
-    assert "td.gantt .gridline, td.ms-track .gridline { position:absolute; top:0; bottom:-1px;" in html
-    assert "td.gantt .gridfill, td.ms-track .gridfill { position:absolute; top:0; bottom:0;" in html
+    # 下敷きはセルいっぱい（top:0・bottom:0）＝縦線は行の高さぶん通り、横罫は罫の位置に残る。
+    assert "td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:0;" in html
+    # ガントのセルの中の重ね順は 0 と 1 だけ（固定列 2・3／見出し 4 以上と番号がぶつからない）。
+    for rule in ("td.gantt .gridbg, td.ms-track .gridbg", "svg.bar", "td.gantt .todayline, td.ms-track .todayline"):
+        body = html.split(rule + " {")[1].split("}")[0]
+        assert "z-index:0" in body or "z-index:1" in body, rule
+
+
+def test_the_gantt_cell_stacks_backdrop_bar_milestone_then_today(tmp_path: Path) -> None:
+    """ガントのセルの重ね順は「下敷き → 棒 → マイルストーン → 基準日の線」。
+
+    同じ重ね番号（1）どうしは**後に書いたものが前に出る**ので、順序そのものが重ね順になる。番号を 0 と 1 に
+    抑えるのは、固定列（2・3）や見出し（4 以上）と同じ番号を使うと横スクロールで前後が入れ替わるため。
+    ズームを変えても同じ並びなので、この検査は 3 つの時間軸すべてに効く。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+        {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))  # 基準日を窓の中に置く＝基準日の線が出る
+    # 集約行にも◆の説明で ID が出るので、作業の行そのものを data-ref で取る。
+    row = next(part for part in html.split("<tr") if 'data-ref="T-9003"' in part)
+    cell = row.split('<td class="gantt"')[1]
+    order = [
+        cell.index('class="gridbg"'),
+        cell.index('class="bar"'),
+        cell.index('class="ms"'),
+        cell.index('class="todayline"'),
+    ]
+    assert order == sorted(order), f"ガントのセルの重ね順が違う: {order}"

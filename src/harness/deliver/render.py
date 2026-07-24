@@ -213,8 +213,8 @@ def _layer(kind: str, body: str) -> str:
 
 
 def _grid_svg(back: Backdrop) -> str:
-    """下敷きの層のうち、棒より**後ろ**に置くもの（非稼働日の面と時間の格子）。"""
-    return _layer("gridfill", back.fills) + _layer("gridline", back.lines)
+    """棒より後ろに敷く下敷き（非稼働日の面と時間の格子）。セルの中に収める。"""
+    return _layer("gridbg", back.fills + back.lines)
 
 
 def _bar_svg(row: WbsRow, span: tuple[date, date]) -> str:
@@ -771,15 +771,16 @@ rect.off { display:none; fill:var(--off); }
 /* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
 line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
-/* 重ね順は 1 つの決まりで通す：**面は罫線を覆わない／線は行をまたいで繋がる／基準日の線は最前面**。
-   面（非稼働日）はセルの中だけに敷く（top:0・bottom:0＝罫線の位置には届かない）ので、横罫が
-   「見える所と見えない所」に分かれない。線と基準日は下の罫を越えて（bottom:-1px）届かせて 1 本に繋げる。
-   左右はセルの余白（padding:0 2px）に合わせて棒と同じ幅にそろえる。 */
-td.gantt .gridfill, td.ms-track .gridfill { position:absolute; top:0; bottom:0; left:2px; right:2px; z-index:0; }
-td.gantt .gridline, td.ms-track .gridline { position:absolute; top:0; bottom:-1px; left:2px; right:2px; z-index:1; }
-svg.bar { display:block; width:100%; height:16px; position:relative; z-index:2; }
-td.gantt .todayline, td.ms-track .todayline { position:absolute; top:0; bottom:-1px; left:2px; right:2px;
-                                              z-index:4; pointer-events:none; }
+/* 重ね順の決まりは 1 つ：**下敷き → 棒 → マイルストーン → 基準日の線**（後ろのものほど前に出る）。
+   **セルの中だけで 0 と 1 しか使わない**のが要点。固定列（2・3）や見出し（4 以上）と同じ番号を使うと、
+   横スクロールで基準日の線が固定列の上に出る・◆が固定列と喧嘩する、といった壊れ方をする。
+   はみ出させない（top:0・bottom:0＝セルの中に収める）のも要点。隣のセルへはみ出した線は、隣のセルの
+   地色や罫に塗り潰されて**かえって消える**。セルいっぱいに引けば縦線は行の高さぶん通り、横罫は罫の位置
+   （セルの外＝border）に残るので、両方が一様に見える。左右はセルの余白（padding:0 2px）に合わせる。 */
+td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:0; left:2px; right:2px; z-index:0; }
+svg.bar { display:block; width:100%; height:16px; position:relative; z-index:1; }
+td.gantt .todayline, td.ms-track .todayline { position:absolute; top:0; bottom:0; left:2px; right:2px;
+                                              z-index:1; pointer-events:none; }
 svg.bar rect { rx:0; }
 /* ガントは 1 色（青）のベタ塗り。予定・完了・遅れを色で分けない（状態は行の面で分かる）。
    まとめ（子を持つ行）は色でなく形＝細い帯＋両端の脚で区別する。 */
@@ -788,7 +789,7 @@ rect.sum { fill:var(--bar); }
 line.leg { stroke:var(--bar); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
-      color:var(--bar-done); pointer-events:none; z-index:3; }
+      color:var(--bar-done); pointer-events:none; z-index:1; }
 .ops { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;
        justify-content:space-between; }
 .ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
