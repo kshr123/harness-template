@@ -29,6 +29,7 @@ import yaml
 from pydantic import ValidationError
 
 from harness import pm
+from harness.deliver import history
 from harness.deliver.overlay import OVERLAY_PATH, Overlay
 from harness.models import Item, Status
 
@@ -43,7 +44,9 @@ EDITABLE_MANUAL_FIELDS: frozenset[str] = frozenset(
 ROSTER_OF: dict[str, str] = {"team": "teams", "owner": "members", "assignees": "members"}
 
 # 読み取り〜書き込みを囲う錠（1 人用の道具なので 1 つで足りる）。書き込む口はすべてこれを取る。
-LOCK = threading.Lock()
+# 再入可（RLock）にするのは、取り消しの記録のためにサーバ層がこの錠の中で各操作を呼ぶため
+# （操作もこの錠を取る＝入れ子になる。記録係の設定・確定を書き込みと同じ錠の中に収める）。
+LOCK = threading.RLock()
 
 
 class EditRejected(Exception):
@@ -208,6 +211,7 @@ def add_to_roster(root: Path, key: str, value: str) -> None:
     rendered = _scalar(value)
     if not path.is_file():
         path.parent.mkdir(parents=True, exist_ok=True)
+        history.record(path)
         path.write_text(f"{key}: [{rendered}]\n", encoding="utf-8")
         return
     text = path.read_text(encoding="utf-8")
@@ -231,8 +235,10 @@ def add_to_roster(root: Path, key: str, value: str) -> None:
             while end < len(lines) and lines[end].lstrip().startswith("-"):
                 end += 1
             lines.insert(end, f"  - {rendered}")
+        history.record(path)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return
+    history.record(path)
     path.write_text(text.rstrip("\n") + f"\n{key}: [{rendered}]\n", encoding="utf-8")
 
 
@@ -324,6 +330,7 @@ def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str
         # 断ると、画面から直せない指摘が 1 つあるだけで他の行も一切保存できなくなる。**増えた指摘だけ**を
         # 拒否の理由にする。
         before = {p.message for p in all_problems(root, today=today) if p.level == "error"}
+        history.record(path)  # 取り消しのため、変える直前の本文を記録する（記録中でなければ無視）
         path.write_text(new_text, encoding="utf-8")
         introduced = [p for p in all_problems(root, today=today) if p.level == "error" and p.message not in before]
         if introduced:

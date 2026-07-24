@@ -19,6 +19,7 @@ from datetime import date
 from pathlib import Path
 
 from harness import pm
+from harness.deliver import history
 from harness.deliver.editor import LOCK, EditRejected, find_item_path, walk_nodes
 from harness.deliver.wbs_lint import all_problems
 
@@ -123,6 +124,7 @@ def _renumber(siblings: list[pm.Node], ref: str, new_id: str, *, above: bool, ro
         new_text, count = re.subn(r"(?m)^order\s*:.*$", f"order: {value}", text, count=1)
         if count == 0:
             new_text = text.replace("\nid:", f"\norder: {value}\nid:", 1)
+        history.record(path)  # 並び順の書き換え（取り消しで戻す）
         path.write_text(new_text, encoding="utf-8")
 
 
@@ -150,6 +152,8 @@ def _add(
             if folder.exists():
                 raise EditRejected(f"'{parent_ref}' を分解しようとしたが {folder.name} が既にある")
             folder.mkdir()
+            history.record(parent_path)  # 分解の元ファイル（取り消しで復元する）
+            history.record(folder / pm.MARKER)  # 分解の先（取り消しで消す）
             parent_path.rename(folder / pm.MARKER)
             moved = (parent_path, folder / pm.MARKER)
             parent_path = folder / pm.MARKER
@@ -164,6 +168,7 @@ def _add(
                     inherited[key] = value
             if inherited:
                 restore = (parent_path, parent_text)
+                history.record(parent_path)  # 日程を子へ移すぶんの書き換え（取り消しで戻す）
                 parent_path.write_text(_strip_keys(parent_text, _MOVED_TO_CHILD), encoding="utf-8")
 
     title = _NEW_MILESTONE if milestone else _NEW_TITLE
@@ -188,6 +193,7 @@ def _add(
         f"# {new_id} {title}",
         "",
     ]
+    history.record(target)  # 新しく作るファイル（取り消しで消す）
     target.write_text("\n".join(lines), encoding="utf-8")
     introduced = [p for p in all_problems(root, today=today) if p.level == "error" and p.message not in before]
     if introduced:  # 足した結果として検査に落ちる状態を、正本に残さない

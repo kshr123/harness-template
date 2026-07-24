@@ -29,11 +29,13 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 
-from harness.deliver import render
+from harness import pm
+from harness.deliver import history, render
 from harness.deliver import wbs as wbs_mod
 from harness.deliver.adder import add_child, add_sibling
-from harness.deliver.editor import EditRejected, apply_edit
+from harness.deliver.editor import LOCK, EditRejected, apply_edit
 from harness.deliver.remover import remove
+from harness.deliver.wbs_lint import all_problems
 
 # 名乗ってよいホスト（ポートは切り落として比べる）。これ以外は拒否する。
 ALLOWED_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
@@ -98,6 +100,30 @@ class EditRequest(BaseModel):
     base: str = ""
 
 
+def _prune_empty_dirs(start: Path, root: Path) -> None:
+    """空になったフォルダを下から順に片づける（`work/` の中だけ。`work/` 自身は残す）。
+
+    取り消しで追加を消すとき、分解でできたフォルダが空で残るのを防ぐ。docs/ 等は触らない
+    （手動行の上書きは復元でも中身の書き戻しだけ＝フォルダは消えない）。
+    """
+    work = root / pm.WORK_DIR
+    here = start
+    while here != work and work in here.parents and here.is_dir() and not any(here.iterdir()):
+        parent = here.parent
+        here.rmdir()
+        here = parent
+
+
+def _write_state(path: Path, content: str | None, root: Path) -> None:
+    """1 ファイルをその状態へ戻す（None＝存在しなかった→消す・空フォルダも片づける）。"""
+    if content is None:
+        path.unlink(missing_ok=True)
+        _prune_empty_dirs(path.parent, root)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
 def _place(root: Path, payload: AddRequest, *, today: date) -> str:
     """足す向きに応じて置き場を決める（画面が持っている「どこへ」をそのまま実行する）。"""
     if payload.where == "top":
@@ -114,6 +140,13 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
     app = FastAPI(title="WBS 編集", docs_url=None, redoc_url=None, openapi_url=None)
     watch = idle if idle is not None else Idle(timeout_seconds=3600.0)
     watch.touch(time.monotonic())
+    undo = history.UndoStack(limit=20)  # 取り消しの山（このプロセスの間だけ・redo なし）
+
+    def _run(op: Any, label: str) -> None:  # noqa: ANN401  各書き込み操作を記録つきで実行する
+        """1 操作を記録つきで走らせ、成功したら取り消しの 1 手を積む（すべて同じ錠の中で）。"""
+        with LOCK, history.recording() as rec:
+            op()
+            undo.push(rec.finalize(label))
 
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Any:  # noqa: ANN401  fastapi の中継関数
@@ -128,39 +161,80 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
         built = wbs_mod.build(root, today=today)
         return HTMLResponse(render.render_html(built, editable=True, token=token))
 
+    def _check_token(x_wbs_token: str | None) -> None:
+        if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
+            raise HTTPException(status_code=403, detail="合言葉が違う")
+
     @app.post("/edit")
     def _edit(payload: EditRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
         """1 か所を正本へ書き戻す。拒否の理由はそのまま画面に出す（黙って無視しない）。"""
-        if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
-            raise HTTPException(status_code=403, detail="合言葉が違う")
-        try:
-            digest = apply_edit(
+        _check_token(x_wbs_token)
+        out: dict[str, str] = {}
+
+        def op() -> None:
+            out["digest"] = apply_edit(
                 root, ref=payload.ref, field=payload.field, value=payload.value, base_digest=payload.base, today=today
             )
+
+        try:
+            _run(op, f"{payload.ref} の {payload.field} を編集")
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"digest": digest}
+        return out
 
     @app.post("/add")
     def _add(payload: AddRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
         """作業単位を 1 つ足す（正本＝work/ にファイルを作る。WBS 側には何も持たない）。"""
-        if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
-            raise HTTPException(status_code=403, detail="合言葉が違う")
+        _check_token(x_wbs_token)
+        out: dict[str, str] = {}
+
+        def op() -> None:
+            out["id"] = _place(root, payload, today=today)
+
         try:
-            new_id = _place(root, payload, today=today)
+            _run(op, "行を追加")
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"id": new_id}
+        return out
 
     @app.post("/remove")
     def _remove(payload: RemoveRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
         """行を 1 つ消す（正本から取り除く）。配下を持つ単位はまとめて消さない。"""
-        if not x_wbs_token or not secrets.compare_digest(x_wbs_token, token):
-            raise HTTPException(status_code=403, detail="合言葉が違う")
+        _check_token(x_wbs_token)
         try:
-            remove(root, payload.ref, today=today)
+            _run(lambda: remove(root, payload.ref, today=today), f"{payload.ref} を削除")
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ref": payload.ref}
+
+    @app.post("/undo")
+    def _undo(x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
+        """直前の 1 操作を戻す。正本が別の手で動いていたら打ち切る（推測で部分適用しない＝fail-closed）。"""
+        _check_token(x_wbs_token)
+        with LOCK:
+            entry = undo.peek()
+            if entry is None:
+                raise HTTPException(status_code=409, detail="戻す操作が無い")
+            # 操作の後に正本が別の手（エディタ・エージェント・git）で動いていないかを指紋で照合する。
+            for fs in entry.files:
+                if history.file_digest(fs.path) != fs.digest_after:
+                    undo.clear()  # 履歴が現実を記述しなくなった＝以後の取り消しも当てにならない
+                    raise HTTPException(
+                        status_code=409,
+                        detail="操作の後に正本が別の手で動いた。画面からの取り消しは打ち切る（以後は git で戻す）",
+                    )
+            current = [
+                (fs.path, fs.path.read_text(encoding="utf-8") if fs.path.is_file() else None) for fs in entry.files
+            ]
+            before = {p.message for p in all_problems(root, today=today) if p.level == "error"}
+            for fs in entry.files:
+                _write_state(fs.path, fs.before, root)
+            introduced = [p for p in all_problems(root, today=today) if p.level == "error" and p.message not in before]
+            if introduced:  # 戻すと別の矛盾ができる場合は、戻す前の状態へ書き直して断る
+                for path, content in current:
+                    _write_state(path, content, root)
+                raise HTTPException(status_code=409, detail="　/　".join(p.message for p in introduced))
+            undo.pop()
+            return {"undone": entry.label}
 
     return app

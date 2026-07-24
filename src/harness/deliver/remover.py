@@ -14,6 +14,7 @@ from datetime import date
 from pathlib import Path
 
 from harness import pm
+from harness.deliver import history
 from harness.deliver.editor import LOCK, EditRejected, find_item_path, row_bounds, walk_nodes
 from harness.deliver.overlay import MANUAL_ID_PREFIX, OVERLAY_PATH
 from harness.deliver.wbs_lint import all_problems
@@ -69,6 +70,7 @@ def remove(root: Path, ref: str, *, today: date) -> None:
             if not overlay_path.is_file():
                 raise EditRejected(f"手動行 '{ref}' が {OVERLAY_PATH} に見つからない")
             saved = _snapshot([overlay_path])
+            history.record(overlay_path)  # 取り消しのため、変える直前の本文を記録
             overlay_path.write_text(_drop_manual_row(overlay_path.read_text(encoding="utf-8"), ref), encoding="utf-8")
         else:
             nodes, _ = pm.load_tree(root)
@@ -84,6 +86,7 @@ def remove(root: Path, ref: str, *, today: date) -> None:
             targets = sorted(path.parent.rglob("*")) if path.name == pm.MARKER else [path]
             saved = _snapshot([p for p in targets if p.is_file()])
             for file in reversed([p for p in targets if p.is_file()]):
+                history.record(file)  # 取り消しのため、消す前の本文を記録（復元でこの内容を書き戻す）
                 file.unlink()
             if path.name == pm.MARKER:
                 for directory in sorted((p for p in targets if p.is_dir()), reverse=True):

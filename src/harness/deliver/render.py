@@ -948,6 +948,20 @@ _EDIT_SCRIPT = r"""
                          else { busy=false; tell(r.body.detail||'消せなかった',true); } })
       .catch(function(e){ busy=false; tell('消せなかった: '+e,true); });
   }
+  function undo(){
+    if(busy) return; busy=true;
+    fetch('undo',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},body:'{}'})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('戻した: '+r.body.undone); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'戻せなかった',true); } })
+      .catch(function(e){ busy=false; tell('戻せなかった: '+e,true); });
+  }
+  document.addEventListener('keydown',function(e){
+    if(!(e.ctrlKey||e.metaKey) || e.shiftKey || (e.key||'').toLowerCase()!=='z') return;
+    var a=document.activeElement;
+    if(a && (a.tagName==='INPUT'||a.tagName==='SELECT'||a.tagName==='TEXTAREA')) return; // 入力中は標準の undo に譲る
+    e.preventDefault(); undo();
+  });
   var menu=document.getElementById('menu');
   function hideMenu(){
     if(menu) menu.style.display='none';
@@ -1112,6 +1126,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     if editable:
         banner += (
             '<div class="hint">セルをクリックすると直せる（Enter で保存・Esc で取り消し）。'
+            "行の操作は右クリック（列ごとに変わる）。Ctrl+Z で直前の操作を戻す。"
             "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
         )
         edit_bits = (
