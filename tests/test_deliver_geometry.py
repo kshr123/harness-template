@@ -244,6 +244,23 @@ def test_the_first_columns_stay_visible_when_scrolled(tmp_path: Path) -> None:
     assert "th.code, td.code, th.name, td.name { position:static; }" in printed
 
 
+def test_a_name_carries_one_guide_line_per_ancestor_level(tmp_path: Path) -> None:
+    """階層は作業名の前の縦ガイド線で示す。線の本数＝祖先の数（＝番号の点の数）で、深さに上限が無い。"""
+    top = tmp_path / "work" / "EP-90-alpha"
+    _write(top / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    sub = top / "EP-91-beta"
+    _write(sub / "item.md", {"id": "EP-91", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(
+        sub / "T-9001-c.md",
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    # EP-90=「1」(祖先0)、EP-91=「1.1」(祖先1)、T-9001=「1.1.1」(祖先2)。
+    assert _row_markup(html, "EP-90").count('class="ind"') == 0
+    assert _row_markup(html, "EP-91").count('class="ind"') == 1
+    assert _row_markup(html, "T-9001").count('class="ind"') == 2
+
+
 def test_the_axis_shows_the_year_where_it_matters(tmp_path: Path) -> None:
     """軸の日付に年を出す（先頭と、年が変わるところ）。何年の話か分からない工程表を渡さない。"""
     _tree(

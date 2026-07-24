@@ -376,6 +376,9 @@ def _row_html(
     name = _esc(row.name)
     if row.ref and row.ref != row.name:  # 題を書いていない単位は ID がそのまま名前なので、2 回出さない
         name += f'<span class="ref">{_esc(row.ref)}</span>'
+    # 祖先の数だけ縦ガイド線を前に置く（深さ＝番号の点の数。列は増やさず線で階層を示す）。
+    guides = '<span class="ind"></span>' * depth
+    name = f'<span class="nmwrap">{guides}<span class="nm">{name}</span></span>'
     fields = _editable_fields(row) if editable else {}
     digest = _digest_of(row) if fields else ""
     names = rosters or {"teams": [], "members": []}
@@ -488,7 +491,7 @@ def _digest_of(row: WbsRow) -> str:
 _STYLE = """
 :root {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
-  --line:#e3e6ea; --line-strong:#86919e;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
@@ -499,7 +502,7 @@ _STYLE = """
 @media (prefers-color-scheme: dark) {
   :root {
   --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349;
-  --line:#2e343c; --line-strong:#5b6672;
+  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
@@ -510,7 +513,7 @@ _STYLE = """
 }
 :root[data-theme="dark"] {
   --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349;
-  --line:#2e343c; --line-strong:#5b6672;
+  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
@@ -520,7 +523,7 @@ _STYLE = """
 }
 :root[data-theme="light"] {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
-  --line:#e3e6ea; --line-strong:#86919e;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
@@ -559,11 +562,8 @@ th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
 tr { break-inside:avoid; }
 th.code, td.code { width:64px; min-width:64px; color:var(--muted);
                    font-variant-numeric:tabular-nums; text-align:left; }
-/* 番号も階層ごとに字下げ（作業名とインデントをそろえる）。左揃えのまま。 */
-tr.lv0 td.code { padding-left:8px; }
-tr.lv1 td.code { padding-left:16px; }
-tr.lv2 td.code { padding-left:24px; }
-tr.lv3 td.code { padding-left:32px; }
+/* 番号（1.1.1）は点の数で深さが読めるので字下げしない＝左端をそろえる。階層の見た目は作業名の
+   縦ガイド線（下）が担う。列を階層ぶん足すより線 1 本ぶんで済み、深さの上限も作らない。 */
 th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:ellipsis; }
 /* 要らない列は消せる（案件によってはチームも担当も無い）。まとまりの見出しの幅は JS が数え直す。 */
 .scroll.hide-team th.team, .scroll.hide-team td.team { display:none; }
@@ -589,9 +589,11 @@ td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1
   pointer-events:none; transition:opacity .15s; }
 @container scroll-state(scrollable: inline-start) { td.name::after, th.name::after { opacity:1; } }
 tr.lv0 > td { background:var(--sec); font-weight:600; border-top:1px solid var(--line-strong); }
-tr.lv1 td.name { padding-left:24px; }
-tr.lv2 td.name { padding-left:40px; }
-tr.lv3 td.name { padding-left:56px; }
+/* 階層は作業名の前に「祖先の数だけ縦ガイド線」を通して示す（罫線が無いと段差が読めない、への答え）。
+   線は 1 本ぶんの span。フォルダの深さぶん生成するだけなので階層数に上限を作らない。 */
+td.name .nmwrap { display:flex; align-items:stretch; margin:-5px 0 -5px -8px; min-height:calc(1em + 10px); }
+td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
+td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
 tbody tr:hover > td { background:var(--hover); }
 tr.is-sel > td { background:var(--sel); }
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
@@ -688,7 +690,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   /* 紙は常に明るい版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
   :root {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
-  --line:#e3e6ea; --line-strong:#86919e;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
