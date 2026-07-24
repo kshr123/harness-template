@@ -221,3 +221,24 @@ def test_a_project_without_any_order_keeps_the_filename_order(tmp_path: Path) ->
     _write(epic / "T-0002-b.md", {"id": "T-0002", "kind": "task", "status": "todo"})
     _write(epic / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
     assert _order(tmp_path) == ["EP-90", "T-0001", "T-0002"]
+
+
+def test_a_milestone_can_be_added(tmp_path: Path) -> None:
+    """節目（◆）を足せる。期間ゼロの印なので start を持たず、期日は基準日にする（あとで直せる）。"""
+    epic = tmp_path / "work" / "EP-90-alpha"
+    _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(
+        epic / "T-0001-a.md",
+        {"id": "T-0001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    new_id = add_child(tmp_path, "EP-90", today=TODAY, milestone=True)
+    item = _items(tmp_path)[new_id]
+    assert item.milestone is True
+    assert item.start is None
+    assert item.due == TODAY
+
+
+def test_the_menu_offers_a_milestone(tmp_path: Path) -> None:
+    _write(tmp_path / "work" / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
+    page = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1").get("/").text
+    assert "節目を下に追加" in page

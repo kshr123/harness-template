@@ -84,6 +84,7 @@ class AddRequest(BaseModel):
 
     ref: str | None = None  # 基準にする行（top のときは不要）
     where: Literal["top", "child", "above", "below"] = "top"
+    milestone: bool = False  # 節目（期間ゼロの印）として足すか
 
 
 class EditRequest(BaseModel):
@@ -100,12 +101,12 @@ class EditRequest(BaseModel):
 def _place(root: Path, payload: AddRequest, *, today: date) -> str:
     """足す向きに応じて置き場を決める（画面が持っている「どこへ」をそのまま実行する）。"""
     if payload.where == "top":
-        return add_child(root, None, today=today)
+        return add_child(root, None, today=today, milestone=payload.milestone)
     if payload.ref is None:
         raise EditRejected("どの行を基準にするか指定されていない")
     if payload.where == "child":
-        return add_child(root, payload.ref, today=today)
-    return add_sibling(root, payload.ref, above=payload.where == "above", today=today)
+        return add_child(root, payload.ref, today=today, milestone=payload.milestone)
+    return add_sibling(root, payload.ref, above=payload.where == "above", today=today, milestone=payload.milestone)
 
 
 def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None) -> FastAPI:

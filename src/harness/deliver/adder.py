@@ -30,6 +30,7 @@ _ID_DIGITS = 4
 _MOVED_TO_CHILD = ("start", "due", "effort_days")
 
 _NEW_TITLE = "新しい作業"
+_NEW_MILESTONE = "新しい節目"
 
 
 def _next_id(nodes: list[pm.Node]) -> str:
@@ -55,16 +56,16 @@ def _strip_keys(text: str, keys: tuple[str, ...]) -> str:
 _ORDER_STEP = 10
 
 
-def add_child(root: Path, parent_ref: str | None, *, today: date) -> str:
+def add_child(root: Path, parent_ref: str | None, *, today: date, milestone: bool = False) -> str:
     """`parent_ref` の下（None なら `work/` の直下）に作業単位を 1 つ作り、その ID を返す。
 
     親がまだ子を持っていなければ、親の日程・工数を新しい子へ移す（分解の意味に合わせる）。
     """
     with LOCK:
-        return _add(root, parent_ref, today=today)
+        return _add(root, parent_ref, today=today, milestone=milestone)
 
 
-def add_sibling(root: Path, ref: str, *, above: bool, today: date) -> str:
+def add_sibling(root: Path, ref: str, *, above: bool, today: date, milestone: bool = False) -> str:
     """`ref` の**すぐ上／すぐ下**に、同じ置き場の作業単位を 1 つ作る。
 
     並びはファイル名の順（実質 ID 順）で、ID は既存の最大＋1 でしか採れない。だから「上に足す」は
@@ -78,7 +79,7 @@ def add_sibling(root: Path, ref: str, *, above: bool, today: date) -> str:
             raise EditRejected(f"作業単位 '{ref}' が work/ に見つからない")
         siblings = _siblings_of(nodes, ref)
         holder = _holder_of(root, nodes, ref)
-        new_id = _add(root, holder, today=today, skip_inherit=True)
+        new_id = _add(root, holder, today=today, skip_inherit=True, milestone=milestone)
         _renumber(siblings, ref, new_id, above=above, root=root)
         return new_id
 
@@ -125,7 +126,9 @@ def _renumber(siblings: list[pm.Node], ref: str, new_id: str, *, above: bool, ro
         path.write_text(new_text, encoding="utf-8")
 
 
-def _add(root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool = False) -> str:
+def _add(
+    root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool = False, milestone: bool = False
+) -> str:
     nodes, problems = pm.load_tree(root)
     if any(p.level == "error" for p in problems):
         raise EditRejected("work/ の読み取りに失敗している状態では足せない（先に指摘を直す）")
@@ -163,20 +166,26 @@ def _add(root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool 
                 restore = (parent_path, parent_text)
                 parent_path.write_text(_strip_keys(parent_text, _MOVED_TO_CHILD), encoding="utf-8")
 
-    target = directory / f"{new_id}-新しい作業.md"
+    title = _NEW_MILESTONE if milestone else _NEW_TITLE
+    target = directory / f"{new_id}-{title}.md"
+    fields = (
+        ["milestone: true", f"due: {today.isoformat()}"]
+        if milestone
+        else [f"{key}: {value}" for key, value in inherited.items()]
+    )
     lines = [
         "---",
         f"id: {new_id}",
         "kind: task",
         "status: todo",
-        f"title: {_NEW_TITLE}",
+        f"title: {title}",
         f"created: {today.isoformat()}",
-        *[f"{key}: {value}" for key, value in inherited.items()],
+        *fields,
         "requirements: []",
         "depends_on: []",
         "verified_by: []",
         "---",
-        f"# {new_id} {_NEW_TITLE}",
+        f"# {new_id} {title}",
         "",
     ]
     target.write_text("\n".join(lines), encoding="utf-8")

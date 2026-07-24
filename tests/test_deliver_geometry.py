@@ -231,12 +231,9 @@ def test_the_table_stays_narrow_enough_to_show_the_gantt(tmp_path: Path) -> None
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    table = re.search(r"table \{[^}]*min-width:(\d+)px", html)
-    gantt = re.search(r"th\.gantt, td\.gantt \{[^}]*min-width:(\d+)px", html)
-    assert table is not None and gantt is not None
-    table_min, gantt_min = int(table.group(1)), int(gantt.group(1))
-    assert table_min <= 900
-    assert gantt_min >= 260  # ガントに使える幅も確保する
+    # 表は中身に合わせて詰める（左の列＋ガントの幅）。ガントは単位ごとに JS が幅を入れる。
+    assert "table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }" in html
+    assert ".scroll th.gantt, .scroll td.gantt { width:var(--gw,40%); min-width:var(--gw,280px); }" in html
 
 
 def test_the_first_columns_stay_visible_when_scrolled(tmp_path: Path) -> None:

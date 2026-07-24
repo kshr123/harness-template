@@ -151,7 +151,7 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
                     f' vector-effect="non-scaling-stroke" />'
                 )
         else:
-            parts.append(f'<rect class="{kind}" x="{x:.2f}" y="3" width="{width:.2f}" height="8" rx="2" />')
+            parts.append(f'<rect class="{kind}" x="{x:.2f}" y="3" width="{width:.2f}" height="8" />')
             if row.done_leaves:
                 parts.append(f'<rect class="prog" x="{x:.2f}" y="5" width="{width * row.progress:.2f}" height="4" />')
     parts.append("</svg>")
@@ -253,6 +253,21 @@ def _labels(
     return "".join(parts)
 
 
+_WD = "月火水木金土日"
+
+
+def _weekdays(span: tuple[date, date]) -> str:
+    """曜日のラベル（日表示のときだけ出す 3 段目）。土日は薄くする。"""
+    parts: list[str] = []
+    for day, left, width in _intervals(day_ticks(span), span):
+        weekend = " we" if day.weekday() >= 5 else ""
+        parts.append(
+            f'<span class="axis-lab lab-wd{weekend}" style="left:{left:.3f}%;width:{width:.3f}%">'
+            f"{_WD[day.weekday()]}</span>"
+        )
+    return "".join(parts)
+
+
 def _axis_svg(span: tuple[date, date], today: date) -> str:
     """時間軸の見出し（2 段）。上段＝大きい単位・下段＝選んだ単位。
 
@@ -292,6 +307,7 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
             ),
             _labels(week_ticks(span), span, "w", lambda d, _: f"{d.month}/{d.day}w", min_days=4),
             _labels(day_ticks(span), span, "d", lambda d, _: str(d.day)) if days <= _MAX_DAY_TICKS else "",
+            _weekdays(span) if days <= _MAX_DAY_TICKS else "",
         )
     )
     return f'<div class="axis-wrap">{ticks}{"".join(lines)}</svg>{text}</div>'
@@ -462,6 +478,7 @@ _STYLE = """
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
   --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
+  --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
 @media (prefers-color-scheme: dark) {
@@ -472,6 +489,7 @@ _STYLE = """
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
   --tag-bg:#3a2420; --tag-ink:#f0a396; --done-row:#1b1f25;
+  --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
 }
@@ -482,6 +500,7 @@ _STYLE = """
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
   --tag-bg:#3a2420; --tag-ink:#f0a396; --done-row:#1b1f25;
+  --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
 :root[data-theme="light"] {
@@ -491,6 +510,7 @@ _STYLE = """
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
   --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
+  --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
 * { box-sizing:border-box; }
@@ -501,7 +521,7 @@ h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 .meta { color:var(--muted); font-size:11px; }
 /* 表の外枠は入れ物 1 枚に集める（セルの外周罫を撤去＝方眼に見えないようにする）。 */
 .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; container-type:scroll-state; }
-table { border-collapse:separate; border-spacing:0; width:100%; min-width:900px; }
+table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }
 thead { display:table-header-group; }
 thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
 /* 見出しは 2 段（上＝列の意味のまとまり・下＝列名）。ガントは 2 段ぶちぬきで、時間軸の 2 段と高さが揃う。 */
@@ -563,6 +583,7 @@ tr.is-done.lv0 > td { background:var(--sec); }
 .axis-wrap { position:relative; height:44px; }
 svg.axis { display:block; width:100%; height:44px; }
 .axis-wrap::before { content:""; position:absolute; top:22px; left:0; right:0; border-top:1px solid var(--line); }
+.scroll.u-d .axis-wrap::before { top:15px; }
 /* 日付は区間の**左**に寄せる（線の右すぐ＝その区間の始まりの日、と読める）。 */
 .axis-lab { display:none; position:absolute; height:22px; line-height:22px; font-size:10px;
             color:var(--muted); text-align:left; padding-left:4px; white-space:nowrap; overflow:hidden;
@@ -570,9 +591,18 @@ svg.axis { display:block; width:100%; height:44px; }
 .lab-y, .lab-m, .lab-my { border-left-color:var(--line-strong); color:var(--ink); }
 .scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
 .scroll.u-w .lab-my, .scroll.u-w .lab-w { display:block; }
-.scroll.u-d .lab-my, .scroll.u-d .lab-d { display:block; }
-.scroll.u-m .lab-y, .scroll.u-w .lab-my, .scroll.u-d .lab-my { top:0; font-size:11px; font-weight:600; }
-.scroll.u-m .lab-m, .scroll.u-w .lab-w, .scroll.u-d .lab-d { top:22px; }
+.scroll.u-d .lab-my, .scroll.u-d .lab-d, .scroll.u-d .lab-wd { display:block; }
+.scroll.u-m .lab-y, .scroll.u-w .lab-my { top:0; height:22px; line-height:22px; font-size:11px; font-weight:600; }
+.scroll.u-m .lab-m, .scroll.u-w .lab-w { top:22px; height:22px; line-height:22px; }
+/* 日表示は 3 段（年月・日・曜日）を 44px に詰める。 */
+.scroll.u-d .lab-my { top:0; height:15px; line-height:15px; font-size:10px; font-weight:600; }
+.scroll.u-d .lab-d { top:15px; height:15px; line-height:15px; }
+.scroll.u-d .lab-wd { top:30px; height:14px; line-height:14px; font-size:9px; text-align:center;
+                      padding-left:0; border-left:0; }
+.scroll.u-d .lab-wd.we { color:var(--muted); }
+/* 3 段目の区切り線（日表示だけ）。 */
+.scroll.u-d .axis-wrap::after { content:""; position:absolute; top:30px; left:0; right:0;
+                                border-top:1px solid var(--line); }
 /* 格子の重み：日 < 週 < 月。月の線だけが見出しから本体まで同じ濃さで縦に通る。 */
 .g-d, .g-w, .g-m { display:none; }
 line.g-d { stroke:var(--line); stroke-width:.5; opacity:.45; }
@@ -580,19 +610,18 @@ line.g-w { stroke:var(--line); stroke-width:1; }
 line.g-m { stroke:var(--line-strong); stroke-width:1; }
 .scroll.u-m .g-m, .scroll.u-w .g-w, .scroll.u-w .g-m,
 .scroll.u-d .g-d, .scroll.u-d .g-w, .scroll.u-d .g-m { display:block; }
-line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
+line.today { stroke:var(--ink); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
 svg.bar { display:block; width:100%; height:16px; }
 svg.bar rect { rx:0; }
-rect.plan { fill:var(--plan); }
-rect.late { fill:var(--late); }
-rect.done { fill:var(--done); stroke:var(--prog); stroke-width:1; vector-effect:non-scaling-stroke; }
-rect.prog { fill:var(--prog); }
-rect.sum { fill:var(--sum); }
-line.leg { stroke:var(--sum); stroke-width:2; }
+/* ガントは 1 色（青）。予定・完了・遅れは色で分けず、完了ぶんを同じ色の濃い塗りで重ねて示す。 */
+rect.plan, rect.late, rect.done { fill:var(--bar); }
+rect.prog { fill:var(--bar-done); }
+rect.sum { fill:var(--bar-done); }
+line.leg { stroke:var(--bar-done); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
-      color:var(--ink); pointer-events:none; }
+      color:var(--bar-done); pointer-events:none; }
 .ops { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;
        justify-content:space-between; }
 .ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
@@ -626,6 +655,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
   --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
+  --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
   @page { size:A3 landscape; margin:8mm; }
@@ -639,11 +669,12 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   /* 操作のボタンは紙に出さない。 */
   .ops { display:none; }
   /* 単位を広げたまま印刷すると紙からはみ出して右が切れるので、紙では必ず全期間を収める。 */
-  .scroll.wide th.gantt, .scroll.wide td.gantt { width:auto !important; min-width:0 !important; }
+  .scroll th.gantt, .scroll td.gantt { width:auto !important; min-width:0 !important; }
+  table { width:100%; }
 }
-/* 単位ごとの列幅。1 日あたりの幅を決めるだけで、棒も格子も同じ表の中で伸び縮みする。 */
-.scroll.wide th.gantt, .scroll.wide td.gantt { width:var(--gw); min-width:var(--gw); }
-.scroll.wide table { min-width:0; }
+/* 単位ごとの列幅。JS が入れる --gw をそのまま使う（棒も格子も同じ表の中で伸び縮みする）。 */
+.scroll th.gantt, .scroll td.gantt { width:var(--gw,40%); min-width:var(--gw,280px); }
+table { min-width:0; }
 """
 
 
@@ -698,16 +729,17 @@ _VIEW_SCRIPT = r"""
   // 時間軸の単位（月・週・日）。1 日あたりの幅を変えるだけ＝棒も格子も同じ表の中で伸び縮みするので、
   // 行と棒がずれない（表ごと横にスクロールする）。状態は必ずこの 3 つのどれかで、「自動」という状態は持たない
   // （自動は初期値の決め方であって、利用者が選ぶ状態ではない）。
-  var PX={d:22,w:7,m:2.6};
+  // 1 日あたりの幅（px）。月は狭く・日は広く＝粒度を落とすほどガントも短くなる。
+  var PX={d:26,w:9,m:2.4};
   var COLS=__COLS__;
   var scroll=document.querySelector('.scroll');
   function unit(kind){
     if(!scroll) return;
     var days=Number(scroll.dataset.days||0);
-    ['u-d','u-w','u-m','wide'].forEach(function(c){ scroll.classList.remove(c); });
+    ['u-d','u-w','u-m'].forEach(function(c){ scroll.classList.remove(c); });
     scroll.classList.add('u-'+kind);
-    var want=Math.round(days*PX[kind]);
-    if(days>0 && want>420){ scroll.style.setProperty('--gw', want+'px'); scroll.classList.add('wide'); }
+    // 単位ごとに幅を必ず入れる（月に切り替えたら短く、日で長く）。狭すぎて棒が読めないので下限を置く。
+    if(days>0){ scroll.style.setProperty('--gw', Math.max(Math.round(days*PX[kind]),200)+'px'); }
     document.querySelectorAll('.zoom').forEach(function(b){
       b.setAttribute('aria-pressed', String(b.dataset.zoom===kind)); });
     try{ sessionStorage.setItem('wbs-unit', kind); }catch(e){}
@@ -842,10 +874,10 @@ _EDIT_SCRIPT = r"""
     box.addEventListener('keydown',function(e){
       if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
   }
-  function add(ref, where){
+  function add(ref, where, milestone){
     if(busy) return; busy=true;
     fetch('add',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
-      body:JSON.stringify({ref:ref, where:where})})
+      body:JSON.stringify({ref:ref, where:where, milestone:!!milestone})})
       .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
       .then(function(r){ if(r.ok){ tell('足した: '+r.body.id); location.reload(); }
                          else { busy=false; tell(r.body.detail||'足せなかった',true); } })
@@ -892,6 +924,8 @@ _EDIT_SCRIPT = r"""
     menu.appendChild(item('上に追加（同じ Lv'+lv+'）',function(){ add(ref,'above'); }));
     menu.appendChild(item('下に追加（同じ Lv'+lv+'）',function(){ add(ref,'below'); }));
     if(holder) menu.appendChild(item('子として追加（1 つ下の Lv'+(lv+1)+'）',function(){ add(ref,'child'); }));
+    menu.appendChild(rule());
+    menu.appendChild(item('節目を下に追加（◆）',function(){ add(ref,'below',true); }));
     menu.appendChild(rule());
     menu.appendChild(item('名前を変更',function(){
       var cell=tr.querySelector('td.edit.name'); if(cell) open(cell); }));
