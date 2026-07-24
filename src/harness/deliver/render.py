@@ -19,7 +19,6 @@ import json
 from collections.abc import Callable
 from datetime import date, timedelta
 
-from harness.deliver.calendar import WorkCalendar
 from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
@@ -36,7 +35,7 @@ STATUS_LABEL: dict[Status, str] = {
 # **まとまりごとに見出しをもう 1 段置く**（作業／予定／実績）。11 列が同じ重みで並んでいると、どこまでが
 # 予定でどこからが実績なのかを列名だけで読み分けることになる。まとまりの先頭には強い縦罫（`gs`）を引く。
 COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("WBS", "code", "work"),
+    ("No.", "code", "work"),
     ("作業", "name", "work"),
     ("チーム", "team", "work"),
     ("担当", "who", "work"),
@@ -74,8 +73,6 @@ def _x_of(day: date, span: tuple[date, date]) -> float:
     return (day - first).days * (_CANVAS / total)
 
 
-# 非稼働日の帯を敷く上限（これより長い期間では点になって潰れるだけなので敷かない）。
-_MAX_SHADED_DAYS = 200
 # 日の目盛を出す上限（これを超えると 1 行あたりの図形が増えすぎてファイルが太る）。
 _MAX_DAY_TICKS = 400
 
@@ -101,27 +98,16 @@ def _month_end(day: date) -> date:
     return date(day.year, day.month + 1, 1) - timedelta(days=1)
 
 
-def backdrop(span: tuple[date, date], calendar: WorkCalendar, today: date) -> str:
-    """全行に共通の下敷き（非稼働日の帯・時間軸の格子・今日の線）。
+def backdrop(span: tuple[date, date], today: date) -> str:
+    """全行に共通の下敷き（時間軸の格子・今日の線）。
 
     棒だけを描くと図表に見えない（時間の目盛が無いので、棒の長さが何日なのか読めない）。格子は軸の目盛と
-    同じ位置に引く＝上の見出しと目で繋がる。非稼働日に帯を敷くと、営業日で数えていることが図でも分かる。
+    同じ位置に引く＝上の見出しと目で繋がる。週の区切りは格子線で、営業日の数は「日数」の列で分かるので、
+    非稼働日の帯は敷かない（各週の右に灰色が並んで棒より目立ってしまうため）。
     """
     first, last = span
     scale = _CANVAS / ((last - first).days + 1)
     parts: list[str] = []
-    if (last - first).days + 1 <= _MAX_SHADED_DAYS:
-        run_start: date | None = None
-        day = first
-        while day <= last + timedelta(days=1):
-            off = day <= last and not calendar.is_workday(day)
-            if off and run_start is None:
-                run_start = day
-            elif not off and run_start is not None:
-                x = _x_of(run_start, span)
-                parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{_x_of(day, span) - x:.2f}" height="14" />')
-                run_start = None
-            day += timedelta(days=1)
     for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
             continue
@@ -532,7 +518,12 @@ th:last-child, td:last-child { border-right:0; }
 th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
      letter-spacing:.02em; text-align:left; }
 tr { break-inside:avoid; }
-th.code, td.code { width:48px; color:var(--muted); font-variant-numeric:tabular-nums; }
+th.code, td.code { width:58px; color:var(--muted); font-variant-numeric:tabular-nums; text-align:left; }
+/* 番号も階層ごとに字下げする（作業名と同じイメージ・番号だけで階層が読める）。 */
+tr.lv0 td.code { padding-left:8px; }
+tr.lv1 td.code { padding-left:16px; }
+tr.lv2 td.code { padding-left:24px; }
+tr.lv3 td.code { padding-left:32px; }
 th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:ellipsis; }
 /* 要らない列は消せる（案件によってはチームも担当も無い）。まとまりの見出しの幅は JS が数え直す。 */
 .scroll.hide-team th.team, .scroll.hide-team td.team { display:none; }
@@ -589,8 +580,6 @@ line.g-w { stroke:var(--line); stroke-width:1; }
 line.g-m { stroke:var(--line-strong); stroke-width:1; }
 .scroll.u-m .g-m, .scroll.u-w .g-w, .scroll.u-w .g-m,
 .scroll.u-d .g-d, .scroll.u-d .g-w, .scroll.u-d .g-m { display:block; }
-.scroll.u-m rect.off { display:none; }
-rect.off { fill:var(--ink); opacity:.07; }
 line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
 svg.bar { display:block; width:100%; height:16px; }
@@ -616,7 +605,7 @@ td.gantt { position:relative; }
 .ops button.zoom:last-of-type { border-radius:0 6px 6px 0; }
 .ops button.zoom[aria-pressed="true"], .ops button.col[aria-pressed="true"] {
   background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); font-weight:600; }
-.ops button.col[aria-pressed="false"] { color:var(--muted); text-decoration:line-through; }
+.ops button.col[aria-pressed="false"] { color:var(--muted); }
 button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
             padding:0 4px 0 0; line-height:1; }
 button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
@@ -952,7 +941,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     """
     data_span = wbs.span
     span = drawing_window(data_span) if data_span else None
-    back = backdrop(span, wbs.overlay.calendar.to_calendar(), wbs.today) if span else ""
+    back = backdrop(span, wbs.today) if span else ""
     groups = "".join(
         f'<th class="grp-{key}{" gs" if key != "work" else ""}" data-group="{key}"'
         f' colspan="{sum(1 for _, _, g in COLUMNS if g == key)}">{_esc(label)}</th>'

@@ -354,20 +354,16 @@ def test_every_row_carries_the_time_grid(tmp_path: Path) -> None:
     assert grid, "格子が 1 本も引かれていない"
 
 
-def test_non_working_days_are_shaded(tmp_path: Path) -> None:
-    """土日・祝日・案件の休業日に帯が敷かれる（営業日で数えていることが図でも分かる）。"""
+def test_no_shaded_bands_clutter_the_gantt(tmp_path: Path) -> None:
+    """非稼働日の帯は敷かない（各週の右に灰色が並んで棒より目立つため）。週は格子線で分かる。"""
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    row = _row_markup(html, "T-9001")
-    bands = [(float(x), float(w)) for x, w in re.findall(r'<rect class="off" x="([\d.]+)"[^>]*width="([\d.]+)"', row)]
-    # 窓は 08-01〜08-31。土日は 1-2・8-9・15-16・22-23・29-30 の 5 か所。
-    assert len(bands) == 5
-    assert bands[0][0] == pytest.approx(_at(date(2026, 8, 1)), abs=0.01)  # 08-01 は土曜
-    assert bands[0][1] == pytest.approx(2 * PER_DAY, abs=0.01)  # 土日の 2 日分
+    assert 'class="off"' not in html  # 灰色の帯を敷かない
+    assert re.search(r'<line class="grid g-w"', _row_markup(html, "T-9001"))  # 週の格子線は残る
 
 
 def test_both_the_week_and_month_grids_are_available(tmp_path: Path) -> None:
