@@ -20,7 +20,7 @@ verified_by:
   - tests/test_deliver_server.py::test_saving_without_the_token_is_refused
   - tests/test_deliver_server.py::test_a_request_naming_another_host_is_refused
   - tests/test_deliver_server.py::test_saving_from_a_stale_page_is_refused_with_a_reason
-  - tests/test_deliver_server.py::test_saving_writes_to_the_source_and_returns_the_new_digest
+  - tests/test_deliver_server.py::test_saving_writes_to_the_working_copy_and_returns_the_new_digest
   - tests/test_deliver_server.py::test_page_marks_the_editable_cells
 ---
 # T-0247 ブラウザで編集して正本へ書き戻す面を作る

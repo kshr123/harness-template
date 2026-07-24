@@ -42,3 +42,6 @@ mlflow.db
 
 # エージェントの作業用 worktree（一時的。リポジトリに含めない）
 .claude/worktrees/
+
+# 編集の場（作業用の写し）。第 2 の正本にしないため、コミットできないようにする。
+.harness/wbs-edit/

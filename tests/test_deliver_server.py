@@ -32,6 +32,11 @@ due: 2026-08-07
 """
 
 
+def _live(root: Path) -> Path:
+    """画面からの書き込み先（編集の場＝作業用の写し）。正本へは「取り込む」ときだけ書かれる。"""
+    return root / ".harness" / "wbs-edit" / "tree"
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     (tmp_path / "work").mkdir()
@@ -83,17 +88,21 @@ def test_saving_without_the_token_is_refused(project: Path) -> None:
     assert path.read_text(encoding="utf-8") == before
 
 
-def test_saving_writes_to_the_source_and_returns_the_new_digest(project: Path) -> None:
-    path = project / "work" / "T-9001-a.md"
+def test_saving_writes_to_the_working_copy_and_returns_the_new_digest(project: Path) -> None:
+    """保存先は編集の場（作業用の写し）。正本は「取り込む」まで 1 バイトも変わらない。"""
+    source = project / "work" / "T-9001-a.md"
+    before = source.read_text(encoding="utf-8")
     client = _client(project)
+    staged = _live(project) / "work" / "T-9001-a.md"
     reply = client.post(
         "/edit",
-        json={"ref": "T-9001", "field": "due", "value": "2026-08-12", "base": file_digest(path)},
+        json={"ref": "T-9001", "field": "due", "value": "2026-08-12", "base": file_digest(staged)},
         headers={"X-WBS-Token": TOKEN},
     )
     assert reply.status_code == 200, reply.text
-    assert "due: 2026-08-12" in path.read_text(encoding="utf-8")
-    assert reply.json()["digest"] == file_digest(path)
+    assert "due: 2026-08-12" in staged.read_text(encoding="utf-8")
+    assert reply.json()["digest"] == file_digest(staged)
+    assert source.read_text(encoding="utf-8") == before  # 正本は無傷
 
 
 def test_saving_from_a_stale_page_is_refused_with_a_reason(project: Path) -> None:

@@ -27,6 +27,11 @@ TODAY = date(2026, 8, 20)
 TOKEN = "test-token"
 
 
+def _live(root: Path) -> Path:
+    """画面からの書き込み先（編集の場＝作業用の写し）。正本へは「取り込む」ときだけ書かれる。"""
+    return root / ".harness" / "wbs-edit" / "tree"
+
+
 def _write(path: Path, meta: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     post = frontmatter.Post("")
@@ -140,7 +145,7 @@ def test_removing_through_the_server_needs_the_token(tmp_path: Path) -> None:
 
     done = client.post("/remove", json={"ref": "T-9002"}, headers={"X-WBS-Token": TOKEN})
     assert done.status_code == 200, done.text
-    assert "T-9002" not in _ids(tmp_path)
+    assert "T-9002" not in _ids(_live(tmp_path))  # 消えるのは編集の場（正本は取り込みまで無傷）
 
 
 def test_removing_a_unit_with_children_reports_why(tmp_path: Path) -> None:

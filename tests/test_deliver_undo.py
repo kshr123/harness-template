@@ -1,7 +1,8 @@
 """画面からの操作を 1 手戻す（Ctrl+Z）のテスト。
 
-戻すのは正本だけ。編集は前の値へ、追加は消す（分解でできたフォルダも片づける）、削除は復元する。
-別の手で正本が動いていたら、推測で部分適用せず打ち切る（fail-closed）。redo は持たない。
+戻す先は**編集の場（作業用の写し）**。画面からの操作は正本を直接書かないので、Ctrl+Z も写しの中の操作になる
+（正本を戻すのは取り込み以後＝git の領分）。編集は前の値へ、追加は消す（分解でできたフォルダも片づける）、
+削除は復元する。別の手で写しが動いていたら、推測で部分適用せず打ち切る（fail-closed）。redo は持たない。
 """
 
 from __future__ import annotations
@@ -24,6 +25,11 @@ TOKEN = "test-token"
 AUTH = {"X-WBS-Token": TOKEN}
 
 
+def _live(root: Path) -> Path:
+    """画面からの書き込み先（編集の場＝作業用の写し）。正本へは「取り込む」ときだけ書かれる。"""
+    return root / ".harness" / "wbs-edit" / "tree"
+
+
 def _write(path: Path, meta: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     post = frontmatter.Post("")
@@ -32,7 +38,7 @@ def _write(path: Path, meta: dict[str, Any]) -> None:
 
 
 def _ids(root: Path) -> set[str]:
-    nodes, _ = pm.load_tree(root)
+    nodes, _ = pm.load_tree(_live(root))
 
     def walk(ns: list[pm.Node]) -> set[str]:
         out: set[str] = set()
@@ -45,7 +51,7 @@ def _ids(root: Path) -> set[str]:
 
 
 def _status_of(root: Path, item_id: str) -> str:
-    nodes, _ = pm.load_tree(root)
+    nodes, _ = pm.load_tree(_live(root))
 
     def find(ns: list[pm.Node]) -> str | None:
         for node in ns:
@@ -126,14 +132,14 @@ def test_undo_of_an_add_that_decomposed_a_parent_also_undoes_the_folder(tmp_path
     client = _client(tmp_path)
     added = client.post("/add", json={"ref": "T-0001", "where": "child"}, headers=AUTH)
     new_id = added.json()["id"]
-    assert (tmp_path / "work" / "T-0001-sekkei" / "item.md").is_file()  # 分解された
+    assert (_live(tmp_path) / "work" / "T-0001-sekkei" / "item.md").is_file()  # 分解された
 
     assert client.post("/undo", headers=AUTH).status_code == 200
     assert new_id not in _ids(tmp_path)
-    assert (tmp_path / "work" / "T-0001-sekkei.md").is_file()  # ファイルに戻った
-    assert not (tmp_path / "work" / "T-0001-sekkei").exists()  # 空フォルダも片づいた
+    assert (_live(tmp_path) / "work" / "T-0001-sekkei.md").is_file()  # ファイルに戻った
+    assert not (_live(tmp_path) / "work" / "T-0001-sekkei").exists()  # 空フォルダも片づいた
     # 日程も親へ戻っている（分解のときに子へ移したぶん）。
-    item = frontmatter.loads((tmp_path / "work" / "T-0001-sekkei.md").read_text(encoding="utf-8"))
+    item = frontmatter.loads((_live(tmp_path) / "work" / "T-0001-sekkei.md").read_text(encoding="utf-8"))
     assert item["start"] == "2026-08-03"
 
 
@@ -145,12 +151,12 @@ def test_undo_with_nothing_to_undo_is_refused(tmp_path: Path) -> None:
 
 
 def test_undo_stops_when_the_source_moved_by_another_hand(tmp_path: Path) -> None:
-    """操作の後に別の手で正本が動いていたら、指紋が合わず打ち切る（推測で部分適用しない）。"""
+    """操作の後に別の手で**写し**が動いていたら、指紋が合わず打ち切る（推測で部分適用しない）。"""
     _scaffold(tmp_path)
     client = _client(tmp_path)
     client.post("/edit", json={"ref": "T-9001", "field": "status", "value": "in-progress"}, headers=AUTH)
-    # 別の手（エディタ・git 等）がそのファイルを触ったことにする。
-    path = tmp_path / "work" / "EP-90-alpha" / "T-9001-a.md"
+    # 別の手（エディタ等）が編集の場のファイルを触ったことにする。
+    path = _live(tmp_path) / "work" / "EP-90-alpha" / "T-9001-a.md"
     path.write_text(path.read_text(encoding="utf-8") + "\n# 別の手による追記\n", encoding="utf-8")
 
     reply = client.post("/undo", headers=AUTH)

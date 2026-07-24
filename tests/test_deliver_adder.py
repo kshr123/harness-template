@@ -26,6 +26,11 @@ TODAY = date(2026, 8, 20)
 TOKEN = "test-token"
 
 
+def _live(root: Path) -> Path:
+    """画面からの書き込み先（編集の場＝作業用の写し）。正本へは「取り込む」ときだけ書かれる。"""
+    return root / ".harness" / "wbs-edit" / "tree"
+
+
 def _write(path: Path, meta: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     post = frontmatter.Post("")
@@ -166,7 +171,8 @@ def test_adding_through_the_server_needs_the_token(tmp_path: Path) -> None:
 
     added = client.post("/add", json={"ref": "EP-90", "where": "child"}, headers={"X-WBS-Token": TOKEN})
     assert added.status_code == 200, added.text
-    assert added.json()["id"] in _items(tmp_path)
+    assert added.json()["id"] in _items(_live(tmp_path))  # 足されるのは編集の場（正本は取り込みまで無傷）
+    assert len(_items(tmp_path)) == 2  # 正本は変わっていない
 
 
 def test_the_edit_page_carries_what_the_menu_needs(tmp_path: Path) -> None:
