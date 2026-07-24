@@ -702,15 +702,19 @@ td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1
   opacity:0; background:linear-gradient(to right, rgba(15,20,26,.14), transparent);
   pointer-events:none; transition:opacity .15s; }
 @container scroll-state(scrollable: inline-start) { td.name::after, th.name::after { opacity:1; } }
-tr.lv0 > td { background-color:var(--sec); font-weight:600; border-top:1px solid var(--line-strong); }
+/* 地色は表の側だけ。罫は全幅に通す（罫まで :not(.gantt) にすると、そこだけ罫が切れて太さが揃わない）。 */
+tr.lv0 > td:not(.gantt) { background-color:var(--sec); }
+tr.lv0 > td { font-weight:600; border-top:1px solid var(--line-strong); }
 /* 階層は作業名の前に「祖先の数だけ縦ガイド線」を通して示す（罫線が無いと段差が読めない、への答え）。
    線は 1 本ぶんの span。フォルダの深さぶん生成するだけなので階層数に上限を作らない。 */
 td.name .nmwrap { display:flex; align-items:stretch; margin:-5px 0 -5px -8px; min-height:calc(1em + 10px); }
 td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
 td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
-tbody tr:hover > td { background-color:var(--hover); }
-tr.is-sel > td { background-color:var(--sel); }
-/* 状態→視覚の強さ（意味の順に読める）。面（ベタ塗り）はページ最強の視覚資源なので**遅れだけ**に使う。
+tbody tr:hover > td:not(.gantt) { background-color:var(--hover); }
+tr.is-sel > td:not(.gantt) { background-color:var(--sel); }
+/* **行の地色は決してガント列に当てない**（すべて :not(.gantt)）。当てると、左の表の塗りがガントへ伸びて
+   「右に食い込む」ように見え、時間の格子も濁る。ガント列は常に無地のキャンバス＋時間の格子のまま。
+   状態→視覚の強さ（意味の順に読める）。面（ベタ塗り）はページ最強の視覚資源なので**遅れだけ**に使う。
    完了は面を取り上げて文字だけ退け、進行中は左端の縦バーと状態語で「今ここ」を積極的に示す。棒は 1 色のまま。 */
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
 /* 遅れ＝淡赤の面。ただし表の側だけ（ガントは無地のキャンバスに載せて図を濁さない＝領域を分ける）。 */
@@ -812,10 +816,11 @@ button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:
 button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
 /* マイルストーンの集約行（ガント上部の帯）。左は貼り付き、右に全ての◆を時間軸で並べる。 */
-tr.msrow > td { background-color:var(--sec); border-bottom:1px solid var(--line-strong); }
+tr.msrow > td:not(.gantt) { background-color:var(--sec); }
+tr.msrow > td { border-bottom:1px solid var(--line-strong); }
 /* 左の空きだけを貼り付ける（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ＝図の近くで読める。 */
-td.ms-pad { position:sticky; left:0; z-index:3; background:var(--sec); }
-td.ms-label { text-align:right; z-index:2; background:var(--sec); font-size:11px; font-weight:600;
+td.ms-pad { position:sticky; left:0; z-index:3; background-color:var(--sec); }
+td.ms-label { text-align:right; z-index:2; background-color:var(--sec); font-size:11px; font-weight:600;
               color:var(--muted); letter-spacing:.02em; }
 td.ms-track { position:relative; overflow:hidden; height:20px; }
 td.ms-track .ms { top:50%; }

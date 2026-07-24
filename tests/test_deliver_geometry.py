@@ -453,3 +453,22 @@ def test_the_gantt_cell_orders_bar_then_today(tmp_path: Path) -> None:
     row = next(part for part in html.split("<tr") if 'data-ref="T-9001"' in part)
     cell = row.split('<td class="gantt"')[1]
     assert cell.index('class="gbar"') < cell.index('class="tl"')
+
+
+def test_no_row_fill_reaches_into_the_gantt(tmp_path: Path) -> None:
+    """行の地色（フェーズ・遅れ・マイルストーン行・かざした行・選んだ行）は決してガント列に当てない。
+
+    当てると左の表の塗りがガントへ伸びて「右に食い込む」ように見え、時間の格子も濁る。ガント列は常に
+    無地のキャンバス＋時間の格子のまま、という不変条件をここで固定する。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    style = html.split("<style>")[1].split("</style>")[0]
+    for line in style.splitlines():
+        head, _, body = line.partition("{")
+        if "background" not in body or "> td" not in head:
+            continue
+        assert ":not(.gantt)" in head, f"行の地色がガント列にも当たっている: {line.strip()}"
