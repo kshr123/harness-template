@@ -440,9 +440,8 @@ def _holders(rows: list[WbsRow], holder: str) -> dict[str, str]:
 
 
 def _view_script() -> str:
-    """閲覧の仕掛け（まとまりごとの列数を JS に渡す）。"""
-    sizes = {key: sum(1 for _, _, group in COLUMNS if group == key) for key, _ in COLUMN_GROUPS}
-    return _VIEW_SCRIPT.replace("__COLS__", json.dumps(sizes))
+    """閲覧の仕掛け（折りたたみ・列の表示切替・時間軸のズーム）。"""
+    return _VIEW_SCRIPT
 
 
 def _milestone_row(wbs: Wbs, span: tuple[date, date] | None) -> str:
@@ -786,7 +785,6 @@ _VIEW_SCRIPT = r"""
   // （自動は初期値の決め方であって、利用者が選ぶ状態ではない）。
   // 1 日あたりの幅（px）。月は狭く・日は広く＝粒度を落とすほどガントも短くなる。
   var PX={d:26,w:9,m:2.4};
-  var COLS=__COLS__;
   var scroll=document.querySelector('.scroll');
   function unit(kind){
     if(!scroll) return;
@@ -803,16 +801,13 @@ _VIEW_SCRIPT = r"""
     b.addEventListener('click',function(){ unit(b.dataset.zoom); }); });
   // 列の表示・非表示。まとまりの見出しは残った列の数だけ幅を持つので、消したら数え直す。
   function recount(){
-    var order=['work','plan','act'], counts={work:0,plan:0,act:0};
-    var sizes=[COLS.work,COLS.plan,COLS.act], g=0, seen=0;
-    document.querySelectorAll('thead tr:last-child th').forEach(function(c){
-      if(seen>=sizes[g]){ g++; seen=0; }
-      seen++;
-      if(getComputedStyle(c).display!=='none') counts[order[g]]++;
-    });
-    order.forEach(function(k){
-      var th=document.querySelector('.grp th[data-group="'+k+'"]');
-      if(th) th.colSpan = Math.max(counts[k],1); });
+    // 見出し 1 行目の「作業」グループは、固定の No.＋作業（grp-fix・常に 2）と、隠せる流動列（チーム・
+    // 担当・状態）の grp-flow に割れている。列を隠したら grp-flow の colspan を表示中の数に合わせ直す
+    // （合わせ直さないと 1 行目と 2 行目がずれる）。予定・実績は隠せないので触らない。
+    function vis(sel){ var n=0; document.querySelectorAll(sel).forEach(function(c){
+      if(getComputedStyle(c).display!=='none') n++; }); return n; }
+    var flow=vis('thead tr:last-child th.team')+vis('thead tr:last-child th.who')+vis('thead tr:last-child th.st');
+    var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
   }
   document.querySelectorAll('.col').forEach(function(b){
     b.addEventListener('click',function(){
