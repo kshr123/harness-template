@@ -476,8 +476,8 @@ _STYLE = """
   --line:#e3e6ea; --line-strong:#86919e;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
-  --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
-  --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
+  --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#ebf0f5; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -487,8 +487,8 @@ _STYLE = """
   --line:#2e343c; --line-strong:#5b6672;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
-  --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
-  --tag-bg:#3a2420; --tag-ink:#f0a396; --done-row:#1b1f25;
+  --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1f2328; --late-row:#282120;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
@@ -498,8 +498,8 @@ _STYLE = """
   --line:#2e343c; --line-strong:#5b6672;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
-  --late:#e26a58; --late-ink:#f0907f; --today:#e26a58;
-  --tag-bg:#3a2420; --tag-ink:#f0a396; --done-row:#1b1f25;
+  --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1f2328; --late-row:#282120;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
@@ -508,8 +508,8 @@ _STYLE = """
   --line:#e3e6ea; --line-strong:#86919e;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
-  --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
-  --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
+  --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#ebf0f5; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -518,7 +518,7 @@ body { margin:0; padding:20px 24px; color:var(--ink); background:var(--paper);
        font:13px/1.45 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif; }
 header { border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:12px; }
 h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
-.meta { color:var(--muted); font-size:11px; }
+.meta { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
 /* 表の外枠は入れ物 1 枚に集める（セルの外周罫を撤去＝方眼に見えないようにする）。 */
 .scroll { overflow:auto; max-height:calc(100vh - 150px); border:1px solid var(--line); border-radius:8px;
           container-type:scroll-state; }
@@ -539,12 +539,8 @@ th:last-child, td:last-child { border-right:0; }
 th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
      letter-spacing:.02em; text-align:left; }
 tr { break-inside:avoid; }
-th.code, td.code { width:58px; color:var(--muted); font-variant-numeric:tabular-nums; text-align:left; }
-/* 番号も階層ごとに字下げする（作業名と同じイメージ・番号だけで階層が読める）。 */
-tr.lv0 td.code { padding-left:8px; }
-tr.lv1 td.code { padding-left:16px; }
-tr.lv2 td.code { padding-left:24px; }
-tr.lv3 td.code { padding-left:32px; }
+th.code, td.code { width:64px; min-width:64px; color:var(--muted);
+                   font-variant-numeric:tabular-nums; text-align:left; padding-left:8px; }
 th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:ellipsis; }
 /* 要らない列は消せる（案件によってはチームも担当も無い）。まとまりの見出しの幅は JS が数え直す。 */
 .scroll.hide-team th.team, .scroll.hide-team td.team { display:none; }
@@ -552,7 +548,8 @@ th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:el
 th.st, td.st { width:46px; }
 th.d, td.d { width:46px; }
 th.n, td.n { width:34px; }
-td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11.5px; }
+td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
+th.d, th.n { text-align:right; }
 th.name, td.name { white-space:normal; min-width:150px; }
 /* 左の表（セルの格子）とガント（時間の格子）は別の領域。2px の罫・見出しの地色・格子の作法で 3 重に割る。 */
 th.gantt, td.gantt { width:40%; min-width:280px; padding:0 2px; border-left:2px solid var(--line-strong); }
@@ -561,22 +558,27 @@ thead th.gantt { background:var(--paper); }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 th.code, td.code { left:0; }
-th.name, td.name { left:48px; border-right:1px solid var(--line-strong); }
+th.name, td.name { left:64px; border-right:1px solid var(--line-strong); }
 thead th.code, thead th.name { z-index:3; background:var(--sec); }
 td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1px; right:-9px; width:8px;
   opacity:0; background:linear-gradient(to right, rgba(15,20,26,.14), transparent);
   pointer-events:none; transition:opacity .15s; }
 @container scroll-state(scrollable: inline-start) { td.name::after, th.name::after { opacity:1; } }
 tr.lv0 > td { background:var(--sec); font-weight:600; border-top:1px solid var(--line-strong); }
-tr.lv1 td.name { padding-left:20px; }
-tr.lv2 td.name { padding-left:36px; }
-tr.lv3 td.name { padding-left:52px; }
+tr.lv1 td.name { padding-left:24px; }
+tr.lv2 td.name { padding-left:40px; }
+tr.lv3 td.name { padding-left:56px; }
 tbody tr:hover > td { background:var(--hover); }
 tr.is-sel > td { background:var(--sel); }
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
-/* 終わった行は面ごと落とす（残っている作業に目が行くように）。 */
+/* 状態を行の面で示す：未実施＝白（地のまま）・完了＝グレー・遅れ＝淡ピンク（明度・彩度をそろえた 3 淡色）。
+   貼り付く 2 列（code・name）は不透明なので、行の色を明示的に上書きする（宣言順が効く＝background 指定の後）。 */
 tr.is-done > td { color:var(--muted); background:var(--done-row); }
-tr.is-done.lv0 > td { background:var(--sec); }
+tr.is-done td.code, tr.is-done td.name { background:var(--done-row); }
+tr.is-done.lv0 > td { background:var(--sec); }        /* 完了フェーズは節の面を保つ */
+tr.is-late > td { background:var(--late-row); }
+tr.is-late td.code, tr.is-late td.name { background:var(--late-row); }
+tr.is-late.lv0 > td { background:var(--late-row); }   /* 遅れフェーズは淡ピンクが節に勝つ（経営で最も見る信号） */
 .ref { display:none; }
 .tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; font-weight:600;
        padding:0 5px; margin-left:6px; border-radius:3px; }
@@ -584,25 +586,27 @@ tr.is-done.lv0 > td { background:var(--sec); }
 .axis-wrap { position:relative; height:44px; }
 svg.axis { display:block; width:100%; height:44px; }
 .axis-wrap::before { content:""; position:absolute; top:22px; left:0; right:0; border-top:1px solid var(--line); }
-.scroll.u-d .axis-wrap::before { top:15px; }
 /* 日付は区間の**左**に寄せる（線の右すぐ＝その区間の始まりの日、と読める）。 */
 .axis-lab { display:none; position:absolute; height:22px; line-height:22px; font-size:10px;
+            font-variant-numeric:tabular-nums;
             color:var(--muted); text-align:left; padding-left:4px; white-space:nowrap; overflow:hidden;
             border-left:1px solid var(--line); }
 .lab-y, .lab-m, .lab-my { border-left-color:var(--line-strong); color:var(--ink); }
+/* 上段のラベルは地を敷いて、下位の格子線が上段を貫通しないようにする（空マスが並ぶのを消す）。 */
+.lab-y, .lab-my { background:var(--paper); }
 .scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
 .scroll.u-w .lab-my, .scroll.u-w .lab-w { display:block; }
 .scroll.u-d .lab-my, .scroll.u-d .lab-d, .scroll.u-d .lab-wd { display:block; }
 .scroll.u-m .lab-y, .scroll.u-w .lab-my { top:0; height:22px; line-height:22px; font-size:11px; font-weight:600; }
 .scroll.u-m .lab-m, .scroll.u-w .lab-w { top:22px; height:22px; line-height:22px; }
-/* 日表示は 3 段（年月・日・曜日）を 44px に詰める。 */
-.scroll.u-d .lab-my { top:0; height:15px; line-height:15px; font-size:10px; font-weight:600; }
-.scroll.u-d .lab-d { top:15px; height:15px; line-height:15px; }
-.scroll.u-d .lab-wd { top:30px; height:14px; line-height:14px; font-size:9px;
-                      padding-left:4px; }
+/* 日表示は 3 段（年月・日にち・曜日）。上段 22px が左見出しの段罫と 1 本に繋がる。全段とも線の右・左揃え。 */
+.scroll.u-d .lab-my { top:0; height:22px; line-height:22px; font-size:11px; font-weight:600; }
+.scroll.u-d .lab-d { top:22px; height:11px; line-height:11px; }
+.scroll.u-d .lab-wd { top:33px; height:11px; line-height:11px; font-size:10px;
+                      padding-left:4px; border-left:1px solid var(--line); }
 .scroll.u-d .lab-wd.we { color:var(--muted); }
 /* 3 段目の区切り線（日表示だけ）。 */
-.scroll.u-d .axis-wrap::after { content:""; position:absolute; top:30px; left:0; right:0;
+.scroll.u-d .axis-wrap::after { content:""; position:absolute; top:33px; left:0; right:0;
                                 border-top:1px solid var(--line); }
 /* 格子の重み：日 < 週 < 月。月の線だけが見出しから本体まで同じ濃さで縦に通る。 */
 .g-d, .g-w, .g-m { display:none; }
@@ -638,7 +642,7 @@ td.gantt { position:relative; }
 .ops button.col[aria-pressed="false"] { color:var(--muted); }
 button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
             padding:0 4px 0 0; line-height:1; }
-button.tw:focus-visible { outline:2px solid var(--plan); outline-offset:1px; }
+button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
@@ -654,11 +658,12 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   --line:#e3e6ea; --line-strong:#86919e;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
-  --late:#b12f1f; --late-ink:#a02718; --today:#b12f1f;
-  --tag-bg:#fbe9e6; --tag-ink:#a02718; --done-row:#f1f3f6;
+  --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#ebf0f5; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
+  th, td { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   @page { size:A3 landscape; margin:8mm; }
   body { padding:0; font-size:10px; }
   .scroll { overflow:visible; max-height:none; border:1px solid var(--line-strong); border-radius:0; }
@@ -682,22 +687,24 @@ table { min-width:0; }
 def _legend() -> str:
     return (
         '<p class="legend">'
-        '<span><i style="background:var(--plan)"></i>予定</span>'
-        '<span><i style="background:var(--done);box-shadow:inset 0 0 0 1px var(--prog)"></i>完了</span>'
-        '<span><i style="background:var(--late)"></i>遅れ（予定終了を過ぎて未完）</span>'
-        '<span><i style="background:var(--sum);height:4px"></i>まとめ（配下から導いた期間）</span>'
-        '<span><i style="background:var(--ink);width:8px;height:8px;transform:rotate(45deg)"></i>節目</span>'
+        '<span><i style="background:var(--bar)"></i>予定</span>'
+        '<span><i style="background:var(--bar);box-shadow:inset 0 0 0 6px var(--bar-done)"></i>'
+        "完了ぶん（濃い塗り）</span>"
+        '<span><i style="background:var(--late-row);box-shadow:inset 0 0 0 1px var(--late-ink)"></i>'
+        "遅れ（予定終了を過ぎて未完＝行を淡赤で示す）</span>"
+        '<span><i style="background:var(--bar-done);height:4px"></i>まとめ（配下から導いた期間）</span>'
+        '<span><i style="background:var(--bar-done);width:8px;height:8px;transform:rotate(45deg)"></i>節目</span>'
         "<span>破線＝基準日</span></p>"
     )
 
 
 _EDIT_STYLE = """
 td.edit { cursor:text; }
-td.edit:hover { background:color-mix(in srgb, var(--plan) 14%, transparent); }
-td.edit:focus-visible { outline:2px solid var(--plan); outline-offset:-2px; }
+td.edit:hover { background:color-mix(in srgb, var(--bar-done) 14%, transparent); }
+td.edit:focus-visible { outline:2px solid var(--bar-done); outline-offset:-2px; }
 td.edit .blank { color:var(--muted); opacity:.45; }
 td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); background:var(--paper);
-                               border:1px solid var(--plan); border-radius:4px; padding:1px 3px; }
+                               border:1px solid var(--bar-done); border-radius:4px; padding:1px 3px; }
 #say { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); max-width:min(720px,92vw);
        background:var(--ink); color:var(--paper); padding:8px 14px; border-radius:4px; font-size:12px;
        line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
