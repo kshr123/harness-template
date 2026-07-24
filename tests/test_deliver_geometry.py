@@ -446,3 +446,21 @@ def test_the_view_offers_the_gantt_units(tmp_path: Path) -> None:
         assert f'data-zoom="{unit}"' in html
     assert 'data-zoom="auto"' not in html  # 「自動」は状態ではなく初期値の決め方なので選択肢に出さない
     assert "data-days=" in html and "data-unit=" in html  # 幅の計算と初期の単位を画面が持っている
+
+
+def test_the_grid_runs_unbroken_across_rows(tmp_path: Path) -> None:
+    """時間の格子は行の高さいっぱいに敷く（棒と同じ小さな図形の中だと行の間で途切れ、破線に見える）。
+
+    下敷きは棒とは別の層で、セルの上端から**下の罫を越えて**届かせる＝月をまたぐ縦線が 1 本に繋がる。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+        {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    row = _row_markup(html, "T-9001")
+    assert '<svg class="gridbg"' in row  # 格子は棒とは別の層
+    assert '<line class="grid' not in row.split('<svg class="bar"')[-1]  # 棒の図形の中には入れない
+    # セルの下の罫を越えて敷く（bottom:-1px）＝行の間で途切れない。
+    assert "td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:-1px;" in html

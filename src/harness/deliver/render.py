@@ -56,6 +56,8 @@ COLUMN_LABELS: tuple[str, ...] = tuple(label for label, _, _ in COLUMNS)
 
 # ガントの SVG の内部座標の幅（viewBox の幅）。実際の表示幅は CSS が決める（preserveAspectRatio="none"）。
 _CANVAS = 1000.0
+# 下敷き（格子・非稼働日の面）の縦の内部座標。行の高さいっぱいに引き伸ばすので値そのものに意味は無い。
+_GRID_H = 10
 
 
 def _esc(value: object) -> str:
@@ -159,7 +161,7 @@ def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> st
         for off_start, off_end in _offdays(span, calendar):
             x = _x_of(off_start, span)
             width = _x_of(off_end, span) + scale - x
-            parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{width:.2f}" height="14" />')
+            parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{width:.2f}" height="{_GRID_H}" />')
     coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
     for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
@@ -170,24 +172,34 @@ def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> st
             x = _x_of(tick, span)
             parts.append(
                 f'<line class="grid g-{kind}{_crowded_zooms(kind, tick, coarser)}" x1="{x:.2f}" y1="0"'
-                f' x2="{x:.2f}" y2="14" vector-effect="non-scaling-stroke" />'
+                f' x2="{x:.2f}" y2="{_GRID_H}" vector-effect="non-scaling-stroke" />'
             )
     if first <= today <= last:
         tx = _x_of(today, span) + scale / 2
         parts.append(
-            f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="14" vector-effect="non-scaling-stroke" />'
+            f'<line class="today" x1="{tx:.2f}" y1="0" x2="{tx:.2f}" y2="{_GRID_H}"'
+            f' vector-effect="non-scaling-stroke" />'
         )
     return "".join(parts)
 
 
-def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
-    """1 行分のガント（その行のセルに収まる小さな SVG）＝共通の下敷き＋その行の棒。"""
+def _grid_svg(back: str) -> str:
+    """行の高さいっぱいに敷く下敷き（時間の格子・非稼働日の面・今日の線）。
+
+    棒と同じ小さな SVG の中に入れると、線が行ごとに棒の高さぶんしか引かれず、**行の間で途切れて破線に見える**。
+    下敷きだけをセルの上端から下の罫まで届く別の層にして、月をまたぐ縦線が行をまたいで 1 本に繋がるようにする。
+    """
+    return (
+        f'<svg class="gridbg" viewBox="0 0 {_CANVAS:.0f} {_GRID_H}" preserveAspectRatio="none"'
+        f' aria-hidden="true">{back}</svg>'
+    )
+
+
+def _bar_svg(row: WbsRow, span: tuple[date, date]) -> str:
+    """1 行分の棒（その行のセルに収まる小さな SVG）。下敷きは別の層（`_grid_svg`）が敷く。"""
     first, last = span
     scale = _CANVAS / ((last - first).days + 1)
-    parts: list[str] = [
-        f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">',
-        back,
-    ]
+    parts: list[str] = [f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">']
     if row.milestone and row.due is not None:
         pass  # マイルストーンは図形を引き伸ばすと潰れるので、SVG でなく割合の位置に置く HTML で描く（_milestone）
     elif row.start is not None and row.due is not None:
@@ -474,7 +486,8 @@ def _row_html(
         f'<td class="d gs" data-col="act_start">{_day_label(row.actual_start)}</td>',
         f'<td class="d" data-col="act_end">{_day_label(row.actual_finish)}</td>',
         f'<td class="n" data-col="progress">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
-        f'<td class="gantt" data-col="gantt">{_bar_svg(row, span, back) if span else ""}{_milestone(row, span)}</td>',
+        f'<td class="gantt" data-col="gantt">{_grid_svg(back) if span else ""}'
+        f"{_bar_svg(row, span) if span else ''}{_milestone(row, span)}</td>",
     ]
     holder = _esc(row.ref) if can_add else ""
     return (
@@ -528,7 +541,7 @@ def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
     )
     n_cols = len(COLUMNS)
     # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の線も乗る。
-    grid = f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">{back}</svg>'
+    grid = _grid_svg(back)
     # 左は貼り付く 2 列ぶんの空き（他の行と同じ幅で埋める）、見出しはガントのすぐ左に右寄せで置く。
     # 見出しを全列またぎの貼り付くセルにすると、横スクロールでその幅がガントに被さって◆を覆う。
     return (
@@ -734,7 +747,10 @@ rect.off { display:none; fill:var(--off); }
 /* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
 line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
-svg.bar { display:block; width:100%; height:16px; }
+svg.bar { display:block; width:100%; height:16px; position:relative; z-index:1; }
+/* 下敷きはセルの上端から**下の罫を越えて**（bottom:-1px）敷く＝縦線が行の間で途切れず 1 本に繋がる。
+   左右はセルの余白（padding:0 2px）に合わせて棒と同じ幅にそろえる。 */
+td.gantt .gridbg, td.ms-track .gridbg { position:absolute; top:0; bottom:-1px; left:2px; right:2px; z-index:0; }
 svg.bar rect { rx:0; }
 /* ガントは 1 色（青）のベタ塗り。予定・完了・遅れを色で分けない（状態は行の面で分かる）。
    まとめ（子を持つ行）は色でなく形＝細い帯＋両端の脚で区別する。 */
