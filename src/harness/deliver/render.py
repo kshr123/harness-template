@@ -384,11 +384,16 @@ def _row_html(
     names = rosters or {"teams": [], "members": []}
     status_label = STATUS_LABEL[row.status] if row.status is not None else ""
     # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
-    toggle = f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
+    # 取っ手の有無で番号がずれないよう、子を持たない行にも同じ幅の空き枠を置く（番号の左端をそろえる）。
+    toggle = (
+        f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
+        if row.children
+        else '<span class="tw"></span>'
+    )
     # 下の階層はどの作業単位にも足せる（ファイル 1 つの単位は、足すときにフォルダの単位へ変わる＝分解）。
     can_add = editable and row.source == "work" and row.ref is not None
     cells = [
-        f'<td class="code">{toggle if row.children else ""}{_esc(row.code)}</td>',
+        f'<td class="code">{toggle}{_esc(row.code)}</td>',
         _cell("name", name, row.name, row, fields, digest, css="name"),
         _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="team", choices=names["teams"]),
         _cell(
@@ -666,8 +671,10 @@ td.gantt { position:relative; }
 .ops button.zoom[aria-pressed="true"], .ops button.col[aria-pressed="true"] {
   background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); font-weight:600; }
 .ops button.col[aria-pressed="false"] { color:var(--muted); }
+/* 取っ手（▾）と、子の無い行の空き枠は同じ幅にして番号の左端をそろえる。 */
+.tw { display:inline-block; width:15px; text-align:left; }
 button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
-            padding:0 4px 0 0; line-height:1; }
+            padding:0; line-height:1; }
 button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
 /* マイルストーンの集約行（ガント上部の帯）。左は貼り付き、右に全ての◆を時間軸で並べる。 */
@@ -686,7 +693,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 @media print {
   /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
   tr.hid { display:table-row !important; }
-  button.tw { display:none; }
+  button.tw { visibility:hidden; }  /* 枠幅は残して番号の整列を保つ（▾ だけ消す） */
   /* 紙は常に明るい版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
   :root {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa;
@@ -987,8 +994,6 @@ _EDIT_SCRIPT = r"""
   });
   document.addEventListener('click',hideMenu);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
-  var addtop=document.getElementById('addtop');
-  if(addtop) addtop.addEventListener('click',function(){ add(null,'top'); });
   document.addEventListener('click',function(e){
     var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
   document.addEventListener('keydown',function(e){
@@ -1051,8 +1056,6 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         '<button class="col" data-col="team" type="button">チーム</button>',
         '<button class="col" data-col="who" type="button">担当</button>',
     ]
-    if editable:
-        left.append('<button id="addtop" type="button">行を追加</button>')
     right = [
         '<span class="sep">時間軸</span>',
         '<button class="zoom" data-zoom="m" type="button">月</button>',
