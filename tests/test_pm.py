@@ -105,7 +105,7 @@ def test_negative_effort_days_is_error(tmp_path: Path) -> None:
 
 def test_milestone_without_due_is_error(tmp_path: Path) -> None:
     _scaffold(tmp_path)
-    # マイルストーン（節目）は期日を持つ＝due 無しは失敗（ガントに置けない・合意点にならない）。
+    # マイルストーンは期日を持つ＝due 無しは失敗（ガントに置けない・合意点にならない）。
     ms: dict[str, object] = {"id": "T-0012", "kind": "task", "status": "todo", "milestone": True}
     _write(tmp_path / "work" / "EP-01-foundation" / "T-0012-ms.md", ms)
     errors = [p for p in pm.lint(tmp_path) if p.level == "error"]

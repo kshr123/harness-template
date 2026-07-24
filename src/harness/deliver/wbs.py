@@ -69,7 +69,7 @@ class WbsRow:
         """棒として描ける日程を持つか。持たない行は未日程として印を付けて出す（黙って消さない）。
 
         片端しか無い（開始だけ・終了だけ）行も未日程に数える。棒を描けないのに印も付かないと、ガントの列が
-        無言の空白になり「日程を入れ忘れた」のか「そういう行」なのかが読めなくなる（節目は終了だけで描ける）。
+        無言の空白になり「日程を入れ忘れた」のか「そういう行」なのかが読めなくなる（マイルストーンは終了だけで描ける）。
         """
         if self.milestone:
             return self.due is not None
@@ -215,7 +215,7 @@ def _finish(row: WbsRow, calendar: WorkCalendar, today: date) -> None:
     if row.start is not None and row.due is not None:
         row.workdays = calendar.count(row.start, row.due)
     elif row.milestone and row.due is not None:
-        row.workdays = 0  # 節目は期間ゼロ
+        row.workdays = 0  # マイルストーンは期間ゼロ
     row.late = row.due is not None and row.due < today and row.status is not Status.done
 
 

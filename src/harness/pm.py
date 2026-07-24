@@ -387,7 +387,9 @@ def lint(root: Path) -> list[Problem]:
                 Problem("error", f"{it.id}: start（{it.start}）が due（{it.due}）より後（開始は終了以前にする）")
             )
         if it.milestone and it.due is None:
-            problems.append(Problem("error", f"{it.id}: milestone だが due（期日）が無い（節目は期日を持つ）"))
+            problems.append(
+                Problem("error", f"{it.id}: milestone だが due（期日）が無い（マイルストーンは期日を持つ）")
+            )
 
     # work/ の不可視領域・正体不明の .md（木をたどらずファイルシステムから対象集合を導く）。
     problems += work_tree_lint(root)

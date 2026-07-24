@@ -272,7 +272,7 @@ def test_a_row_with_only_one_end_counts_as_unscheduled(tmp_path: Path) -> None:
 
 
 def test_a_milestone_needs_only_its_day(tmp_path: Path) -> None:
-    """節目は終了だけで描けるので、未日程にはならない。"""
+    """マイルストーンは終了だけで描けるので、未日程にはならない。"""
     _scaffold(tmp_path)
     _write(
         tmp_path / "work" / "EP-95-ms.md",

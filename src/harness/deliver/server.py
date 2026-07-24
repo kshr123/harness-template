@@ -86,7 +86,7 @@ class AddRequest(BaseModel):
 
     ref: str | None = None  # 基準にする行（top のときは不要）
     where: Literal["top", "child", "above", "below"] = "top"
-    milestone: bool = False  # 節目（期間ゼロの印）として足すか
+    milestone: bool = False  # マイルストーン（期間ゼロの印）として足すか
 
 
 class EditRequest(BaseModel):

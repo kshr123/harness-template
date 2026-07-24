@@ -86,7 +86,7 @@ class Item(BaseModel):
     start: date | None = None  # 予定開始（Start）
     due: date | None = None  # 予定終了（Finish／GitHub の due date）
     effort_days: float | None = Field(default=None, gt=0)  # 見積り工数（人日／Work）。正の値のみ（負・NaN は失敗）
-    milestone: bool = False  # マイルストーン（期間ゼロの節目。Milestone）
+    milestone: bool = False  # マイルストーン（期間ゼロの点の出来事。Milestone）
 
     @property
     def display(self) -> str:

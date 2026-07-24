@@ -82,9 +82,9 @@ class ManualRow(BaseModel):
             )
         if self.milestone:
             if self.due is None:
-                raise ValueError(f"{self.id}: milestone には due（節目の日）が要る")
+                raise ValueError(f"{self.id}: milestone には due（マイルストーンの日）が要る")
             if self.start is not None:
-                raise ValueError(f"{self.id}: milestone は期間ゼロの節目なので start を持たない")
+                raise ValueError(f"{self.id}: マイルストーンは期間ゼロの点なので start を持たない")
         if self.start is not None and self.due is not None and self.start > self.due:
             raise ValueError(f"{self.id}: start が due より後になっている")
         if self.actual_start is not None and self.actual_finish is not None and self.actual_start > self.actual_finish:

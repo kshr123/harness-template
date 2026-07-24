@@ -224,7 +224,7 @@ def test_a_project_without_any_order_keeps_the_filename_order(tmp_path: Path) ->
 
 
 def test_a_milestone_can_be_added(tmp_path: Path) -> None:
-    """節目（◆）を足せる。期間ゼロの印なので start を持たず、期日は基準日にする（あとで直せる）。"""
+    """マイルストーン（◆）を足せる。期間ゼロの印なので start を持たず、期日は基準日にする（あとで直せる）。"""
     epic = tmp_path / "work" / "EP-90-alpha"
     _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
     _write(

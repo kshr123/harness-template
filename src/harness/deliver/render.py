@@ -108,11 +108,19 @@ def backdrop(span: tuple[date, date], today: date) -> str:
     first, last = span
     scale = _CANVAS / ((last - first).days + 1)
     parts: list[str] = []
+    # 同じ日に太さの違う線を重ねない（月初が月曜だと月の線と週の線が同じ位置に 2 本引かれ、太く滲む）。
+    # その日にいちばん粗い単位の線だけを引く（月 > 週 > 日）。どの単位も表示される階層は変わらない。
+    months = set(month_ticks(span))
+    weeks = set(week_ticks(span))
     for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
             continue
         for tick in ticks:
             if tick == first:  # 先頭は列の左端なので線を引かない
+                continue
+            if kind == "d" and (tick in weeks or tick in months):
+                continue
+            if kind == "w" and tick in months:
                 continue
             x = _x_of(tick, span)
             parts.append(
@@ -136,7 +144,7 @@ def _bar_svg(row: WbsRow, span: tuple[date, date], back: str) -> str:
         back,
     ]
     if row.milestone and row.due is not None:
-        pass  # 節目は図形を引き伸ばすと潰れるので、SVG でなく割合の位置に置く HTML で描く（_milestone）
+        pass  # マイルストーンは図形を引き伸ばすと潰れるので、SVG でなく割合の位置に置く HTML で描く（_milestone）
     elif row.start is not None and row.due is not None:
         x = _x_of(row.start, span)
         width = max(_x_of(row.due, span) + scale - x, 2.0)
@@ -267,11 +275,18 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
     days = (last - first).days + 1
     ticks = f'<svg class="axis" viewBox="0 0 {_CANVAS:.0f} 40" preserveAspectRatio="none" role="img">'
     lines: list[str] = []
+    # 本体の格子と同じく、同じ日には粗い単位の線だけを引く（月初が月曜のとき線が 2 本重なって太く見える）。
+    months = set(month_ticks(span))
+    weeks = set(week_ticks(span))
     for kind, series in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and days > _MAX_DAY_TICKS:
             continue
         for tick in series:
             if tick == first:
+                continue
+            if kind == "d" and (tick in weeks or tick in months):
+                continue
+            if kind == "w" and tick in months:
                 continue
             x = _x_of(tick, span)
             lines.append(
@@ -449,9 +464,9 @@ def _view_script() -> str:
 def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
     """ガントの最上部に置く「マイルストーン」の集約行。全マイルストーン（◆）を時間軸に並べる。
 
-    各フェーズに散らばる◆だけだと、案件全体の節目（要件確定・検収・成果物の期日など、その日に確定する
-    出来事）を一目で追えない。工程表の慣習どおり、上部に節目だけの帯を 1 本置く。1 つも無ければ行を出さない。
-    繰り返す定例会議は節目ではなく「期間のある行」（start..due の帯・milestone を付けない）として置く。
+    各フェーズに散らばる◆だけだと、案件全体のマイルストーン（要件確定・検収・成果物の期日など、その日に確定する
+    出来事）を一目で追えない。工程表の慣習どおり、上部にマイルストーンだけの帯を 1 本置く。1 つも無ければ行を出さない。
+    繰り返す定例会議はマイルストーンではなく「期間のある行」（start..due の帯・milestone を付けない）として置く。
     """
     if span is None:
         return ""
@@ -480,7 +495,7 @@ def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
 
 
 def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
-    """節目の印。引き伸ばす図形の中に置くと横に潰れるので、割合の位置に重ねる要素として描く。"""
+    """マイルストーンの印。引き伸ばす図形の中に置くと横に潰れるので、割合の位置に重ねる要素として描く。"""
     if span is None or not row.milestone or row.due is None:
         return ""
     first, last = span
@@ -757,7 +772,7 @@ def _legend() -> str:
         '<div class="legend">'
         '<span><i class="sw" style="background:var(--bar)"></i>期間（作業・定例会議）</span>'
         '<span><i class="sw" style="background:var(--bar-done);width:8px;height:8px;'
-        'transform:rotate(45deg)"></i>節目（承認・検収などその日に確定する出来事）</span>'
+        'transform:rotate(45deg)"></i>マイルストーン（承認・検収などその日に確定する出来事）</span>'
         "<span>破線＝基準日</span>"
         '<span class="rowlegend">行の状態：'
         '<i class="lb" style="box-shadow:inset 3px 0 0 var(--prog)"></i>進行中'

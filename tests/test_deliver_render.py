@@ -36,7 +36,7 @@ def _write(path: Path, meta: dict[str, Any]) -> None:
 
 
 def _scaffold(root: Path) -> None:
-    """done 1 件・遅れ 1 件・節目 1 件・未日程 1 件がそろう最小の木。"""
+    """done 1 件・遅れ 1 件・マイルストーン 1 件・未日程 1 件がそろう最小の木。"""
     alpha = root / "work" / "EP-90-alpha"
     _write(alpha / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
     _write(
@@ -111,7 +111,7 @@ def test_unscheduled_row_is_marked(tmp_path: Path) -> None:
 
 
 def test_milestone_is_drawn_as_a_point_not_a_bar(tmp_path: Path) -> None:
-    """節目は期間を持たないので、棒でなく点（多角形）で描く。"""
+    """マイルストーンは期間を持たないので、棒でなく点（多角形）で描く。"""
     _scaffold(tmp_path)
     html = _html(tmp_path)
     milestone_row = next(line for line in html.split("<tr") if "T-9003" in line)

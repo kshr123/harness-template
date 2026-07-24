@@ -58,12 +58,12 @@ def test_manual_row_id_must_be_distinguishable_from_work_units() -> None:
 
 def test_milestone_needs_a_date_and_has_no_span() -> None:
     with pytest.raises(ValidationError):
-        ManualRow.model_validate({"id": "W-001", "name": "節目", "status": "todo", "milestone": True})
+        ManualRow.model_validate({"id": "W-001", "name": "マイルストーン", "status": "todo", "milestone": True})
     with pytest.raises(ValidationError):
         ManualRow.model_validate(
             {
                 "id": "W-001",
-                "name": "節目",
+                "name": "マイルストーン",
                 "status": "todo",
                 "milestone": True,
                 "due": "2026-08-21",
