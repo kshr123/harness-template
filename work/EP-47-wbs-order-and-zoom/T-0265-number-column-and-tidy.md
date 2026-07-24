@@ -10,7 +10,7 @@ effort_days: 1
 requirements: []
 depends_on: [T-0264]
 verified_by:
-  - tests/test_deliver_geometry.py::test_no_shaded_bands_clutter_the_gantt
+  - tests/test_deliver_geometry.py::test_non_working_days_are_shaded_except_where_a_day_is_too_narrow
 ---
 # T-0265 番号の列と細部を整える
 

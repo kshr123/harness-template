@@ -19,6 +19,7 @@ import json
 from collections.abc import Callable
 from datetime import date, timedelta
 
+from harness.deliver.calendar import WorkCalendar
 from harness.deliver.wbs import Wbs, WbsRow
 from harness.models import Status
 
@@ -98,34 +99,78 @@ def _month_end(day: date) -> date:
     return date(day.year, day.month + 1, 1) - timedelta(days=1)
 
 
-def backdrop(span: tuple[date, date], today: date) -> str:
-    """全行に共通の下敷き（時間軸の格子・今日の線）。
+# 1 日あたりの幅（px）。粗い単位ほど狭い＝情報量を落とすとガントも短くなる。**ここが唯一の出どころ**で、
+# 画面（列幅）と格子の間引き（下）の両方がこの値を使う。2 か所に書くと片方だけ直して食い違う。
+PX_PER_DAY: dict[str, float] = {"d": 26.0, "w": 9.0, "m": 2.4}
+
+# 2 本の罫線がこれより近いと、にじんで 1 本の太い線に見える（＝線が「重なっている」と読まれる）。
+_MIN_GAP_PX = 6.0
+
+# その単位より粗い単位（線の優先順位。粗い方を残す）。
+_COARSER: dict[str, tuple[str, ...]] = {"d": ("w", "m"), "w": ("m",), "m": ()}
+
+
+def _crowded_zooms(kind: str, tick: date, coarser: dict[str, set[date]]) -> str:
+    """その線を**引かないズーム**を class にして返す。
+
+    細かい単位の線が粗い単位の線に近すぎると、2 本が 1 本の太い線に見える。同じ日に重なる場合（距離 0）は
+    その極端な例なので、「近すぎたら細かい方を引かない」という 1 つの規則で両方を塞ぐ（ズームごとに
+    1 日の幅が違うので、近すぎるかどうかもズームごとに決まる）。
+    """
+    hide = [
+        f"x-{zoom}"
+        for zoom, px in PX_PER_DAY.items()
+        if any(abs((tick - other).days) <= _MIN_GAP_PX / px for coarse in _COARSER[kind] for other in coarser[coarse])
+    ]
+    return (" " + " ".join(hide)) if hide else ""
+
+
+def _offdays(span: tuple[date, date], calendar: WorkCalendar) -> list[tuple[date, date]]:
+    """非稼働日（土日・祝日・案件の休業日）の連なりを [開始日, 終了日] の並びにまとめる。
+
+    1 日ずつ矩形を出すと数が増えるので、続いている日はひとまとめにする（土日なら 1 つ）。
+    振替出勤は稼働日なので、その日で連なりが切れる。
+    """
+    first, last = span
+    runs: list[tuple[date, date]] = []
+    day = first
+    while day <= last:
+        if calendar.is_workday(day):
+            day += timedelta(days=1)
+            continue
+        start = day
+        while day <= last and not calendar.is_workday(day):
+            day += timedelta(days=1)
+        runs.append((start, day - timedelta(days=1)))
+    return runs
+
+
+def backdrop(span: tuple[date, date], today: date, calendar: WorkCalendar) -> str:
+    """全行に共通の下敷き（非稼働日の面・時間軸の格子・今日の線）。
 
     棒だけを描くと図表に見えない（時間の目盛が無いので、棒の長さが何日なのか読めない）。格子は軸の目盛と
-    同じ位置に引く＝上の見出しと目で繋がる。週の区切りは格子線で、営業日の数は「日数」の列で分かるので、
-    非稼働日の帯は敷かない（各週の右に灰色が並んで棒より目立ってしまうため）。
+    同じ位置に引く＝上の見出しと目で繋がる。**非稼働日（土日・祝日・案件の休業日）はごく淡い面で沈める**＝
+    どの列が休みかを数えずに読める。1 日の幅が狭いズーム（月）では縞にしかならないので出さない。
     """
     first, last = span
     scale = _CANVAS / ((last - first).days + 1)
     parts: list[str] = []
-    # 同じ日に太さの違う線を重ねない（月初が月曜だと月の線と週の線が同じ位置に 2 本引かれ、太く滲む）。
-    # その日にいちばん粗い単位の線だけを引く（月 > 週 > 日）。どの単位も表示される階層は変わらない。
-    months = set(month_ticks(span))
-    weeks = set(week_ticks(span))
+    if (last - first).days + 1 <= _MAX_DAY_TICKS:  # 日の粒度が出ない長さでは面も出さない
+        for off_start, off_end in _offdays(span, calendar):
+            x = _x_of(off_start, span)
+            width = _x_of(off_end, span) + scale - x
+            parts.append(f'<rect class="off" x="{x:.2f}" y="0" width="{width:.2f}" height="14" />')
+    coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
     for kind, ticks in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and (last - first).days + 1 > _MAX_DAY_TICKS:
             continue
         for tick in ticks:
             if tick == first:  # 先頭は列の左端なので線を引かない
                 continue
-            if kind == "d" and (tick in weeks or tick in months):
-                continue
-            if kind == "w" and tick in months:
-                continue
             x = _x_of(tick, span)
             parts.append(
-                f'<line class="grid g-{kind}" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="14"'
-                f' vector-effect="non-scaling-stroke" />'
+                f'<line class="grid g-{kind}{_crowded_zooms(kind, tick, coarser)}" x1="{x:.2f}" y1="0"'
+                f' x2="{x:.2f}" y2="14" vector-effect="non-scaling-stroke" />'
             )
     if first <= today <= last:
         tx = _x_of(today, span) + scale / 2
@@ -275,22 +320,18 @@ def _axis_svg(span: tuple[date, date], today: date) -> str:
     days = (last - first).days + 1
     ticks = f'<svg class="axis" viewBox="0 0 {_CANVAS:.0f} 40" preserveAspectRatio="none" role="img">'
     lines: list[str] = []
-    # 本体の格子と同じく、同じ日には粗い単位の線だけを引く（月初が月曜のとき線が 2 本重なって太く見える）。
-    months = set(month_ticks(span))
-    weeks = set(week_ticks(span))
+    # 本体の格子と同じ規則で間引く（粗い線に近すぎる細かい線は、そのズームでは引かない）。
+    coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
     for kind, series in (("d", day_ticks(span)), ("w", week_ticks(span)), ("m", month_ticks(span))):
         if kind == "d" and days > _MAX_DAY_TICKS:
             continue
         for tick in series:
             if tick == first:
                 continue
-            if kind == "d" and (tick in weeks or tick in months):
-                continue
-            if kind == "w" and tick in months:
-                continue
             x = _x_of(tick, span)
             lines.append(
-                f'<line class="g-{kind}" x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="40" vector-effect="non-scaling-stroke" />'
+                f'<line class="g-{kind}{_crowded_zooms(kind, tick, coarser)}" x1="{x:.2f}" y1="0"'
+                f' x2="{x:.2f}" y2="40" vector-effect="non-scaling-stroke" />'
             )
     if first <= today <= last:
         tx = _x_of(today, span) + _CANVAS / days / 2
@@ -457,8 +498,12 @@ def _holders(rows: list[WbsRow], holder: str) -> dict[str, str]:
 
 
 def _view_script() -> str:
-    """閲覧の仕掛け（折りたたみ・列の表示切替・時間軸のズーム）。"""
-    return _VIEW_SCRIPT
+    """閲覧の仕掛け（折りたたみ・列の表示切替・時間軸のズーム）。
+
+    1 日あたりの幅は Python 側の `PX_PER_DAY` が唯一の出どころ（格子の間引きも同じ値を使うので、
+    2 か所に書くと片方だけ直して食い違う）。
+    """
+    return _VIEW_SCRIPT.replace("__PX__", json.dumps(PX_PER_DAY))
 
 
 def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
@@ -519,7 +564,7 @@ def _digest_of(row: WbsRow) -> str:
 _STYLE = """
 :root {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
-  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
@@ -530,7 +575,7 @@ _STYLE = """
 @media (prefers-color-scheme: dark) {
   :root {
   --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349; --canvas:#10141a;
-  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c;
+  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c; --off:#1b2027;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
@@ -541,7 +586,7 @@ _STYLE = """
 }
 :root[data-theme="dark"] {
   --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349; --canvas:#10141a;
-  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c;
+  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c; --off:#1b2027;
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
@@ -551,7 +596,7 @@ _STYLE = """
 }
 :root[data-theme="light"] {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
-  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
@@ -681,6 +726,11 @@ line.g-m { stroke:var(--line-strong); stroke-width:1; }
 .scroll.u-m .g-m, .scroll.u-m .g-w,
 .scroll.u-w .g-m, .scroll.u-w .g-w, .scroll.u-w .g-d,
 .scroll.u-d .g-m, .scroll.u-d .g-w, .scroll.u-d .g-d { display:block; }
+/* 粗い線に近すぎて 1 本ににじむ線は、そのズームでは引かない（同じ日に重なる場合もこの規則で消える）。 */
+.scroll.u-m .x-m, .scroll.u-w .x-w, .scroll.u-d .x-d { display:none !important; }
+/* 非稼働日（土日・祝日・案件の休業日）の面。1 日が狭い月表示では縞になるだけなので出さない。 */
+rect.off { display:none; fill:var(--off); }
+.scroll.u-w rect.off, .scroll.u-d rect.off { display:block; }
 /* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
 line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
@@ -737,7 +787,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   /* 紙は常に明るい版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
   :root {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
-  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
@@ -827,7 +877,7 @@ _VIEW_SCRIPT = r"""
   // 行と棒がずれない（表ごと横にスクロールする）。状態は必ずこの 3 つのどれかで、「自動」という状態は持たない
   // （自動は初期値の決め方であって、利用者が選ぶ状態ではない）。
   // 1 日あたりの幅（px）。月は狭く・日は広く＝粒度を落とすほどガントも短くなる。
-  var PX={d:26,w:9,m:2.4};
+  var PX=__PX__;
   var scroll=document.querySelector('.scroll');
   function unit(kind){
     if(!scroll) return;
@@ -1148,7 +1198,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     """
     data_span = wbs.span
     span = drawing_window(data_span) if data_span else None
-    back = backdrop(span, wbs.today) if span else ""
+    back = backdrop(span, wbs.today, wbs.overlay.calendar.to_calendar()) if span else ""
     # work グループは固定列(No.+作業)と流動列(チーム+担当+状態)にまたがる。1 つの colspan セルは固定と
     # 流動をまたげない（横スクロールで固定列に食い込む）ので、見出しも 2 セルに割り、左だけ固定する。
     work_n = sum(1 for _, _, g in COLUMNS if g == "work")

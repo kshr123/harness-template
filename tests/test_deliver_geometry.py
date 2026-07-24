@@ -21,6 +21,7 @@ import pytest
 
 from harness.deliver import render
 from harness.deliver import wbs as wbs_mod
+from harness.deliver.calendar import WorkCalendar
 from harness.deliver.overlay import Overlay
 
 pytestmark = pytest.mark.unit
@@ -376,22 +377,48 @@ def test_every_row_carries_the_time_grid(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     row = _row_markup(html, "T-9001")
-    grid = [float(x) for x in re.findall(r'<line class="grid g-w" x1="([\d.]+)"', row)]
+    # 線には「このズームでは引かない」印が付くことがあるので、種類の後ろは何が来てもよい形で拾う。
+    grid = [float(x) for x in re.findall(r'<line class="grid g-w[^"]*" x1="([\d.]+)"', row)]
     ticks = [render._x_of(day, WINDOW) for day in render.week_ticks(WINDOW)[1:]]
     assert grid == pytest.approx(ticks, abs=0.01)
     assert grid, "格子が 1 本も引かれていない"
 
 
-def test_no_shaded_bands_clutter_the_gantt(tmp_path: Path) -> None:
-    """非稼働日の帯は敷かない（各週の右に灰色が並んで棒より目立つため）。週は格子線で分かる。"""
+def test_non_working_days_are_shaded_except_where_a_day_is_too_narrow(tmp_path: Path) -> None:
+    """非稼働日（土日・祝日・案件の休業日）は淡い面で沈める。続く日はひとまとめの面にする。
+
+    1 日の幅が狭い月表示では縞にしかならないので出さない（CSS で切る）。
+    """
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
         {"id": "T-9002", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    assert 'class="off"' not in html  # 灰色の帯を敷かない
-    assert re.search(r'<line class="grid g-w"', _row_markup(html, "T-9001"))  # 週の格子線は残る
+    row = _row_markup(html, "T-9001")
+    # 既定の暦は土日だけが非稼働日。面の数は窓の中の「連なり」の数と一致する（1 日ずつ出さない）。
+    runs = render._offdays(WINDOW, WorkCalendar())
+    assert runs, "窓の中に非稼働日が 1 日も無い（テストデータの前提が崩れている）"
+    assert len(re.findall(r'<rect class="off"', row)) == len(runs)
+    assert "rect.off { display:none;" in html  # 既定は出さない
+    assert ".scroll.u-w rect.off, .scroll.u-d rect.off { display:block; }" in html  # 週・日でだけ出す
+
+
+def test_no_two_grid_lines_are_close_enough_to_look_like_one(tmp_path: Path) -> None:
+    """どのズームでも、罫線どうしが「1 本の太い線」に見える近さまで寄らない。
+
+    同じ日に重なる場合（距離 0）はこの規則の極端な例。月初が月曜の月を含む期間で確かめる。
+    どの種類の線がそのズームで見えるかは「選んだ単位＋1 つ細かい単位」（`_STYLE` の表示規則）。
+    """
+    span = (date(2027, 1, 4), date(2027, 3, 31))  # 2027-02-01 は月曜＝月の線と週の線が同じ日に来る
+    html = render.backdrop(span, date(2027, 2, 10), WorkCalendar())
+    lines = re.findall(r'<line class="grid g-(\w)([^"]*)" x1="([\d.]+)"', html)
+    visible_kinds = {"m": {"m", "w"}, "w": {"m", "w", "d"}, "d": {"m", "w", "d"}}
+    days = (span[1] - span[0]).days + 1
+    for zoom, px in render.PX_PER_DAY.items():
+        xs = sorted(float(x) for kind, extra, x in lines if kind in visible_kinds[zoom] and f"x-{zoom}" not in extra)
+        gaps = [(b - a) / render._CANVAS * days * px for a, b in zip(xs[:-1], xs[1:], strict=True)]
+        assert min(gaps) >= render._MIN_GAP_PX, f"{zoom} 表示で線が近すぎる（{min(gaps):.1f}px）"
 
 
 def test_both_the_week_and_month_grids_are_available(tmp_path: Path) -> None:

@@ -8,7 +8,7 @@ requirements: []
 depends_on: []
 verified_by:
   - tests/test_deliver_geometry.py::test_every_row_carries_the_time_grid
-  - tests/test_deliver_geometry.py::test_no_shaded_bands_clutter_the_gantt
+  - tests/test_deliver_geometry.py::test_non_working_days_are_shaded_except_where_a_day_is_too_narrow
   - tests/test_deliver_geometry.py::test_the_drawing_window_snaps_to_whole_months
   - tests/test_deliver_geometry.py::test_a_one_day_project_does_not_fill_the_whole_column
 ---
