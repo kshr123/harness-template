@@ -287,6 +287,52 @@ def _check_value(field: str, value: str) -> str | None:
     return _scalar(text)
 
 
+def _item_text_with(path: Path, field: str, rendered: str | None) -> tuple[str, str]:
+    """作業単位のファイルの、その欄だけを置き換えた本文を返す（元の本文, 新しい本文）。"""
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines()
+    start, end = _frontmatter_bounds(lines)
+    new_lines = _replace_in_block(lines, start, end, field, rendered, "")
+    new_text = "\n".join(new_lines) + ("\n" if original.endswith("\n") else "")
+    _validated_item_text(new_text, field, rendered)
+    return original, new_text
+
+
+def apply_cascade(root: Path, *, ref: str, field: str, value: str, today: date) -> int:
+    """`ref` の**配下の末端**すべてにその値を書き、変えた件数を返す。
+
+    上位の行の状態・日程は子から導く値なので、その行自体には持たせられない（持たせると二重台帳になる）。
+    「フェーズごとまとめて変える」は、**末端の正本を書く**ことで表す＝上位の表示は導出で自然に追随する。
+    末端をまとめて書いたあとに検査を 1 度だけ行い、増えた指摘があれば全部書き戻して断る（部分適用しない）。
+    """
+    from harness.deliver.wbs_lint import all_problems
+
+    with LOCK:
+        _check_field(field, EDITABLE_WORK_FIELDS)
+        nodes, _ = pm.load_tree(root)
+        target = next((n for n in walk_nodes(nodes) if n.item.id == ref), None)
+        if target is None:
+            raise EditRejected(f"作業単位 '{ref}' が work/ に見つからない")
+        leaves = [n for n in walk_nodes(target.children) if not n.children]
+        if not leaves:
+            raise EditRejected(f"'{ref}' の配下に末端の作業が無い")
+        rendered = _check_value(field, value)
+        before = {p.message for p in all_problems(root, today=today) if p.level == "error"}
+        saved: list[tuple[Path, str]] = []
+        for leaf in leaves:
+            path = leaf.path / pm.MARKER if leaf.path.is_dir() else leaf.path
+            original, new_text = _item_text_with(path, field, rendered)
+            saved.append((path, original))
+            history.record(path)
+            path.write_text(new_text, encoding="utf-8")
+        introduced = [p for p in all_problems(root, today=today) if p.level == "error" and p.message not in before]
+        if introduced:
+            for path, original in saved:
+                path.write_text(original, encoding="utf-8")
+            raise EditRejected("　/　".join(p.message for p in introduced))
+        return len(leaves)
+
+
 def apply_edit(root: Path, *, ref: str, field: str, value: str, base_digest: str, today: date) -> str:
     """1 か所を直して正本へ書き戻し、書き戻したファイルの新しい指紋を返す。
 

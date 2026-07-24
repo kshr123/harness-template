@@ -467,11 +467,14 @@ def _milestone_row(wbs: Wbs, span: tuple[date, date] | None, back: str) -> str:
         if r.due is not None and first <= r.due <= last
     )
     n_cols = len(COLUMNS)
-    # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の破線も乗る。
+    # 集約行にも他の行と同じ時間の格子（下敷き）を敷く＝◆の日付が方眼で読め、今日の線も乗る。
     grid = f'<svg class="bar" viewBox="0 0 {_CANVAS:.0f} 14" preserveAspectRatio="none" role="img">{back}</svg>'
+    # 左は貼り付く 2 列ぶんの空き（他の行と同じ幅で埋める）、見出しはガントのすぐ左に右寄せで置く。
+    # 見出しを全列またぎの貼り付くセルにすると、横スクロールでその幅がガントに被さって◆を覆う。
     return (
         '<tr class="msrow">'
-        f'<td class="ms-label" colspan="{n_cols}">マイルストーン</td>'
+        '<td class="ms-pad" colspan="2"></td>'
+        f'<td class="ms-label" colspan="{n_cols - 2}">マイルストーン</td>'
         f'<td class="gantt ms-track">{grid}{diamonds}</td></tr>'
     )
 
@@ -663,7 +666,8 @@ line.g-m { stroke:var(--line-strong); stroke-width:1; }
 .scroll.u-m .g-m, .scroll.u-m .g-w,
 .scroll.u-w .g-m, .scroll.u-w .g-w, .scroll.u-w .g-d,
 .scroll.u-d .g-m, .scroll.u-d .g-w, .scroll.u-d .g-d { display:block; }
-line.today { stroke:var(--ink); stroke-width:1.4; stroke-dasharray:3 3; }
+/* 基準日の線は暦の格子と取り違えないよう、色でも分ける（黒の破線だと月の区切りに見える）。 */
+line.today { stroke:var(--today); stroke-width:1.4; stroke-dasharray:3 3; }
 /* 棒。引き伸ばすと角丸が幅ごとに歪むので角は落とす（工程表の慣習どおりの角棒）。 */
 svg.bar { display:block; width:100%; height:16px; }
 svg.bar rect { rx:0; }
@@ -696,7 +700,9 @@ button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px;
 tr.hid { display:none; }
 /* マイルストーンの集約行（ガント上部の帯）。左は貼り付き、右に全ての◆を時間軸で並べる。 */
 tr.msrow > td { background:var(--sec); border-bottom:1px solid var(--line-strong); }
-td.ms-label { position:sticky; left:0; z-index:3; background:var(--sec); font-size:11px; font-weight:600;
+/* 左の空きだけを貼り付ける（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ＝図の近くで読める。 */
+td.ms-pad { position:sticky; left:0; z-index:3; background:var(--sec); }
+td.ms-label { text-align:right; z-index:2; background:var(--sec); font-size:11px; font-weight:600;
               color:var(--muted); letter-spacing:.02em; }
 td.ms-track { position:relative; height:20px; }
 td.ms-track .ms { top:50%; }
@@ -885,6 +891,12 @@ _VIEW_SCRIPT = r"""
 _EDIT_SCRIPT = r"""
 (function(){
   var token=document.currentScript.dataset.token, today=document.currentScript.dataset.today||'';
+  // 状態の選択肢＝[正本の値, 日本語の見出し] の組。画面には見出しだけを出す。
+  var STATUSES=JSON.parse(document.currentScript.dataset.statuses||'[]');
+  function statusLabel(v){
+    for(var i=0;i<STATUSES.length;i++){ if(STATUSES[i][0]===v) return STATUSES[i][1]; }
+    return v;
+  }
   var say=document.getElementById('say'), busy=false;
   function tell(msg,bad){ say.textContent=msg; say.className=bad?'bad':''; say.style.display='block';
     if(!bad) setTimeout(function(){ say.style.display='none'; },1600); }
@@ -902,8 +914,8 @@ _EDIT_SCRIPT = r"""
     var old=td.dataset.value, box;
     if(td.dataset.field==='status'){
       box=document.createElement('select');
-      ['todo','in-progress','in-review','blocked','done'].forEach(function(v){
-        var o=document.createElement('option'); o.value=v; o.textContent=v; box.appendChild(o); });
+      STATUSES.forEach(function(s){
+        var o=document.createElement('option'); o.value=s[0]; o.textContent=s[1]; box.appendChild(o); });
       box.value=old;
     } else if(td.dataset.choices){
       // 名簿から選ぶ欄。名簿に無い名前も入れられ、入れたら名簿にも足される。
@@ -965,6 +977,15 @@ _EDIT_SCRIPT = r"""
                          else { busy=false; tell(r.body.detail||'消せなかった',true); } })
       .catch(function(e){ busy=false; tell('消せなかった: '+e,true); });
   }
+  function cascade(ref, field, value){
+    if(busy) return; busy=true;
+    fetch('cascade',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:ref, field:field, value:value})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('配下 '+r.body.changed+' 件を変えた'); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'変えられなかった',true); } })
+      .catch(function(e){ busy=false; tell('変えられなかった: '+e,true); });
+  }
   function undo(){
     if(busy) return; busy=true;
     fetch('undo',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},body:'{}'})
@@ -1022,10 +1043,21 @@ _EDIT_SCRIPT = r"""
   function statusMenu(td){
     menu.appendChild(group('状態を変更'));
     var cur=td.dataset.value;
-    ['todo','in-progress','in-review','blocked','done'].forEach(function(v){
-      if(v===cur){ menu.appendChild(note('✓ '+v)); return; }
-      menu.appendChild(item(v,function(){ send(td,v); }));
+    STATUSES.forEach(function(s){
+      if(s[0]===cur){ menu.appendChild(note('✓ '+s[1])); return; }
+      menu.appendChild(item(s[1],function(){ send(td,s[0]); }));
     });
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  // 上位の行（子を持つ行）の状態は子から導く値なので、直接は持てない。代わりに**配下をまとめて**変える
+  // （書くのは末端の正本だけ＝親に値を持たせない・二重台帳を作らない。親の表示は導出で追随する）。
+  function cascadeMenu(tr,ref){
+    menu.appendChild(group('配下をまとめて変更'));
+    STATUSES.forEach(function(s){
+      menu.appendChild(item('配下をすべて「'+s[1]+'」にする',function(){ cascade(ref,'status',s[0]); }));
+    });
+    menu.appendChild(rule());
+    menu.appendChild(note('この行の状態は配下から導出（この行自体に値は持たない）'));
     menu.appendChild(rule()); menu.appendChild(signpost());
   }
   function dateMenu(td){
@@ -1061,6 +1093,7 @@ _EDIT_SCRIPT = r"""
     menu.appendChild(head(code,name,lv));
     if(col==='name'){ structureMenu(tr,ref,code,name,lv,holder); }
     else if(col==='status' && editable){ statusMenu(td); }
+    else if(col==='status' && tr.dataset.kids==='1' && ref){ cascadeMenu(tr,ref); }
     else if((col==='start'||col==='due') && editable){ dateMenu(td); }
     else if((col==='team'||col==='assignees') && editable){ clearMenu(td); }
     else { explainMenu(col,editable); }
@@ -1146,9 +1179,12 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             "行の操作は右クリック（列ごとに変わる）。Ctrl+Z で直前の操作を戻す。"
             "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
         )
+        # 状態の選択肢は「値と日本語の見出し」を組で渡す（画面には日本語だけを出し、送るのは正本の値）。
+        choices = _esc(json.dumps([[s.value, label] for s, label in STATUS_LABEL.items()], ensure_ascii=False))
         edit_bits = (
             f'<div id="say"></div><div id="menu"></div>'
-            f'<script data-token="{_esc(token)}" data-today="{wbs.today.isoformat()}">{_EDIT_SCRIPT}</script>'
+            f'<script data-token="{_esc(token)}" data-today="{wbs.today.isoformat()}"'
+            f' data-statuses="{choices}">{_EDIT_SCRIPT}</script>'
         )
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}</style>"

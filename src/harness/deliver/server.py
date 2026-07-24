@@ -33,7 +33,7 @@ from harness import pm
 from harness.deliver import history, render
 from harness.deliver import wbs as wbs_mod
 from harness.deliver.adder import add_child, add_sibling
-from harness.deliver.editor import LOCK, EditRejected, apply_edit
+from harness.deliver.editor import LOCK, EditRejected, apply_cascade, apply_edit
 from harness.deliver.remover import remove
 from harness.deliver.wbs_lint import all_problems
 
@@ -98,6 +98,16 @@ class EditRequest(BaseModel):
     field: str
     value: str
     base: str = ""
+
+
+class CascadeRequest(BaseModel):
+    """`POST /cascade` の本文。ref の配下の末端すべてにその値を書く（上位の行は値を持たない）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str
+    field: str
+    value: str
 
 
 def _prune_empty_dirs(start: Path, root: Path) -> None:
@@ -178,6 +188,21 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None)
 
         try:
             _run(op, f"{payload.ref} の {payload.field} を編集")
+        except EditRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return out
+
+    @app.post("/cascade")
+    def _cascade(payload: CascadeRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, int]:
+        """上位の行から配下の末端をまとめて変える（書くのは末端の正本だけ＝上位に値を持たせない）。"""
+        _check_token(x_wbs_token)
+        out: dict[str, int] = {}
+
+        def op() -> None:
+            out["changed"] = apply_cascade(root, ref=payload.ref, field=payload.field, value=payload.value, today=today)
+
+        try:
+            _run(op, f"{payload.ref} の配下をまとめて変更")
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return out

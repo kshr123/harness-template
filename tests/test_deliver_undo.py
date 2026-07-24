@@ -166,3 +166,37 @@ def test_undo_needs_the_token(tmp_path: Path) -> None:
     client.post("/edit", json={"ref": "T-9001", "field": "status", "value": "in-progress"}, headers=AUTH)
     assert client.post("/undo").status_code == 403
     assert _status_of(tmp_path, "T-9001") == "in-progress"  # 合言葉なしでは戻らない
+
+
+def test_changing_an_upper_level_changes_all_its_descendants(tmp_path: Path) -> None:
+    """上位の行の状態は子から導く値なので、まとめて変える＝**末端の正本を書く**（親に値を持たせない）。"""
+    _scaffold(tmp_path)
+    client = _client(tmp_path)
+    reply = client.post("/cascade", json={"ref": "EP-90", "field": "status", "value": "in-progress"}, headers=AUTH)
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["changed"] == 2  # 配下の末端 2 件
+    assert _status_of(tmp_path, "T-9001") == "in-progress"
+    assert _status_of(tmp_path, "T-9002") == "in-progress"
+
+
+def test_a_cascade_can_be_undone_in_one_step(tmp_path: Path) -> None:
+    """まとめての変更も 1 手で戻る（1 操作＝1 手として積む）。"""
+    _scaffold(tmp_path)
+    client = _client(tmp_path)
+    client.post("/cascade", json={"ref": "EP-90", "field": "status", "value": "in-progress"}, headers=AUTH)
+    assert client.post("/undo", headers=AUTH).status_code == 200
+    assert _status_of(tmp_path, "T-9001") == "todo"
+    assert _status_of(tmp_path, "T-9002") == "todo"
+
+
+def test_a_cascade_that_would_break_a_check_writes_nothing(tmp_path: Path) -> None:
+    """まとめて書いた結果、検査に落ちるなら全部書き戻して断る（部分適用しない）。
+
+    done には対応するテスト（verified_by）が要る、という既存の検査に当てて確かめる。
+    """
+    _scaffold(tmp_path)
+    client = _client(tmp_path)
+    reply = client.post("/cascade", json={"ref": "EP-90", "field": "status", "value": "done"}, headers=AUTH)
+    assert reply.status_code == 409
+    assert _status_of(tmp_path, "T-9001") == "todo"  # 1 件も書き換わっていない
+    assert _status_of(tmp_path, "T-9002") == "todo"
