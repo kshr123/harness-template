@@ -10,7 +10,7 @@ effort_days: 1
 requirements: []
 depends_on: [T-0270]
 verified_by:
-  - tests/test_deliver_geometry.py::test_the_lane_label_is_frozen_on_the_left
+  - tests/test_deliver_geometry.py::test_the_lane_label_slides_and_stops_at_the_work_column
   - tests/test_deliver_geometry.py::test_a_finished_row_recedes_with_a_muted_fill
   - tests/test_deliver_geometry.py::test_no_row_fill_reaches_into_the_gantt
 ---

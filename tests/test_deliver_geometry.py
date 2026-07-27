@@ -328,6 +328,21 @@ def test_the_header_states_the_period_in_full_dates(tmp_path: Path) -> None:
     assert "期間 2026-08-03 〜 2026-08-07" in html
 
 
+def test_the_top_bar_is_pared_down_and_the_legend_is_grouped(tmp_path: Path) -> None:
+    """上部はタイトル・本日・期間・ボタン・凡例だけ。基準日は「本日」と書き、凡例は 2 群に分ける。
+
+    「＋出来事」ボタンは置かない（登録はレーンの空きクリックに一本化）。凡例は羅列でなく「記号」「行の状態」の
+    見出しで括る（パッと読めるように）。
+    """
+    _tree(tmp_path, {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"})
+    wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
+    html = render.render_html(wbs, editable=True, token="t")
+    # 「基準日」は分かりにくいので、見出しの日付も凡例も「本日」と書く（内部コメントの語は対象外）。
+    assert "本日 2026-08-05" in html and "基準日 2026" not in html and "破線＝基準日" not in html
+    assert "＋ 出来事" not in html  # 登録はレーンのクリックに一本化＝ボタンは置かない
+    assert '<span class="lg-h">記号</span>' in html and '<span class="lg-h">行の状態</span>' in html  # 凡例を 2 群に
+
+
 def test_the_first_tick_is_always_the_start_of_the_period() -> None:
     """どの粒度でも、期間の頭に目盛がある（軸の左端が何日か分からない、を無くす）。"""
     for span in (
@@ -503,12 +518,12 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
         }
     )
     html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
-    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
+    labels = re.findall(r'<td class="ms-label"[^>]*><span>([^<]+)</span>', html)
     assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
     # 出来事は**開催日ごとの記号**（棒ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
     # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。◆（マイルストーン）より小さく淡い記号で描く。
     assert html.count('class="ev"') == 3
-    assert "gbar" not in html.split("マイルストーン</td>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
+    assert "gbar" not in html.split("マイルストーン</span>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
     # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
 
@@ -528,24 +543,29 @@ def test_the_milestone_lane_is_always_present_when_editable(tmp_path: Path) -> N
     assert "マイルストーン</td>" not in view  # 閲覧用：節目 0 件なら帯は出さない
 
     edit = render.render_html(wbs, editable=True, token="t")
-    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', edit)
+    labels = re.findall(r'<td class="ms-label"[^>]*><span>([^<]+)</span>', edit)
     assert "マイルストーン" in labels  # 編集面：0 件でも帯を出す（クリックの的になる）
 
 
-def test_the_lane_label_is_frozen_on_the_left(tmp_path: Path) -> None:
-    """レーンの見出し（マイルストーン等）は固定列（No.＋作業）に貼り付ける＝横スクロールで左へ流れて消えない。
+def test_the_lane_label_slides_and_stops_at_the_work_column(tmp_path: Path) -> None:
+    """レーンの見出し（マイルストーン等）は既定では時系列の側（右寄せ＝ガントのすぐ左）に置き、横スクロール
+    すると左へ流れ、作業列のあたりで止まる（読めなくならない）。
 
-    帯の左列を流れる空きにすると、右スクロールで見出しが左端の固定列の下へ潜って読めなくなる（実際に消えた）。
-    ラベルのセルを sticky・left:0 で固定し、同じ行の他セルより前面（z-index）に置く。
+    実装：見出しはセルの中の span を `position:sticky; left:64px`（作業列の位置）にする。セル自体は右寄せで
+    流れるので、既定はガントのすぐ左に出る。span が sticky なので、スクロールしても作業列で止まって残る。
     """
     _tree(
         tmp_path,
         {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True},
     )
-    style = _render(tmp_path, date(2026, 8, 5)).split("<style>")[1].split("</style>")[0]
-    label_rule = next(ln for ln in style.splitlines() if "td.ms-label" in ln and "{" in ln)
-    assert "position:sticky" in label_rule and "left:0" in label_rule  # 左端に固定
-    assert "z-index:6" in label_rule  # 同じ行の他セル（z-index:4）より前面＝流れてくる空きに覆われない
+    html = _render(tmp_path, date(2026, 8, 5))
+    # ラベルはセル直下の span に入り（時系列側に右寄せするため）、その span が sticky で止まる。
+    assert re.search(r'<td class="ms-label"[^>]*><span>[^<]+</span></td>', html)
+    style = html.split("<style>")[1].split("</style>")[0]
+    cell_rule = next(ln for ln in style.splitlines() if "td.ms-label {" in ln)
+    assert "text-align:right" in cell_rule  # 既定は時系列の側（ガントのすぐ左）
+    span_rule = next(ln for ln in style.splitlines() if "td.ms-label > span" in ln)
+    assert "position:sticky" in span_rule and "left:64px" in span_rule  # 作業列のあたりで止まる
 
 
 def test_the_document_contains_no_svg_at_all(tmp_path: Path) -> None:

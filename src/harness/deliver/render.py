@@ -83,8 +83,9 @@ def _day_label(value: date | None) -> str:
 _MAX_DAY_TICKS = 400
 
 # レーン（マイルストーン・定例など）1 本の高さ（px）。データ行より低くして注釈帯だと分かる律動差を作る。
-# CSS（--lane-h）・JS（--lanes-h の計算）・初期の scroll_vars で使う唯一の出どころ。
-_LANE_H = 16
+# 主役ではないので占有を抑える（見出しの文字も小さめ）。CSS（--lane-h）・JS（--lanes-h の計算）・初期の
+# scroll_vars で使う唯一の出どころ。
+_LANE_H = 14
 
 
 def drawing_window(span: tuple[date, date]) -> tuple[date, date]:
@@ -576,8 +577,7 @@ def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     n_cols = len(COLUMNS)
     return (
         f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
-        f'<td class="ms-label" colspan="2">{_esc(label)}</td>'
-        f'<td class="ms-pad" colspan="{n_cols - 2}"></td>'
+        f'<td class="ms-label" colspan="{n_cols}"><span>{_esc(label)}</span></td>'
         f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
     )
 
@@ -712,9 +712,9 @@ thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px so
    なので各段の height に下罫が含まれ、次段の top はその累積で決まる（--lanes-h＝表示中のレーンの総高）。 */
 tr.ruler th { height:45px; }
 tr.ruler th.ruler-cell { padding:0; vertical-align:top; }
-/* 時間軸の左側（各列に合わせた空セル）は下罫を引かない＝マイルストーン帯の上の罫は日付の下（ruler-cell）
-   だけに出す。左の空白まで区切ると、注釈帯の領域が実際より大きく見える。 */
-tr.ruler th:not(.ruler-cell) { border-bottom:0; }
+/* 時間軸の左側（各列に合わせた空セル）は罫を一切引かない＝空白に無用な縦横の線を出さない。上の横罫も
+   縦のグループ罫（.gs の強い縦線）も消し、マイルストーン帯の上の罫は日付の下（ruler-cell）だけに出す。 */
+tr.ruler th:not(.ruler-cell) { border:0 !important; background:var(--paper); }
 thead tr.msrow > td { position:sticky; top:calc(45px + var(--laneidx) * var(--lane-h)); z-index:4; }
 /* 作業表の見出し（まとまり見出し＋列名）は地色を一段濃く（--head）＝表の頭だとひと目で分かる。上罫は
    レーン（注釈帯）と作業表の領域境界（最強の 2px・--sum）。 */
@@ -869,12 +869,14 @@ td.gantt { position:relative; }
 .ops button.zoom { border-radius:0; margin-left:-1px; }
 .ops button.zoom:first-of-type { border-radius:6px 0 0 6px; margin-left:0; }
 .ops button.zoom:last-of-type { border-radius:0 6px 6px 0; }
-.ops button.zoom[aria-pressed="true"], .ops button.col[aria-pressed="true"] {
+/* 時間軸（月/週/日）は主操作なので、押されている段だけはっきり示す（青）。 */
+.ops button.zoom[aria-pressed="true"] {
   background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); font-weight:600; }
-.ops button.col[aria-pressed="false"] { color:var(--muted); }
-.ops button.lane[aria-pressed="true"] { background:var(--btn-on-bg); color:var(--btn-on-ink);
-  border-color:var(--btn-on-bg); font-weight:600; }
-.ops button.lane[aria-pressed="false"] { color:var(--muted); }
+/* 表示の入り切り（列・レーン）は脇役なので静かに：オン＝淡い地色の塗り、オフ＝薄い文字。青で主張させない。 */
+.ops button.col[aria-pressed="true"], .ops button.lane[aria-pressed="true"] {
+  background:var(--head); color:var(--ink); border-color:var(--line-strong); font-weight:600; }
+.ops button.col[aria-pressed="false"], .ops button.lane[aria-pressed="false"] {
+  color:var(--muted); background:var(--paper); }
 .ops .divider { width:1px; align-self:stretch; background:var(--line); margin:2px 4px; }
 thead tr.msrow.lane-off { display:none; }
 
@@ -913,25 +915,29 @@ tr.hid { display:none; }
 tr.msrow > td:not(.gantt) { background-color:var(--sec); }
 tr.msrow > td { border-bottom:1px solid var(--line); }  /* 帯同士の薄い区切り */
 /* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
-/* 見出しは No.＋作業の固定列（2 列）に貼り付けて右寄せ＝横スクロールしても左端で常に読め、左へ流れて
-   食い込まない。残りの左列は流れる空き（ms-pad）。縦の格子（右罫）は持たない。 */
-/* z-index は同じ行の他セル（`thead tr.msrow > td`＝4）より上でないと、横スクロールで流れてくる ms-pad が
-   固定したラベルを覆う。詳細度も上げて（クラス 2 つ）その規則の z-index に負けないようにする（子結合子は
-   使わない＝ガント列に地色を当てる規則の検査に、非ガント専用の .ms-label まで巻き込まれないため）。 */
-thead tr.msrow td.ms-label { position:sticky; left:0; z-index:6; text-align:right; background-color:var(--sec);
-              font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.02em; border-right:0; }
-td.ms-pad { background-color:var(--sec); border-right:0; }
+/* 見出しは既定では時系列の側（右寄せ＝ガントのすぐ左）に置く（帯の◆○のそばに名前がある）。中身の span を
+   sticky にして、横スクロールすると左へ流れ、作業列のあたり（left:64px）で止まって読めなくならないようにする。
+   セル自体は流れる（右寄せの起点＝ガントの左端を保つ）。縦の格子（右罫）は持たない。 */
+thead tr.msrow td.ms-label { text-align:right; background-color:var(--sec);
+              font-size:10px; font-weight:600; color:var(--muted); letter-spacing:.02em; border-right:0; }
+thead tr.msrow td.ms-label > span { position:sticky; left:64px; display:inline-block; padding-left:8px;
+              background-color:var(--sec); }
 td.ms-track { position:relative; overflow:hidden; height:var(--lane-h); }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
-.legend { margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap;
+/* 凡例は「記号」「行の状態」の 2 群。群見出し（lg-h）と縦の区切り（lg-div）で羅列に見せない。 */
+.legend { margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:6px 12px; flex-wrap:wrap;
           align-items:center; }
+.legend .lg-h { font-weight:700; color:var(--ink); font-size:10px; letter-spacing:.04em; }
+.legend .lg-div { width:1px; height:14px; background:var(--line); margin:0 2px; }
 .legend i.sw { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
-/* 行の状態の見本：左バー（進行中・確認待ち・保留）は inset 影、遅れは淡赤の面。完了は灰文字そのもの。 */
+.legend i.sw.dash { width:0; height:12px; border:0; border-left:2px dashed var(--today); margin-right:6px; }
+/* 行の状態の見本：左バー（進行中・確認待ち・保留）は inset 影、遅れは淡赤の面、完了は実際の面＋淡い文字で見せる。 */
 .legend .rowlegend i.lb { display:inline-block; width:14px; height:12px; vertical-align:middle;
-                          margin:0 3px 0 10px; border:1px solid var(--line); border-radius:2px; }
-.legend .rowlegend .donetext { color:var(--muted); margin:0 3px 0 10px; }
+                          margin:0 3px 0 8px; border:1px solid var(--line); border-radius:2px; }
+.legend .rowlegend .donetext { color:var(--done-ink); background:var(--done-row); padding:0 6px;
+                          border-radius:2px; margin:0 3px 0 8px; }
 @media print {
   /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
   tr.hid { display:table-row !important; }
@@ -970,21 +976,25 @@ table { min-width:0; }
 
 
 def _legend() -> str:
-    """凡例。バーは 1 色なので「期間」の 1 種。状態は行の色で示すことも添える。"""
+    """凡例。羅列にせず「記号」と「行の状態」の 2 群に分ける。細かい説明は title（ホバー）へ逃がす。"""
     return (
         '<div class="legend">'
-        '<span><i class="sw" style="background:var(--bar)"></i>期間（作業）</span>'
-        '<span><i class="sw" style="background:var(--bar-done);width:8px;height:8px;'
-        'transform:rotate(45deg)"></i>マイルストーン（承認・検収などその日に確定する出来事）</span>'
-        '<span style="color:var(--muted)">○ 会議・定例（開催日ごと。完了は追わない）</span>'
-        "<span>破線＝基準日</span>"
-        '<span class="rowlegend">行の状態：'
+        '<span class="lg-h">記号</span>'
+        '<span><i class="sw" style="background:var(--bar)"></i>期間</span>'
+        '<span title="承認・検収など、その日に確定するもの">'
+        '<i class="sw" style="background:var(--bar-done);width:8px;height:8px;transform:rotate(45deg)"></i>'
+        "マイルストーン</span>"
+        '<span style="color:var(--muted)" title="会議・定例。開催日ごとの印で、完了は追わない">○ 会議・定例</span>'
+        '<span title="この日を基準に遅れを見る（縦の破線）"><i class="sw dash"></i>本日</span>'
+        '<span class="lg-div"></span>'
+        '<span class="lg-h">行の状態</span>'
+        '<span class="rowlegend">'
         '<i class="lb" style="box-shadow:inset 3px 0 0 var(--prog)"></i>進行中'
         '<i class="lb" style="box-shadow:inset 3px 0 0 var(--bar)"></i>確認待ち'
         '<i class="lb" style="box-shadow:inset 3px 0 0 var(--ink)"></i>保留'
         '<i class="lb" style="background:var(--late-row);box-shadow:inset 3px 0 0 var(--late)"></i>'
         '<span style="color:var(--late-ink)">遅れ</span>'
-        '<span class="donetext">完了</span>未着手</span>'
+        '<span class="donetext">完了</span><span>未着手</span></span>'
         "</div>"
     )
 
@@ -1650,8 +1660,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         '<button class="col" data-col="team" type="button">チーム</button>',
         '<button class="col" data-col="who" type="button">担当</button>',
         ('<span class="divider"></span>' + lane_toggles) if lane_toggles else "",
-        # 出来事の追加はコマンドなので、コマンドの場所（操作バー）に置く。レーンの空きクリックでも足せる。
-        ('<span class="divider"></span><button id="addevent" type="button">＋ 出来事</button>') if editable else "",
+        # 出来事・マイルストーンの登録は「レーンの空きをクリック」に一本化した（操作バーにボタンは置かない）。
     ]
     right = [
         '<span class="sep">時間軸</span>',
@@ -1701,7 +1710,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}{grid_css}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
-        f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
+        f'<div class="meta">本日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
         f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"'
         f'{f' data-first="{span[0].isoformat()}"' if span else ""} style="{scroll_vars}">'
