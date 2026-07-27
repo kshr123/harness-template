@@ -541,12 +541,16 @@ def _event_marks(event: Event, span: tuple[date, date]) -> list[str]:
     first, last = span
     out: list[str] = []
     for begin, end in _runs(tuple(d for d in event.occurrences if first <= d <= last)):
-        left = _pct(begin, span)
-        width = _pct(end, span) + _day_pct(span) - left
-        out.append(
-            f'<i class="gbar ev" style="left:{left:.4f}%;width:{width:.4f}%"'
-            f' title="{_esc(event.name)}（{begin.isoformat()}）"></i>'
-        )
+        title = f' title="{_esc(event.name)}（{begin.isoformat()}）"'
+        if begin == end:
+            # 1 日の会は**記号**（小さな中空の丸）。◆（成果物・意思決定の点）より小さく淡くして退かせる。
+            center = _pct(begin, span) + _day_pct(span) / 2
+            out.append(f'<span class="ev" style="left:{center:.4f}%"{title}>○</span>')
+        else:
+            # 続く日（合宿など）は、その期間だけ細い淡い帯にする。
+            left = _pct(begin, span)
+            width = _pct(end, span) + _day_pct(span) - left
+            out.append(f'<i class="ev-run" style="left:{left:.4f}%;width:{width:.4f}%"{title}></i>')
     return out
 
 
@@ -792,8 +796,12 @@ tr.st-in-progress td.st { color:var(--prog); }
      横スクロールしても前後が入れ替わらない。はみ出しは overflow:hidden で不可能。 */
 td.gantt .gbar { position:absolute; top:50%; transform:translateY(-50%); height:8px; background:var(--bar); }
 tr.is-done .gbar { opacity:.45; }
-/* 出来事の印は開催日ごとに 1 つ（帯ではない）。1 日ぶんは狭いので、縦に伸ばして刻みとして読ませる。 */
-td.ms-track .gbar.ev { height:12px; min-width:2px; background:var(--bar-done); }
+/* 出来事は開催日ごとの記号（帯ではない）。◆（成果物・意思決定の点）より小さく淡くして退かせる
+   ＝完了を追う対象でないと一目で分かる。続く日（合宿など）だけ細い淡い帯にする。 */
+td.ms-track .ev { position:absolute; top:50%; transform:translate(-50%, -50%); font-size:9px;
+                  color:var(--muted); pointer-events:none; }
+td.ms-track .ev-run { position:absolute; top:50%; transform:translateY(-50%); height:4px;
+                      background:var(--muted); opacity:.5; }
 td.gantt .tl, td.ms-track .tl { position:absolute; top:0; bottom:0; left:var(--today-x); width:0;
                                 border-left:2px dashed var(--today); pointer-events:none; }
 svg.bar rect { rx:0; }
@@ -882,9 +890,10 @@ def _legend() -> str:
     """凡例。バーは 1 色なので「期間」の 1 種。状態は行の色で示すことも添える。"""
     return (
         '<div class="legend">'
-        '<span><i class="sw" style="background:var(--bar)"></i>期間（作業・定例会議）</span>'
+        '<span><i class="sw" style="background:var(--bar)"></i>期間（作業）</span>'
         '<span><i class="sw" style="background:var(--bar-done);width:8px;height:8px;'
         'transform:rotate(45deg)"></i>マイルストーン（承認・検収などその日に確定する出来事）</span>'
+        '<span style="color:var(--muted)">○ 会議・定例（開催日ごと。完了は追わない）</span>'
         "<span>破線＝基準日</span>"
         '<span class="rowlegend">行の状態：'
         '<i class="lb" style="box-shadow:inset 3px 0 0 var(--prog)"></i>進行中'

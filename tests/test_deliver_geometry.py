@@ -506,9 +506,10 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
     html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
     labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
     assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
-    # 出来事は**開催日ごとの印**（帯ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
-    # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。
-    assert html.count("gbar ev") == 3
+    # 出来事は**開催日ごとの記号**（棒ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
+    # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。◆（マイルストーン）より小さく淡い記号で描く。
+    assert html.count('class="ev"') == 3
+    assert "gbar" not in html.split("マイルストーン</td>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
     # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
 
