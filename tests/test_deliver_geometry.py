@@ -288,8 +288,8 @@ def test_a_finished_row_recedes_with_a_muted_fill(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 11))
     assert "is-done" in _row_markup(html, "T-9001")
     assert "is-done" not in _row_markup(html, "T-9002")
-    # 完了は**無彩色の面で沈める**（文字も灰・棒も淡く）。彩度のある面は遅れ専用のまま。
-    assert "tr.is-done > td:not(.gantt) { color:var(--muted); background-color:var(--done-row); }" in html
+    # 完了は**無彩色の面で沈める**（文字は専用の淡い灰 --done-ink・棒も淡く）。彩度のある面は遅れ専用のまま。
+    assert "tr.is-done > td:not(.gantt) { color:var(--done-ink); background-color:var(--done-row); }" in html
     assert "tr.is-done .gbar { opacity:.45; }" in html
 
 
@@ -530,6 +530,22 @@ def test_the_milestone_lane_is_always_present_when_editable(tmp_path: Path) -> N
     edit = render.render_html(wbs, editable=True, token="t")
     labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', edit)
     assert "マイルストーン" in labels  # 編集面：0 件でも帯を出す（クリックの的になる）
+
+
+def test_the_lane_label_is_frozen_on_the_left(tmp_path: Path) -> None:
+    """レーンの見出し（マイルストーン等）は固定列（No.＋作業）に貼り付ける＝横スクロールで左へ流れて消えない。
+
+    帯の左列を流れる空きにすると、右スクロールで見出しが左端の固定列の下へ潜って読めなくなる（実際に消えた）。
+    ラベルのセルを sticky・left:0 で固定し、同じ行の他セルより前面（z-index）に置く。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True},
+    )
+    style = _render(tmp_path, date(2026, 8, 5)).split("<style>")[1].split("</style>")[0]
+    label_rule = next(ln for ln in style.splitlines() if "td.ms-label" in ln and "{" in ln)
+    assert "position:sticky" in label_rule and "left:0" in label_rule  # 左端に固定
+    assert "z-index:6" in label_rule  # 同じ行の他セル（z-index:4）より前面＝流れてくる空きに覆われない
 
 
 def test_the_document_contains_no_svg_at_all(tmp_path: Path) -> None:

@@ -82,6 +82,10 @@ def _day_label(value: date | None) -> str:
 # 日の目盛を出す上限（これより長い期間では日の線・非稼働日の面を出さない＝細かすぎて読めない）。
 _MAX_DAY_TICKS = 400
 
+# レーン（マイルストーン・定例など）1 本の高さ（px）。データ行より低くして注釈帯だと分かる律動差を作る。
+# CSS（--lane-h）・JS（--lanes-h の計算）・初期の scroll_vars で使う唯一の出どころ。
+_LANE_H = 16
+
 
 def drawing_window(span: tuple[date, date]) -> tuple[date, date]:
     """図を描く期間。データの期間を**月の境目に合わせて広げる**（1 日始まり・月末終わり）。
@@ -572,8 +576,8 @@ def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     n_cols = len(COLUMNS)
     return (
         f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
-        '<td class="ms-pad" colspan="2"></td>'
-        f'<td class="ms-label" colspan="{n_cols - 2}">{_esc(label)}</td>'
+        f'<td class="ms-label" colspan="2">{_esc(label)}</td>'
+        f'<td class="ms-pad" colspan="{n_cols - 2}"></td>'
         f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
     )
 
@@ -651,7 +655,8 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c2c8d0; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c9ced5; --done-ink:#949aa4; --late-row:#f5edeb;
+  --head:#d7dce4;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -662,7 +667,8 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
-  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#3a414c; --late-row:#282120;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#333a44; --done-ink:#727b87; --late-row:#282120;
+  --head:#2a313a;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
@@ -673,7 +679,8 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
-  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#3a414c; --late-row:#282120;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#333a44; --done-ink:#727b87; --late-row:#282120;
+  --head:#2a313a;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
@@ -683,7 +690,8 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c2c8d0; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c9ced5; --done-ink:#949aa4; --late-row:#f5edeb;
+  --head:#d7dce4;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -704,17 +712,22 @@ thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px so
    なので各段の height に下罫が含まれ、次段の top はその累積で決まる（--lanes-h＝表示中のレーンの総高）。 */
 tr.ruler th { height:45px; }
 tr.ruler th.ruler-cell { padding:0; vertical-align:top; }
-thead tr.msrow > td { position:sticky; top:calc(45px + var(--laneidx) * 20px); z-index:4; }
-/* まとまり見出しの上罫＝レーン（注釈帯）と作業表の領域境界（最強の 2px・--sum）。 */
+/* 時間軸の左側（各列に合わせた空セル）は下罫を引かない＝マイルストーン帯の上の罫は日付の下（ruler-cell）
+   だけに出す。左の空白まで区切ると、注釈帯の領域が実際より大きく見える。 */
+tr.ruler th:not(.ruler-cell) { border-bottom:0; }
+thead tr.msrow > td { position:sticky; top:calc(45px + var(--laneidx) * var(--lane-h)); z-index:4; }
+/* 作業表の見出し（まとまり見出し＋列名）は地色を一段濃く（--head）＝表の頭だとひと目で分かる。上罫は
+   レーン（注釈帯）と作業表の領域境界（最強の 2px・--sum）。 */
 .grp th { top:calc(45px + var(--lanes-h)); height:22px; padding:0 8px; text-align:center; font-size:10px;
-          letter-spacing:.08em; border-bottom:1px solid var(--line); border-top:2px solid var(--sum); }
-thead tr.grp + tr th { height:22px; padding:0 8px; top:calc(45px + var(--lanes-h) + 22px); }
-thead th.gantt-body { top:calc(45px + var(--lanes-h)); padding:0; }
+          letter-spacing:.08em; background:var(--head); border-bottom:1px solid var(--line);
+          border-top:2px solid var(--sum); }
+thead tr.grp + tr th { height:22px; padding:0 8px; top:calc(45px + var(--lanes-h) + 22px); background:var(--head); }
+thead th.gantt-body { top:calc(45px + var(--lanes-h)); padding:0; background-color:var(--head); }
 /* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
 .gs { border-left:1px solid var(--line-strong) !important; }
 /* 作業グループの見出しの左半分（No.+作業）は固定列に合わせて貼り付ける（食い込み防止）。 */
-thead th.grp-fix { position:sticky; left:0; z-index:6; background:var(--sec); }
-thead th.grp-flow { background:var(--sec); }
+thead th.grp-fix { position:sticky; left:0; z-index:6; background:var(--head); }
+thead th.grp-flow { background:var(--head); }
 th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
          padding:5px 8px; vertical-align:middle; white-space:nowrap; }
 th:first-child, td:first-child { border-left:0; }
@@ -779,8 +792,8 @@ tr.is-late > td:not(.gantt) { background-color:var(--late-row); }
 tr.is-late.lv0 > td:not(.gantt) { background-color:var(--late-row); }  /* 遅れフェーズは節の面に勝つ（最も見る信号） */
 /* 完了＝無彩色の淡い面で沈める（文字も灰・棒も淡く）＝済んだ話に注意を奪わせない。灰の連なりが切れて白に
    なる行＝次にやる所（前線）が一目で分かる。ガント列には当てない（時間面は濁さない）。 */
-tr.is-done > td:not(.gantt) { color:var(--muted); background-color:var(--done-row); }
-tr.is-done > td.gantt { color:var(--muted); }
+tr.is-done > td:not(.gantt) { color:var(--done-ink); background-color:var(--done-row); }
+tr.is-done > td.gantt { color:var(--done-ink); }
 /* 左端 3px の縦バーで「動いているもの」を示す（border だと該当行だけ番号がずれるので inset 影で描く）。 */
 tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }
 tr.st-in-review > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
@@ -876,6 +889,14 @@ thead tr.msrow.lane-off { display:none; }
 .evform input, .evform select { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--line);
           border-radius:6px; background:var(--paper); color:var(--ink); }
 .evform input[type=text] { flex:1; }
+/* 曜日は複数選べる小さなトグル（チェックで青く塗る）。曜日名だけ見せてチェックボックス自体は隠す。 */
+.wdset { display:inline-flex; gap:3px; }
+.wdbox { position:relative; }
+.wdbox input { position:absolute; opacity:0; width:0; height:0; }
+.wdbox span { display:inline-block; width:22px; text-align:center; padding:3px 0; font-size:11px;
+              border:1px solid var(--line); border-radius:6px; color:var(--muted); cursor:pointer; }
+.wdbox input:checked + span { background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); }
+.wdbox input:focus-visible + span { outline:2px solid var(--bar-done); outline-offset:1px; }
 .evbtns { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
 .evbtns button { font:inherit; font-size:12px; padding:4px 14px; border:1px solid var(--line);
           border-radius:6px; background:var(--paper); color:var(--ink); cursor:pointer; }
@@ -886,17 +907,21 @@ button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:
             padding:0; line-height:1; }
 button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
-/* レーン（注釈帯）。罫の階級で領域を分ける：帯の**内部**は弱い線（--line）、領域の**境界**は最強の 2px
+/* レーン（注釈帯）。罫の階級で領域を分ける：帯**同士**は弱い線（--line）、領域の**境界**は最強の 2px
    （--sum＝表とガントを分ける縦罫と同格）。左側は縦の格子を持たない（格子はデータセルの記号＝データでないと
-   一目で分かる）。行高 20px（データ行 約27px）の律動差も領域を分ける。 */
+   一目で分かる）。行高 var(--lane-h)（データ行 約27px）の律動差も領域を分ける。 */
 tr.msrow > td:not(.gantt) { background-color:var(--sec); }
-tr.msrow > td { border-bottom:1px solid var(--line); }
+tr.msrow > td { border-bottom:1px solid var(--line); }  /* 帯同士の薄い区切り */
 /* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
-/* 左の空き（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ。縦の格子（右罫）は持たない。 */
-td.ms-pad { position:sticky; left:0; z-index:3; background-color:var(--sec); border-right:0; }
-td.ms-label { text-align:right; z-index:2; background-color:var(--sec); font-size:11px; font-weight:600;
-              color:var(--muted); letter-spacing:.02em; border-right:0; }
-td.ms-track { position:relative; overflow:hidden; height:20px; }
+/* 見出しは No.＋作業の固定列（2 列）に貼り付けて右寄せ＝横スクロールしても左端で常に読め、左へ流れて
+   食い込まない。残りの左列は流れる空き（ms-pad）。縦の格子（右罫）は持たない。 */
+/* z-index は同じ行の他セル（`thead tr.msrow > td`＝4）より上でないと、横スクロールで流れてくる ms-pad が
+   固定したラベルを覆う。詳細度も上げて（クラス 2 つ）その規則の z-index に負けないようにする（子結合子は
+   使わない＝ガント列に地色を当てる規則の検査に、非ガント専用の .ms-label まで巻き込まれないため）。 */
+thead tr.msrow td.ms-label { position:sticky; left:0; z-index:6; text-align:right; background-color:var(--sec);
+              font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.02em; border-right:0; }
+td.ms-pad { background-color:var(--sec); border-right:0; }
+td.ms-track { position:relative; overflow:hidden; height:var(--lane-h); }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
@@ -918,7 +943,8 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c2c8d0; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c9ced5; --done-ink:#949aa4; --late-row:#f5edeb;
+  --head:#d7dce4;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
@@ -1051,7 +1077,8 @@ _VIEW_SCRIPT = r"""
       if(r.classList.contains('lane-off')) return;
       r.style.setProperty('--laneidx', i); i++;
     });
-    scroll.style.setProperty('--lanes-h', (i*20)+'px');
+    var lh=parseInt(getComputedStyle(scroll).getPropertyValue('--lane-h'))||16;  // 1 本の高さ（唯一の出どころ）
+    scroll.style.setProperty('--lanes-h', (i*lh)+'px');
   }
   function setLane(label, off){
     laneRows().forEach(function(r){ if(r.dataset.lane===label) r.classList.toggle('lane-off', off); });
@@ -1445,15 +1472,30 @@ _EDIT_SCRIPT = r"""
     [['weekly','毎週'],['biweekly','隔週'],['monthly','毎月第N'],['once','単発の日だけ']].forEach(function(k){
       var o=document.createElement('option'); o.value=k[0]; o.textContent=k[1]; kind.appendChild(o); });
     f.appendChild(row('繰り返し', kind));
-    var wd=document.createElement('select');
-    WD.forEach(function(d){ var o=document.createElement('option'); o.value=d[1]; o.textContent=d[0]+'曜';
-      wd.appendChild(o); });
+    // 曜日は複数選べる（定例が週 2 回など）。チェックした曜日を BYDAY にカンマで並べる。
+    var wdset=document.createElement('span'); wdset.className='wdset';
+    var wdBoxes=WD.map(function(d){
+      var lab=document.createElement('label'); lab.className='wdbox';
+      var cb=document.createElement('input'); cb.type='checkbox'; cb.value=d[1];
+      var sp=document.createElement('span'); sp.textContent=d[0];
+      lab.appendChild(cb); lab.appendChild(sp); wdset.appendChild(lab);
+      cb.addEventListener('change',build); return cb;
+    });
+    function selectedDays(){ return wdBoxes.filter(function(c){return c.checked;}).map(function(c){return c.value;}); }
+    // 既存の規則から曜日を復元（BYDAY の頭の第N・符号は落とす）。無ければ初回の曜日、それも無ければ月曜。
+    var pre=[]; var bm=ev.rrule&&/BYDAY=([^;]+)/i.exec(ev.rrule);
+    if(bm) pre=bm[1].split(',').map(function(x){return x.replace(/^[+-]?\d+/,'').toUpperCase();});
+    wdBoxes.forEach(function(c){ if(pre.indexOf(c.value)>=0) c.checked=true; });
+    if(!selectedDays().length){
+      var wk=['SU','MO','TU','WE','TH','FR','SA'][ev.dtstart? new Date(ev.dtstart+'T00:00:00').getDay():1];
+      (wdBoxes.filter(function(c){return c.value===wk;})[0]||wdBoxes[0]).checked=true;
+    }
     var nth=document.createElement('select');
     [1,2,3,4].forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent='第'+n;
       nth.appendChild(o); });
     var start=dt(ev.dtstart), end=dt(''); var once=inp((ev.rdate||[]).join(', '));
     var whenRule=document.createElement('div'); whenRule.className='evrow';
-    whenRule.appendChild(nth); whenRule.appendChild(wd);
+    whenRule.appendChild(nth); whenRule.appendChild(wdset);
     whenRule.appendChild(document.createTextNode(' 初回')); whenRule.appendChild(start);
     whenRule.appendChild(document.createTextNode(' 最終')); whenRule.appendChild(end);
     var whenOnce=row('開催日（カンマ区切り）', once);
@@ -1467,11 +1509,12 @@ _EDIT_SCRIPT = r"""
       ruleRow.style.display = k==='once'?'none':'';
       if(k==='once') return;
       var u=end.value?(';UNTIL='+ymd(end.value)):'';
-      if(k==='weekly') rule.value='FREQ=WEEKLY;BYDAY='+wd.value+u;
-      else if(k==='biweekly') rule.value='FREQ=WEEKLY;INTERVAL=2;BYDAY='+wd.value+u;
-      else if(k==='monthly') rule.value='FREQ=MONTHLY;BYDAY='+nth.value+wd.value+u;
+      var days=selectedDays(); if(!days.length) days=['MO'];
+      if(k==='weekly') rule.value='FREQ=WEEKLY;BYDAY='+days.join(',')+u;
+      else if(k==='biweekly') rule.value='FREQ=WEEKLY;INTERVAL=2;BYDAY='+days.join(',')+u;
+      else if(k==='monthly') rule.value='FREQ=MONTHLY;BYDAY='+days.map(function(x){return nth.value+x;}).join(',')+u;
     }
-    kind.addEventListener('change',build); wd.addEventListener('change',build);
+    kind.addEventListener('change',build);
     nth.addEventListener('change',build); end.addEventListener('change',build);
     build();
     var btns=document.createElement('div'); btns.className='evbtns';
@@ -1652,7 +1695,9 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             f"{_EDIT_SCRIPT}</script>"
         )
     # スクロール枠の CSS 変数（レーンの段数と基準日の位置）を 1 つの style にまとめる。
-    scroll_vars = f"--lanes-h:{len(lane_labels) * 20}px" + (f";--today-x:{today_x}" if today_x else "")
+    scroll_vars = f"--lane-h:{_LANE_H}px;--lanes-h:{len(lane_labels) * _LANE_H}px" + (
+        f";--today-x:{today_x}" if today_x else ""
+    )
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}{grid_css}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
