@@ -278,7 +278,7 @@ def test_the_axis_shows_the_year_where_it_matters(tmp_path: Path) -> None:
     assert years == ["2026年", "2027年"]
 
 
-def test_a_finished_row_recedes_without_a_fill(tmp_path: Path) -> None:
+def test_a_finished_row_recedes_with_a_muted_fill(tmp_path: Path) -> None:
     """完了は退ける：面（ベタ塗り）を敷かず文字だけ灰にし、棒も淡くする（面は遅れ専用）。"""
     _tree(
         tmp_path,
@@ -288,10 +288,9 @@ def test_a_finished_row_recedes_without_a_fill(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 11))
     assert "is-done" in _row_markup(html, "T-9001")
     assert "is-done" not in _row_markup(html, "T-9002")
-    # 完了は文字だけ退け、面は敷かない（面＝遅れ専用）。棒も淡くする。
-    assert "tr.is-done > td { color:var(--muted); }" in html
-    assert "background:var(--done-row)" not in html  # 完了の面は撤去した
-    assert "tr.is-done rect.bar { opacity:.45; }" in html
+    # 完了は**無彩色の面で沈める**（文字も灰・棒も淡く）。彩度のある面は遅れ専用のまま。
+    assert "tr.is-done > td:not(.gantt) { color:var(--muted); background-color:var(--done-row); }" in html
+    assert "tr.is-done .gbar { opacity:.45; }" in html
 
 
 def test_the_fill_is_reserved_for_late_and_stops_at_the_gantt(tmp_path: Path) -> None:
@@ -567,7 +566,7 @@ def test_the_axis_and_the_body_use_the_same_box(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     assert "th.gantt, td.gantt { width:40%; min-width:280px; padding:0;" in html
-    assert "thead th.gantt { background-color:var(--canvas); padding:0;" in html
+    assert "thead th.gantt { background-color:var(--sec); padding:0;" in html
 
 
 def test_lanes_sit_in_the_header_not_between_columns_and_data(tmp_path: Path) -> None:
@@ -582,5 +581,5 @@ def test_lanes_sit_in_the_header_not_between_columns_and_data(tmp_path: Path) ->
     tbody = html.split("<tbody>")[1].split("</tbody>")[0]
     assert 'class="msrow"' in thead  # レーンは見出しの中
     assert "msrow" not in tbody  # データ側には無い
-    # レーンはグループ見出しより前に出る（＝最上部）。
-    assert thead.index("msrow") < thead.index('class="grp"')
+    # レーンは時間軸（グループ見出しの行）より**後**に出る＝ものさしが上・読み取り値（◆○）が下。
+    assert thead.index('class="grp"') < thead.index("msrow")

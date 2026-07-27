@@ -646,7 +646,7 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#ebf0f5; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#e9eef4; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -657,7 +657,7 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
-  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1f2328; --late-row:#282120;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1d2228; --late-row:#282120;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
@@ -668,7 +668,7 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
-  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1f2328; --late-row:#282120;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1d2228; --late-row:#282120;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
@@ -678,7 +678,7 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#ebf0f5; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#e9eef4; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -694,13 +694,12 @@ h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }
 thead { display:table-header-group; }
 thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
-/* レーンは thead の最上部＝縦スクロールでも常に見える。段ごとに --laneidx ぶん下げて重ねる。 */
-thead tr.msrow > td { position:sticky; top:calc(var(--laneidx) * 20px); z-index:4; }
-/* グループ見出しと列名は、レーンの段数（--lanes-h）ぶん下にずらして貼り付く。 */
-.grp th { top:var(--lanes-h); height:22px; padding:0 8px; text-align:center; font-size:10px;
+/* ものさし（時間軸）が上・読み取り値（レーンの◆○）が下。レーンは見出し 2 段（46px）の下に貼り付く。 */
+.grp th { top:0; height:22px; padding:0 8px; text-align:center; font-size:10px;
           letter-spacing:.08em; border-bottom:1px solid var(--line); }
-thead tr:last-child th { height:22px; padding:0 8px; top:calc(var(--lanes-h) + 23px); }
-thead th.gantt { top:var(--lanes-h); padding:0 2px; vertical-align:top; }
+thead tr.grp + tr th { height:22px; padding:0 8px; top:23px; }
+thead tr.msrow > td { position:sticky; top:calc(46px + var(--laneidx) * 20px); z-index:4; }
+thead th.gantt { top:0; padding:0 2px; vertical-align:top; }
 /* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
 .gs { border-left:1px solid var(--line-strong) !important; }
 /* 作業グループの見出しの左半分（No.+作業）は固定列に合わせて貼り付ける（食い込み防止）。 */
@@ -737,7 +736,9 @@ th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
 /* 軸セルは sticky のまま（base の position:sticky を保つ）＝縦スクロールでレーンの下に貼り付く。
    relative にすると top:var(--lanes-h) が「下方向シフト」になって軸が 1 段ぶん落ちる。sticky も
    絶対配置（基準日の線）の基準になるので overflow:hidden と両立する。 */
-thead th.gantt { background-color:var(--canvas); padding:0; overflow:hidden; }
+/* 見出し帯は全幅 --sec に統一（時間軸の見出しだけ地色が違う例外を作らない）。時間の面（--canvas）は
+   レーンの track と本体のガント列だけが持つ。 */
+thead th.gantt { background-color:var(--sec); padding:0; overflow:hidden; }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 tbody td.code, tbody td.name { z-index:3; }
@@ -758,17 +759,18 @@ td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
 td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
 tbody tr:hover > td:not(.gantt) { background-color:var(--hover); }
 tr.is-sel > td:not(.gantt) { background-color:var(--sel); }
-/* **行の地色は決してガント列に当てない**（すべて :not(.gantt)）。当てると、左の表の塗りがガントへ伸びて
-   「右に食い込む」ように見え、時間の格子も濁る。ガント列は常に無地のキャンバス＋時間の格子のまま。
-   状態→視覚の強さ（意味の順に読める）。面（ベタ塗り）はページ最強の視覚資源なので**遅れだけ**に使う。
-   完了は面を取り上げて文字だけ退け、進行中は左端の縦バーと状態語で「今ここ」を積極的に示す。棒は 1 色のまま。 */
+/* **行の地色は決してガント列に当てない**（すべて :not(.gantt)）。当てると左の塗りがガントへ食い込み格子が濁る。
+   状態→視覚の強さ＝**見た人が取るべき行動の量**に対応させる（顕著性の予算は「基準面＝白からの逸脱」）。
+   **彩度のある面は遅れ専用**（注意を上げる逸脱）／**完了は無彩色の沈む面**（注意を下げる逸脱）＝方向が逆なので
+   予算を食い合わない。むしろ完了が沈むと、白い行（これからの仕事）と赤い行（火事）が一層ポップアウトする。
+   進捗の前線は 2 軸で導出：時間方向＝基準日の破線、作業方向＝灰（完了）が白（未完了）に変わる境目。 */
 tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
-/* 遅れ＝淡赤の面。ただし表の側だけ（ガントは無地のキャンバスに載せて図を濁さない＝領域を分ける）。 */
 tr.is-late > td:not(.gantt) { background-color:var(--late-row); }
 tr.is-late.lv0 > td:not(.gantt) { background-color:var(--late-row); }  /* 遅れフェーズは節の面に勝つ（最も見る信号） */
-/* 完了＝面を敷かない（白のまま）。文字だけ退け、棒も同じ青を淡くする＝済んだ話は地に沈める。 */
-tr.is-done > td { color:var(--muted); }
-tr.is-done rect.bar { opacity:.45; }
+/* 完了＝無彩色の淡い面で沈める（文字も灰・棒も淡く）＝済んだ話に注意を奪わせない。灰の連なりが切れて白に
+   なる行＝次にやる所（前線）が一目で分かる。ガント列には当てない（時間面は濁さない）。 */
+tr.is-done > td:not(.gantt) { color:var(--muted); background-color:var(--done-row); }
+tr.is-done > td.gantt { color:var(--muted); }
 /* 左端 3px の縦バーで「動いているもの」を示す（border だと該当行だけ番号がずれるので inset 影で描く）。 */
 tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }
 tr.st-in-review > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
@@ -790,7 +792,7 @@ tr.st-in-progress td.st { color:var(--prog); }
             border-left:1px solid var(--line); }
 .lab-y, .lab-m, .lab-my { border-left-color:var(--line-strong); color:var(--ink); }
 /* 上段のラベルは地を敷いて、下位の格子線が上段を貫通しないようにする（空マスが並ぶのを消す）。 */
-.lab-y, .lab-my { background:var(--paper); }
+.lab-y, .lab-my { background:var(--sec); }  /* 上段ラベルの地は見出し帯と同じ（例外を作らない） */
 .scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
 .scroll.u-w .lab-my, .scroll.u-w .lab-w { display:block; }
 .scroll.u-d .lab-my, .scroll.u-d .lab-d, .scroll.u-d .lab-wd { display:block; }
@@ -818,7 +820,9 @@ tr.is-done .gbar { opacity:.45; }
 /* 出来事は開催日ごとの記号（帯ではない）。◆（成果物・意思決定の点）より小さく淡くして退かせる
    ＝完了を追う対象でないと一目で分かる。続く日（合宿など）だけ細い淡い帯にする。 */
 td.ms-track .ev { position:absolute; top:50%; transform:translate(-50%, -50%); font-size:9px;
-                  color:var(--muted); pointer-events:none; }
+                  color:var(--muted); cursor:pointer; }
+td.ms-track .ev-run { cursor:pointer; }
+td.ms-track { cursor:pointer; }  /* 空きを左クリック＝その日・そのレーンで登録 */
 td.ms-track .ev-run { position:absolute; top:50%; transform:translateY(-50%); height:4px;
                       background:var(--muted); opacity:.5; }
 td.gantt .tl, td.ms-track .tl { position:absolute; top:0; bottom:0; left:var(--today-x); width:0;
@@ -850,9 +854,7 @@ td.gantt { position:relative; }
 .ops button.lane[aria-pressed="false"] { color:var(--muted); }
 .ops .divider { width:1px; align-self:stretch; background:var(--line); margin:2px 4px; }
 thead tr.msrow.lane-off { display:none; }
-#addevent { color:var(--muted); border:0; background:none; font:inherit; font-size:11px; cursor:pointer;
-            padding:2px 6px; }
-#addevent:hover { color:var(--ink); }
+
 /* 出来事の登録フォーム（追加・修正で同じ）。画面中央に重ねる。 */
 #evback { display:none; position:fixed; inset:0; background:rgba(15,20,26,.35); align-items:center;
           justify-content:center; z-index:30; }
@@ -874,13 +876,16 @@ button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:
             padding:0; line-height:1; }
 button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
 tr.hid { display:none; }
-/* マイルストーンの集約行（ガント上部の帯）。左は貼り付き、右に全ての◆を時間軸で並べる。 */
+/* レーン（注釈帯）。罫の階級で領域を分ける：帯の**内部**は弱い線（--line）、領域の**境界**は最強の 2px
+   （--sum＝表とガントを分ける縦罫と同格）。左側は縦の格子を持たない（格子はデータセルの記号＝データでないと
+   一目で分かる）。行高 20px（データ行 約27px）の律動差も領域を分ける。 */
 tr.msrow > td:not(.gantt) { background-color:var(--sec); }
-tr.msrow > td { border-bottom:1px solid var(--line-strong); }
-/* 左の空きだけを貼り付ける（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ＝図の近くで読める。 */
-td.ms-pad { position:sticky; left:0; z-index:3; background-color:var(--sec); }
+tr.msrow > td { border-bottom:1px solid var(--line); }
+tbody tr:first-child > td { border-top:2px solid var(--sum); }  /* 注釈帯 → データ本体の領域境界 */
+/* 左の空き（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ。縦の格子（右罫）は持たない。 */
+td.ms-pad { position:sticky; left:0; z-index:3; background-color:var(--sec); border-right:0; }
 td.ms-label { text-align:right; z-index:2; background-color:var(--sec); font-size:11px; font-weight:600;
-              color:var(--muted); letter-spacing:.02em; }
+              color:var(--muted); letter-spacing:.02em; border-right:0; }
 td.ms-track { position:relative; overflow:hidden; height:20px; }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
@@ -903,7 +908,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#ebf0f5; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#e9eef4; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
@@ -1012,7 +1017,8 @@ _VIEW_SCRIPT = r"""
     // （合わせ直さないと 1 行目と 2 行目がずれる）。予定・実績は隠せないので触らない。
     function vis(sel){ var n=0; document.querySelectorAll(sel).forEach(function(c){
       if(getComputedStyle(c).display!=='none') n++; }); return n; }
-    var flow=vis('thead tr:last-child th.team')+vis('thead tr:last-child th.who')+vis('thead tr:last-child th.st');
+    // 列名の行は「グループ見出しの次の行」（レーンを thead 末尾に置いたので last-child では拾えない）。
+    var flow=vis('thead tr.grp + tr th.team')+vis('thead tr.grp + tr th.who')+vis('thead tr.grp + tr th.st');
     var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
   }
   document.querySelectorAll('.col').forEach(function(b){
@@ -1034,7 +1040,6 @@ _VIEW_SCRIPT = r"""
       if(r.classList.contains('lane-off')) return;
       r.style.setProperty('--laneidx', i); i++;
     });
-    var add=document.querySelector('tr.lane-add'); if(add) add.style.setProperty('--laneidx', i);
     scroll.style.setProperty('--lanes-h', (i*20)+'px');
   }
   function setLane(label, off){
@@ -1443,7 +1448,26 @@ _EDIT_SCRIPT = r"""
   if(addbtn) addbtn.addEventListener('click',function(){ openEvent({}); });
   document.addEventListener('click',hideMenu);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
+  // クリックの意味は「そこに住む値」で決まる：編集セル＝値を直す、出来事の印＝その出来事を直す、
+  // レーンの空き＝その日・そのレーンで登録（値の集合への追記）。
+  function dayAt(track, e){
+    var sc=document.querySelector('.scroll');
+    var first=sc && sc.dataset.first, days=Number(sc && sc.dataset.days);
+    if(!first || !days) return null;
+    var r=track.getBoundingClientRect();
+    var i=Math.floor((e.clientX - r.left) / r.width * days);
+    i=Math.max(0, Math.min(days-1, i));
+    var d=new Date(first+'T00:00:00'); d.setDate(d.getDate()+i);
+    return d.toISOString().slice(0,10);
+  }
   document.addEventListener('click',function(e){
+    var mark=e.target.closest && e.target.closest('.ev, .ev-run');
+    if(mark && mark.dataset.eid){ editEvent(mark.dataset.eid); return; }
+    var laneRow=e.target.closest && e.target.closest('tr.msrow[data-lane]');
+    var track=e.target.closest && e.target.closest('td.ms-track');
+    if(laneRow && track && laneRow.dataset.lane!=='マイルストーン'){
+      openEvent({lane:laneRow.dataset.lane, dtstart:dayAt(track, e)}); return;
+    }
     var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
   document.addEventListener('keydown',function(e){
     if(e.key!=='Enter') return;
@@ -1501,12 +1525,6 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
     lanes_html, lane_labels = _lanes(wbs, span, today_mark)
-    if editable:  # 出来事を足す入口（幽霊行）。書き出す生成物には出さない＝閲覧用は今までどおり。
-        lanes_html += (
-            f'<tr class="msrow lane-add" style="--laneidx:{len(lane_labels)}"><td class="ms-pad" colspan="2"></td>'
-            f'<td class="ms-label" colspan="{len(COLUMNS) - 2}"></td>'
-            '<td class="gantt"><button id="addevent" type="button">＋ 出来事（定例など）を追加</button></td></tr>'
-        )
     body = "".join(
         _row_html(
             row,
@@ -1534,6 +1552,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         '<button class="col" data-col="team" type="button">チーム</button>',
         '<button class="col" data-col="who" type="button">担当</button>',
         ('<span class="divider"></span>' + lane_toggles) if lane_toggles else "",
+        # 出来事の追加はコマンドなので、コマンドの場所（操作バー）に置く。レーンの空きクリックでも足せる。
+        ('<span class="divider"></span><button id="addevent" type="button">＋ 出来事</button>') if editable else "",
     ]
     right = [
         '<span class="sep">時間軸</span>',
@@ -1583,9 +1603,10 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
-        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}" style="{scroll_vars}">'
-        f"<table><thead>{lanes_html}"
-        f'<tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
+        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"'
+        f'{f' data-first="{span[0].isoformat()}"' if span else ""} style="{scroll_vars}">'
+        f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr>'
+        f"{lanes_html}</thead>"
         f"<tbody>{body}</tbody></table></div>"
         f"<footer></footer><script>{_view_script()}</script>{edit_bits}"
     )
