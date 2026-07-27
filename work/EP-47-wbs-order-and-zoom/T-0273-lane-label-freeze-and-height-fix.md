@@ -10,10 +10,12 @@ effort_days: 1
 requirements: []
 depends_on: [T-0272]
 verified_by:
-  - tests/test_deliver_geometry.py::test_the_lane_label_is_frozen_at_the_work_column
   - tests/test_deliver_geometry.py::test_lane_rows_are_exactly_one_lane_height_so_sticking_does_not_break
 ---
 # T-0273 レーン見出しを固定列に戻す（横スクロールの崩れ）・帯の高さを揃える（縦スクロールの崩れ）
+
+（見出しを固定列＝作業列に置く案はこの後 T-0274 で「カレンダーの左端に置く」案に差し替えた。作業列だと
+◆○から遠く目線が動くため。高さの直しは不十分で潰れが残ったので、T-0274 で line-height まで詰めて確定した。）
 
 T-0272 で見出しを「時系列側で追従」させたら 2 つ崩れたので直す。
 

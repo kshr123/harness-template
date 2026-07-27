@@ -572,16 +572,20 @@ def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     レーンは時間軸への注釈（◆の集約と○）なので、**時間軸のすぐ下・作業表（まとまり見出し・列名・データ）の
     上**に置く（軸で測って読むものを軸の直下にまとめ、作業表の列名とデータ行の間には割り込ませない／縦スクロール
     でも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
-    見出しは行の識別子なので、作業名と同じく左の固定列（No.＋作業の 2 列）に貼り付ける（`ms-label` を sticky に）。
-    横スクロールで作業列の位置に止まり、それ以上左へは行かない・◆○が固定領域へ漏れない（`ms-label` が覆う）。
+    見出し（`ms-name`）は**カレンダー（ガント）の左端**に置く＝◆○のすぐ左で目線が動かない。ガント列の中で
+    sticky にし、横スクロールではカレンダーの見えている左端（固定列の右＝`--frozen-w`）に貼り付いて止まる。
+    ガント列は広いので左へ流れきらない（作業列超え・記号漏れが起きない）。固定列（No.＋作業）は空の不透明セル
+    （`ms-frozen`）で覆い、ガントが下へ潜っても◆○が左へ漏れないようにする。記号と今日線はクリップする内枠
+    （`ms-clip`）に入れる（sticky は overflow:hidden の中では効かないので、見出しはクリップの外に置く）。
     `data-lane` で、見出しの操作からこのレーンだけを表示・非表示できる。
     """
     n_cols = len(COLUMNS)
     return (
         f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
-        f'<td class="ms-label" colspan="2">{_esc(label)}</td>'
+        f'<td class="ms-frozen" colspan="2"></td>'
         f'<td class="ms-pad" colspan="{n_cols - 2}"></td>'
-        f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
+        f'<td class="gantt ms-track"><span class="ms-name">{_esc(label)}</span>'
+        f'<div class="ms-clip">{body}{today_mark}</div></td></tr>'
     )
 
 
@@ -915,18 +919,24 @@ tr.hid { display:none; }
 /* レーン（注釈帯）。罫の階級で領域を分ける：帯**同士**は弱い線（--line）、領域の**境界**は最強の 2px
    （--sum＝表とガントを分ける縦罫と同格）。左側は縦の格子を持たない（格子はデータセルの記号＝データでないと
    一目で分かる）。行高 var(--lane-h)（データ行 約27px）の律動差も領域を分ける。 */
-/* 帯の全セルを --lane-h ちょうどにする（縦の余白を持ち込まない）＝縦スクロールで貼り付いたとき、段の
-   高さ（--lane-h の累積）と実寸がずれて重ならない。データ行の 5px 上下余白を持ち込むと段が崩れる。 */
-tr.msrow > td { height:var(--lane-h); border-bottom:1px solid var(--line); }  /* 帯同士の薄い区切り */
+/* 帯の全セルを --lane-h ちょうどにする（縦の余白も行の高さも持ち込まない）＝縦スクロールで貼り付いたとき、
+   段の送り（--laneidx × --lane-h）と実寸がずれて重ならない。**行の高さはセルの content 高さで決まり、
+   table の height はあくまで最小値**なので、line-height:1 で content を font 分（< --lane-h）に抑える
+   （そうしないと既定の行間で行が --lane-h より高くなり、貼り付いたとき段が潰れる）。 */
+tr.msrow > td { height:var(--lane-h); line-height:1; border-bottom:1px solid var(--line); }
 tr.msrow > td:not(.gantt) { background-color:var(--sec); padding:0 8px; }
 /* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
-/* 見出しは行の識別子なので、作業名と同じく左の固定列（No.＋作業）に貼り付ける（右寄せ＝ガント寄り）。横
-   スクロールしても作業列で止まって動かない。地色は不透明・z-index を同じ行の他セルより上にして、流れてくる
-   ガントの◆○が固定領域へ食い込むのを覆い隠す（記号が左へ漏れない）。縦の格子（右罫）は持たない。 */
-thead tr.msrow td.ms-label { position:sticky; left:0; z-index:6; text-align:right; background-color:var(--sec);
-              font-size:10px; font-weight:600; color:var(--muted); letter-spacing:.02em; border-right:0; }
+/* 固定列（No.＋作業）は空の不透明セルで覆う＝ガントが下へ潜っても◆○が左へ漏れない。 */
+thead tr.msrow td.ms-frozen { position:sticky; left:0; z-index:6; }
 td.ms-pad { border-right:0; }
-td.ms-track { position:relative; overflow:hidden; padding:0; }
+/* ガント列は overflow:visible にして、その中の見出し（ms-name）を sticky で効かせる（記号は内枠 ms-clip で
+   クリップする）。見出しはカレンダーの左端に置き、横スクロールで見えている左端（--frozen-w＝固定列の幅）に
+   貼り付いて止まる。ガント列は広いので左へ流れきらない＝作業列を超えない・記号も漏れない。 */
+td.ms-track { position:relative; overflow:visible; padding:0; }
+td.ms-track .ms-clip { position:absolute; inset:0; overflow:hidden; }
+td.ms-track .ms-name { position:sticky; left:var(--frozen-w, 214px); z-index:2; display:inline-block;
+              background-color:var(--canvas); padding:0 8px 0 4px; font-size:10px; font-weight:600;
+              color:var(--muted); letter-spacing:.02em; white-space:nowrap; }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
@@ -1071,6 +1081,11 @@ _VIEW_SCRIPT = r"""
     //   列名は last-child ではない）。
     var flow=vis('thead tr.grp + tr th.team')+vis('thead tr.grp + tr th.who')+vis('thead tr.grp + tr th.st');
     var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
+    // レーンの見出し（ms-name）が横スクロールで止まる位置＝固定列（No.＋作業）の幅。実測して渡す
+    //（作業名の幅は内容で変わるので固定値にしない）。
+    var code=document.querySelector('thead tr.grp + tr th.code');
+    var name=document.querySelector('thead tr.grp + tr th.name');
+    if(code&&name) scroll.style.setProperty('--frozen-w', (code.offsetWidth + name.offsetWidth)+'px');
   }
   document.querySelectorAll('.col').forEach(function(b){
     b.addEventListener('click',function(){

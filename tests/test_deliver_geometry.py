@@ -518,12 +518,12 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
         }
     )
     html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
-    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
+    labels = re.findall(r'<span class="ms-name">([^<]+)</span>', html)
     assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
     # 出来事は**開催日ごとの記号**（棒ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
     # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。◆（マイルストーン）より小さく淡い記号で描く。
     assert html.count('class="ev"') == 3
-    assert "gbar" not in html.split("マイルストーン</td>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
+    assert "gbar" not in html.split("マイルストーン</span>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
     # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
 
@@ -540,19 +540,19 @@ def test_the_milestone_lane_is_always_present_when_editable(tmp_path: Path) -> N
     wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
 
     view = render.render_html(wbs)
-    assert "マイルストーン</td>" not in view  # 閲覧用：節目 0 件なら帯は出さない
+    assert '<span class="ms-name">マイルストーン' not in view  # 閲覧用：節目 0 件なら帯は出さない
 
     edit = render.render_html(wbs, editable=True, token="t")
-    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', edit)
+    labels = re.findall(r'<span class="ms-name">([^<]+)</span>', edit)
     assert "マイルストーン" in labels  # 編集面：0 件でも帯を出す（クリックの的になる）
 
 
-def test_the_lane_label_is_frozen_at_the_work_column(tmp_path: Path) -> None:
-    """レーンの見出しは作業名と同じく左の固定列（No.＋作業）に貼り付ける＝横スクロールで作業列の位置で止まり、
-    それ以上左へ行かない・◆○が固定領域へ漏れない。
+def test_the_lane_label_sits_at_the_calendar_edge_and_covers_leaks(tmp_path: Path) -> None:
+    """レーンの見出しはカレンダー（ガント）の左端に置く＝◆○のすぐ左で目線が動かない。横スクロールでは
+    見えている左端（--frozen-w＝固定列の幅）で止まる。固定列は空の不透明セルで覆い、記号を左へ漏らさない。
 
-    以前「時系列側で追従」させたら、作業列を超えて左へ流れ・記号が左へ漏れて崩れた。行の識別子なので、
-    データ行の作業名と同じ扱い（sticky・left:0・不透明で前面）にして、止まる位置と重なりを構造で決める。
+    見出しはガント列の中の span（ms-name）で、ガント列を overflow:visible にして sticky を効かせる（記号は
+    内枠 ms-clip でクリップ）。ガント列は広いので左へ流れきらない＝作業列超え・記号漏れが起きない。
     """
     _tree(
         tmp_path,
@@ -560,25 +560,28 @@ def test_the_lane_label_is_frozen_at_the_work_column(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     style = html.split("<style>")[1].split("</style>")[0]
-    label_rule = next(ln for ln in style.splitlines() if "td.ms-label" in ln and "position:sticky" in ln)
-    assert "left:0" in label_rule  # 作業列の側（固定列）に貼り付く＝それ以上左へ行かない
-    assert "z-index:6" in label_rule  # 同じ行の他セル（z-index:4 のガント）より前面＝◆○を覆って漏らさない
+    name_rule = next(ln for ln in style.splitlines() if "td.ms-track .ms-name" in ln and "position:sticky" in ln)
+    assert "left:var(--frozen-w" in name_rule  # カレンダーの見えている左端（固定列の幅）で止まる
+    track_rule = next(ln for ln in style.splitlines() if "td.ms-track {" in ln and "overflow" in ln)
+    assert "overflow:visible" in track_rule  # ガント列は visible（中の span の sticky を効かせる）
+    assert "td.ms-track .ms-clip { position:absolute; inset:0; overflow:hidden; }" in style  # 記号はここでクリップ
+    frozen_rule = next(ln for ln in style.splitlines() if "td.ms-frozen" in ln and "position:sticky" in ln)
+    assert "left:0" in frozen_rule and "z-index:6" in frozen_rule  # 固定列を不透明で覆い記号を漏らさない
 
 
 def test_lane_rows_are_exactly_one_lane_height_so_sticking_does_not_break(tmp_path: Path) -> None:
-    """帯の全セルが --lane-h ちょうど＝縦スクロールで貼り付いても段の高さ（--lane-h の累積）と実寸がずれない。
+    """帯の全セルが --lane-h ちょうど＝縦スクロールで貼り付いても段の送り（--lane-h の累積）と実寸がずれない。
 
-    見出しセルにデータ行の上下余白（5px）が残ると、行の実寸が --lane-h より高くなり、貼り付いたとき段が
-    重なって潰れて見えた（実際に起きた）。全セルの余白を縦 0・高さを --lane-h に固定して構造で防ぐ。
+    table の td の height は**最小値**なので、既定の行間（line-height）のままだと行が --lane-h より高くなり、
+    貼り付いたとき段が重なって潰れた（実際に起きた）。line-height:1 で content を font 分に抑え、送りと実寸を
+    同じ --lane-h に縛って構造で防ぐ。
     """
     _tree(tmp_path, {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True})
     style = _render(tmp_path, date(2026, 8, 5)).split("<style>")[1].split("</style>")[0]
     # 段の送り（laneidx × lane-h）と行の実寸（td の height）が同じ --lane-h を使う＝ずれない。
     assert "top:calc(45px + var(--laneidx) * var(--lane-h))" in style
     row_rule = next(ln for ln in style.splitlines() if "tr.msrow > td {" in ln and "height" in ln)
-    assert "height:var(--lane-h)" in row_rule
-    left_cells = next(ln for ln in style.splitlines() if "tr.msrow > td:not(.gantt)" in ln)
-    assert "padding:0 8px" in left_cells  # 縦の余白を持たない（データ行の 5px を持ち込まない）
+    assert "height:var(--lane-h)" in row_rule and "line-height:1" in row_rule  # 行間で膨らませない
 
 
 def test_the_document_contains_no_svg_at_all(tmp_path: Path) -> None:
