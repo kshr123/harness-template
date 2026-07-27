@@ -31,6 +31,7 @@ OVERLAY_PATH = "docs/wbs.yaml"
 
 # 手動行の ID。`work/` の単位 ID（EP-/T-/E-/INV-）と衝突しない接頭辞にする。
 MANUAL_ID_PREFIX = "W-"
+EVENT_ID_PREFIX = "EV-"
 
 
 class CalendarSpec(BaseModel):
@@ -84,6 +85,8 @@ class Event(BaseModel):
     @model_validator(mode="after")
     def _is_a_finite_set_of_days(self) -> Event:
         """開催日が**有限で・1 件以上あり・矛盾していない**ことを読み込み時に確かめる。"""
+        if not self.id.startswith(EVENT_ID_PREFIX):
+            raise ValueError(f"出来事の id '{self.id}' は '{EVENT_ID_PREFIX}' で始めること（他の ID と混ざらない）")
         if self.rrule is not None:
             upper = self.rrule.upper()
             if "UNTIL=" not in upper and "COUNT=" not in upper:
@@ -206,13 +209,14 @@ class Overlay(BaseModel):
     members: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _unique_row_ids(self) -> Overlay:
-        """手動行の ID の重複は読み込み時に落とす（参照先が一意に決まらなくなるため）。"""
-        seen: set[str] = set()
-        for row in self.rows:
-            if row.id in seen:
-                raise ValueError(f"手動行の id '{row.id}' が重複している（ID は一意・再利用しない）")
-            seen.add(row.id)
+    def _unique_ids(self) -> Overlay:
+        """手動行・出来事の ID の重複は読み込み時に落とす（ID で引くので一意でないと参照が壊れる）。"""
+        for kind, items in (("手動行", self.rows), ("出来事", self.events)):
+            seen: set[str] = set()
+            for item in items:
+                if item.id in seen:
+                    raise ValueError(f"{kind}の id '{item.id}' が重複している（ID は一意・再利用しない）")
+                seen.add(item.id)
         return self
 
     @property

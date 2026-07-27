@@ -35,6 +35,8 @@ from harness.deliver import session as session_mod
 from harness.deliver import wbs as wbs_mod
 from harness.deliver.adder import add_child, add_sibling
 from harness.deliver.editor import LOCK, EditRejected, apply_cascade, apply_edit
+from harness.deliver.events import EventInput, remove_event, upsert_event
+from harness.deliver.overlay import EVENT_ID_PREFIX
 from harness.deliver.remover import remove
 from harness.deliver.wbs_lint import all_problems
 
@@ -107,6 +109,20 @@ class ApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirm: str = ""
+
+
+class EventRequest(BaseModel):
+    """`POST /event` の本文。id 空＝新規。開催日は dtstart+rrule と rdate/exdate（RFC 5545）で持つ。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    lane: str
+    id: str = ""
+    dtstart: date | None = None
+    rrule: str = ""
+    rdate: list[date] = []
+    exdate: list[date] = []
 
 
 class CascadeRequest(BaseModel):
@@ -239,13 +255,41 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None,
 
     @app.post("/remove")
     def _remove(payload: RemoveRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
-        """行を 1 つ消す（正本から取り除く）。配下を持つ単位はまとめて消さない。"""
+        """行を 1 つ消す（正本から取り除く）。配下を持つ単位はまとめて消さない。出来事は events から消す。"""
         _check_token(x_wbs_token)
+        if payload.ref.startswith(EVENT_ID_PREFIX):
+            op = lambda: remove_event(live, payload.ref, today=today)  # noqa: E731
+        else:
+            op = lambda: remove(live, payload.ref, today=today)  # noqa: E731
         try:
-            _run(lambda: remove(live, payload.ref, today=today), f"{payload.ref} を削除")
+            _run(op, f"{payload.ref} を削除")
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ref": payload.ref}
+
+    @app.post("/event")
+    def _event(payload: EventRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
+        """出来事（定例など）を足す（id 空）／直す（id 指定）。書き戻し先は docs/wbs.yaml の events。"""
+        _check_token(x_wbs_token)
+        out: dict[str, str] = {}
+        inp = EventInput(
+            name=payload.name,
+            lane=payload.lane,
+            id=payload.id,
+            dtstart=payload.dtstart,
+            rrule=payload.rrule or None,
+            rdate=tuple(payload.rdate),
+            exdate=tuple(payload.exdate),
+        )
+
+        def op() -> None:
+            out["id"] = upsert_event(live, inp, today=today)
+
+        try:
+            _run(op, f"出来事「{payload.name}」を{'直す' if payload.id else '追加'}")
+        except (EditRejected, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return out
 
     @app.get("/changes")
     def _changes() -> dict[str, object]:

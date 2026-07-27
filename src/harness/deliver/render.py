@@ -539,18 +539,25 @@ def _event_marks(event: Event, span: tuple[date, date]) -> list[str]:
     描き、続いている日（合宿など）だけその幅を持つ＝印と期間の区別は**描画時の導出**で、欄は増えない。
     """
     first, last = span
+    # 記号を右クリックしたときに「この出来事」を特定できるよう、id・名前・その回の日付を持たせる。
+    data = f' data-eid="{_esc(event.id)}" data-ename="{_esc(event.name)}"'
     out: list[str] = []
     for begin, end in _runs(tuple(d for d in event.occurrences if first <= d <= last)):
         title = f' title="{_esc(event.name)}（{begin.isoformat()}）"'
         if begin == end:
             # 1 日の会は**記号**（小さな中空の丸）。◆（成果物・意思決定の点）より小さく淡くして退かせる。
             center = _pct(begin, span) + _day_pct(span) / 2
-            out.append(f'<span class="ev" style="left:{center:.4f}%"{title}>○</span>')
+            out.append(
+                f'<span class="ev" style="left:{center:.4f}%"{data} data-day="{begin.isoformat()}"{title}>○</span>'
+            )
         else:
             # 続く日（合宿など）は、その期間だけ細い淡い帯にする。
             left = _pct(begin, span)
             width = _pct(end, span) + _day_pct(span) - left
-            out.append(f'<i class="ev-run" style="left:{left:.4f}%;width:{width:.4f}%"{title}></i>')
+            out.append(
+                f'<i class="ev-run" style="left:{left:.4f}%;width:{width:.4f}%"{data}'
+                f' data-day="{begin.isoformat()}"{title}></i>'
+            )
     return out
 
 
@@ -846,6 +853,21 @@ thead tr.msrow.lane-off { display:none; }
 #addevent { color:var(--muted); border:0; background:none; font:inherit; font-size:11px; cursor:pointer;
             padding:2px 6px; }
 #addevent:hover { color:var(--ink); }
+/* 出来事の登録フォーム（追加・修正で同じ）。画面中央に重ねる。 */
+#evback { display:none; position:fixed; inset:0; background:rgba(15,20,26,.35); align-items:center;
+          justify-content:center; z-index:30; }
+.evform { background:var(--paper); border:1px solid var(--line-strong); border-radius:10px; padding:16px;
+          min-width:420px; box-shadow:0 10px 40px rgba(0,0,0,.3); display:flex; flex-direction:column; gap:8px; }
+.evhead { font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:8px; }
+.evrow { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--ink); }
+.evrow > span:first-child { width:64px; flex:none; color:var(--muted); }
+.evform input, .evform select { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--line);
+          border-radius:6px; background:var(--paper); color:var(--ink); }
+.evform input[type=text] { flex:1; }
+.evbtns { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+.evbtns button { font:inherit; font-size:12px; padding:4px 14px; border:1px solid var(--line);
+          border-radius:6px; background:var(--paper); color:var(--ink); cursor:pointer; }
+.evbtns button:first-child { background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); }
 /* 取っ手（▾）と、子の無い行の空き枠は同じ幅にして番号の左端をそろえる。 */
 .tw { display:inline-block; width:15px; text-align:left; }
 button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
@@ -1266,7 +1288,37 @@ _EDIT_SCRIPT = r"""
     menu.appendChild(note(t));
     menu.appendChild(rule()); menu.appendChild(signpost());
   }
+  function showMenu(e){ hideMenu(); menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px';
+    menu.style.display='block'; }
+  function laneMenu(e, laneRow){
+    // レーンの帯を右クリック：この帯へ足す（マイルストーンは作業単位・出来事は events）。
+    var label=laneRow.dataset.lane;
+    menu.textContent=''; menu.appendChild(head(label, '', 0));
+    var evmark=e.target.closest && e.target.closest('[data-eid]');
+    if(label==='マイルストーン'){
+      menu.appendChild(item('マイルストーンを追加（最上位）',function(){ add(null,'top',true); }));
+      menu.appendChild(rule());
+      menu.appendChild(note('フェーズの下に足すなら、その行の「作業」列で右クリック'));
+      menu.appendChild(note('正本: work/（作業単位の milestone: true）'));
+    } else {
+      menu.appendChild(item('この帯に出来事を追加…',function(){ openEvent({lane:label}); }));
+      if(evmark){
+        var eid=evmark.dataset.eid, ename=evmark.dataset.ename, day=evmark.dataset.day;
+        menu.appendChild(rule());
+        menu.appendChild(item('「'+ename+'」を直す…',function(){ editEvent(eid); }));
+        menu.appendChild(item('この回（'+day+'）を開催しない',function(){ skipOccurrence(eid, day); }));
+        var del=item('「'+ename+'」を消す',function(){
+          if(window.confirm('「'+ename+'」を消します。よろしいですか？')) del2(eid); });
+        del.className='danger'; menu.appendChild(del);
+      }
+      menu.appendChild(rule());
+      menu.appendChild(note('正本: docs/wbs.yaml の events'));
+    }
+    showMenu(e);
+  }
   document.addEventListener('contextmenu',function(e){
+    var laneRow=e.target.closest && e.target.closest('tr.msrow[data-lane]');
+    if(laneRow && menu){ e.preventDefault(); laneMenu(e, laneRow); return; }
     var td=e.target.closest && e.target.closest('td');
     var tr=e.target.closest && e.target.closest('tr[data-ref]');
     if(!tr || !td || !menu || !tr.dataset.ref) return;
@@ -1286,6 +1338,109 @@ _EDIT_SCRIPT = r"""
     tr.classList.add('is-sel');   // どの行を触っているかを画面でも示す
     menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
   });
+  // 出来事の書き込み（足す・直す・消す・この回を開催しない）。すべて POST /event・/remove に乗る。
+  function postEvent(payload, okmsg){
+    if(busy) return; busy=true;
+    fetch('event',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify(payload)})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell(okmsg); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'できなかった',true); } })
+      .catch(function(e){ busy=false; tell('できなかった: '+e,true); });
+  }
+  function del2(eid){ del(eid); }  // /remove は EV- を出来事として消す
+  var EVENTS={};  // 直すとき用に、この画面の出来事を id → 値で持つ
+  try{ EVENTS=JSON.parse(document.currentScript.dataset.events||'{}'); }catch(e){}
+  function editEvent(eid){ openEvent(EVENTS[eid]||{id:eid}); }
+  function skipOccurrence(eid, day){
+    var ev=EVENTS[eid]; if(!ev) return;
+    var ex=(ev.exdate||[]).concat([day]);
+    postEvent({id:eid, name:ev.name, lane:ev.lane, dtstart:ev.dtstart||null, rrule:ev.rrule||'',
+      rdate:ev.rdate||[], exdate:ex}, 'この回を外した');
+  }
+  // 出来事の登録フォーム（追加・修正で同じ）。繰り返しはボタンで組み立て、RRULE 文字列も見せる（直接編集可）。
+  var WD=[['月','MO'],['火','TU'],['水','WE'],['木','TH'],['金','FR'],['土','SA'],['日','SU']];
+  var LANES=[];  try{ LANES=JSON.parse(document.currentScript.dataset.lanes||'[]'); }catch(e){}
+  function ymd(d){ return d? d.replace(/-/g,''):''; }
+  function openEvent(ev){
+    ev=ev||{};
+    var back=document.getElementById('evback');
+    back.innerHTML='';
+    var f=document.createElement('div'); f.className='evform';
+    function row(label, node){ var r=document.createElement('label'); r.className='evrow';
+      var s=document.createElement('span'); s.textContent=label; r.appendChild(s); r.appendChild(node); return r; }
+    function inp(v){ var e=document.createElement('input'); e.type='text'; e.value=v||''; return e; }
+    function dt(v){ var e=document.createElement('input'); e.type='date'; if(v)e.value=v; return e; }
+    var h=document.createElement('div'); h.className='evhead';
+    h.textContent=(ev.id?'出来事を直す':'出来事を追加')+' ── 書き戻す先: docs/wbs.yaml の events';
+    f.appendChild(h);
+    var name=inp(ev.name); f.appendChild(row('名前', name));
+    var lane=document.createElement('select');
+    (LANES.indexOf(ev.lane)<0 && ev.lane? [ev.lane]:[]).concat(LANES).forEach(function(l){
+      var o=document.createElement('option'); o.value=l; o.textContent=l; lane.appendChild(o); });
+    var nl=document.createElement('option'); nl.value='__newlane__'; nl.textContent='＋ 新しく入力…';
+    lane.appendChild(nl);
+    if(ev.lane) lane.value=ev.lane;
+    lane.addEventListener('change',function(){
+      if(lane.value!=='__newlane__') return;
+      var v=window.prompt('レーンの名前');
+      if(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; lane.insertBefore(o,nl);
+        lane.value=v; }
+      else lane.selectedIndex=0;
+    });
+    f.appendChild(row('帯', lane));
+    // 繰り返しの種類
+    var kind=document.createElement('select');
+    [['weekly','毎週'],['biweekly','隔週'],['monthly','毎月第N'],['once','単発の日だけ']].forEach(function(k){
+      var o=document.createElement('option'); o.value=k[0]; o.textContent=k[1]; kind.appendChild(o); });
+    f.appendChild(row('繰り返し', kind));
+    var wd=document.createElement('select');
+    WD.forEach(function(d){ var o=document.createElement('option'); o.value=d[1]; o.textContent=d[0]+'曜';
+      wd.appendChild(o); });
+    var nth=document.createElement('select');
+    [1,2,3,4].forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent='第'+n;
+      nth.appendChild(o); });
+    var start=dt(ev.dtstart), end=dt(''); var once=inp((ev.rdate||[]).join(', '));
+    var whenRule=document.createElement('div'); whenRule.className='evrow';
+    whenRule.appendChild(nth); whenRule.appendChild(wd);
+    whenRule.appendChild(document.createTextNode(' 初回')); whenRule.appendChild(start);
+    whenRule.appendChild(document.createTextNode(' 最終')); whenRule.appendChild(end);
+    var whenOnce=row('開催日（カンマ区切り）', once);
+    f.appendChild(whenRule); f.appendChild(whenOnce);
+    var rule=inp(ev.rrule); var ruleRow=row('規則（自動で組み立て・直接書いてもよい）', rule); f.appendChild(ruleRow);
+    function build(){
+      var k=kind.value;
+      nth.style.display = k==='monthly'?'':'none';
+      whenOnce.style.display = k==='once'?'':'none';
+      whenRule.style.display = k==='once'?'none':'';
+      ruleRow.style.display = k==='once'?'none':'';
+      if(k==='once') return;
+      var u=end.value?(';UNTIL='+ymd(end.value)):'';
+      if(k==='weekly') rule.value='FREQ=WEEKLY;BYDAY='+wd.value+u;
+      else if(k==='biweekly') rule.value='FREQ=WEEKLY;INTERVAL=2;BYDAY='+wd.value+u;
+      else if(k==='monthly') rule.value='FREQ=MONTHLY;BYDAY='+nth.value+wd.value+u;
+    }
+    kind.addEventListener('change',build); wd.addEventListener('change',build);
+    nth.addEventListener('change',build); end.addEventListener('change',build);
+    build();
+    var btns=document.createElement('div'); btns.className='evbtns';
+    var ok=document.createElement('button'); ok.type='button'; ok.textContent=ev.id?'直す':'追加';
+    var no=document.createElement('button'); no.type='button'; no.textContent='やめる';
+    no.addEventListener('click',function(){ back.style.display='none'; });
+    ok.addEventListener('click',function(){
+      var payload={id:ev.id||'', name:name.value, lane:lane.value, dtstart:null, rrule:'', rdate:[],
+        exdate:ev.exdate||[]};
+      if(kind.value==='once'){ payload.rdate=once.value.split(',').map(function(s){return s.trim();}).filter(Boolean); }
+      else { payload.dtstart=start.value||null; payload.rrule=rule.value; }
+      back.style.display='none';
+      postEvent(payload, ev.id?'直した':'足した');
+    });
+    btns.appendChild(ok); btns.appendChild(no); f.appendChild(btns);
+    back.appendChild(f); back.style.display='flex';
+    name.focus();
+  }
+  var addbtn=document.getElementById('addevent');
+  if(addbtn) addbtn.addEventListener('click',function(){ openEvent({}); });
   document.addEventListener('click',hideMenu);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
   document.addEventListener('click',function(e){
@@ -1396,10 +1551,30 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         )
         # 状態の選択肢は「値と日本語の見出し」を組で渡す（画面には日本語だけを出し、送るのは正本の値）。
         choices = _esc(json.dumps([[s.value, label] for s, label in STATUS_LABEL.items()], ensure_ascii=False))
+        # 出来事を直すとき用に、この画面の出来事を id → 値で渡す。レーン名の選択肢も。
+        events_data = _esc(
+            json.dumps(
+                {
+                    e.id: {
+                        "id": e.id,
+                        "name": e.name,
+                        "lane": e.lane,
+                        "dtstart": e.dtstart.isoformat() if e.dtstart else None,
+                        "rrule": e.rrule or "",
+                        "rdate": [d.isoformat() for d in e.rdate],
+                        "exdate": [d.isoformat() for d in e.exdate],
+                    }
+                    for e in wbs.overlay.events
+                },
+                ensure_ascii=False,
+            )
+        )
+        lanes_data = _esc(json.dumps(lane_labels, ensure_ascii=False))
         edit_bits = (
-            f'<div id="say"></div><div id="menu"></div>'
+            f'<div id="say"></div><div id="menu"></div><div id="evback"></div>'
             f'<script data-token="{_esc(token)}" data-today="{wbs.today.isoformat()}"'
-            f' data-statuses="{choices}">{_EDIT_SCRIPT}</script>'
+            f' data-statuses="{choices}" data-events="{events_data}" data-lanes="{lanes_data}">'
+            f"{_EDIT_SCRIPT}</script>"
         )
     # スクロール枠の CSS 変数（レーンの段数と基準日の位置）を 1 つの style にまとめる。
     scroll_vars = f"--lanes-h:{len(lane_labels) * 20}px" + (f";--today-x:{today_x}" if today_x else "")
