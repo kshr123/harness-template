@@ -230,16 +230,24 @@ def test_the_table_stays_narrow_enough_to_show_the_gantt(tmp_path: Path) -> None
     assert ".scroll th.gantt, .scroll td.gantt { width:var(--gw,40%); min-width:var(--gw,280px); }" in html
 
 
-def test_the_first_columns_stay_visible_when_scrolled(tmp_path: Path) -> None:
-    """横に溢れても WBS 番号と作業名は左に貼り付く（どの作業の棒かが読める）。印刷では普通の列に戻す。"""
+def test_the_whole_task_table_is_frozen_and_only_the_calendar_scrolls(tmp_path: Path) -> None:
+    """左の作業表はまるごと固定し、時間軸（カレンダー）だけ横スクロールする（標準のガント）。
+
+    こうすると作業表の右端＝カレンダーの左端の位置が横スクロールで変わらないので、レーンの見出しが
+    カレンダーの左隣に**常に**居られる（作業列を超えて隠れない・カレンダーに被らない）。印刷では貼り付けを
+    解いて普通の列に戻す（紙はスクロールしない）。
+    """
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    assert "th.code, td.code, th.name, td.name { position:sticky;" in html
+    # 非ガントのセルはすべて sticky（＝パネルまるごと固定）。ガント列は固定しない（横スクロールする）。
+    assert "tbody td:not(.gantt) { position:sticky;" in html
+    assert "thead th:not(.gantt), thead td:not(.gantt) { position:sticky;" in html
+    assert "function freezePanel(){" in html  # left は JS が実測して入れる（可変幅・隠せる列に対応）
     printed = html.split("@media print {")[1]
-    assert "th.code, td.code, th.name, td.name { position:static; }" in printed
+    assert "tbody td:not(.gantt) { position:static; }" in printed
 
 
 def test_a_name_carries_one_guide_line_per_ancestor_level(tmp_path: Path) -> None:
@@ -565,12 +573,14 @@ def test_the_lane_label_hugs_the_calendar_but_stays_out_of_it(tmp_path: Path) ->
     # 見出しは非ガントのセルにあり、その右に別セルのガント（ms-track）が来る＝見出しはカレンダーの外。
     assert row.index('class="ms-label"') < row.index("ms-track")
     style = html.split("<style>")[1].split("</style>")[0]
-    label_rule = next(ln for ln in style.splitlines() if "td.ms-label {" in ln)
+    label_rule = next(ln for ln in style.splitlines() if "td.ms-label {" in ln and "text-align" in ln)
     assert "text-align:right" in label_rule  # ◆○のすぐ左に来るよう右寄せ（カレンダーに隣接）
     track_rule = next(ln for ln in style.splitlines() if "td.ms-track {" in ln and "overflow" in ln)
     assert "overflow:hidden" in track_rule  # 記号はガント列の中だけ＝左（見出し側）へ漏れない
-    frozen_rule = next(ln for ln in style.splitlines() if "td.ms-frozen" in ln and "position:sticky" in ln)
-    assert "left:0" in frozen_rule and "z-index:6" in frozen_rule  # 横スクロールで見出しはこの下に隠れる
+    # 見出しセルは同じ行の他セル（ガント＝z-index 4）より前面（6）＝横スクロールで滑ってくるカレンダーに
+    # 上書きされて消えない。作業表まるごと固定なので、見出しは常にカレンダーの左隣に留まる。
+    label_z = next(ln for ln in style.splitlines() if "td.ms-label" in ln and "z-index" in ln)
+    assert "z-index:6" in label_z
 
 
 def test_lane_rows_are_exactly_one_lane_height_so_sticking_does_not_break(tmp_path: Path) -> None:

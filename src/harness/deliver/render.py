@@ -767,16 +767,13 @@ th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
 /* 見出し帯は全幅 --sec に統一（時間軸の見出しだけ地色が違う例外を作らない）。時間の面（--canvas）は
    レーンの track と本体のガント列だけが持つ。 */
 thead th.gantt { background-color:var(--sec); padding:0; overflow:hidden; }
-/* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
-th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
-tbody td.code, tbody td.name { z-index:3; }
-th.code, td.code { left:0; }
-th.name, td.name { left:64px; border-right:1px solid var(--line-strong); }
-thead th.code, thead th.name { z-index:6; background:var(--sec); }
-td.name::after, th.name::after { content:""; position:absolute; top:0; bottom:-1px; right:-9px; width:8px;
-  opacity:0; background:linear-gradient(to right, rgba(15,20,26,.14), transparent);
-  pointer-events:none; transition:opacity .15s; }
-@container scroll-state(scrollable: inline-start) { td.name::after, th.name::after { opacity:1; } }
+/* **左の作業表はまるごと固定**（標準のガント：作業表は据え置き、時間軸〔カレンダー〕だけ横スクロール）。
+   これで横にどれだけ流しても、作業表の右端＝カレンダーの左端の位置は変わらない＝レーンの見出しも
+   カレンダーの左隣に**常に**居られる（作業列を超えて隠れることも、カレンダーに被ることも起きない）。
+   各列の left は JS（freezePanel）が実測して入れる：作業名は可変幅・チーム/担当は隠せるので固定値にしない。
+   地色は不透明にして、下を流れるカレンダーを隠す（行の状態色〔節・完了・遅れ〕はより詳細度が高いので勝つ）。 */
+tbody td:not(.gantt) { position:sticky; z-index:3; background:var(--paper); }
+thead th:not(.gantt), thead td:not(.gantt) { position:sticky; z-index:6; }
 /* 地色は表の側だけ。罫は全幅に通す（罫まで :not(.gantt) にすると、そこだけ罫が切れて太さが揃わない）。 */
 tr.lv0 > td:not(.gantt) { background-color:var(--sec); }
 tr.lv0 > td { font-weight:600; border-top:1px solid var(--line-strong); }
@@ -924,12 +921,11 @@ tr.hid { display:none; }
 tr.msrow > td { height:var(--lane-h); line-height:1; border-bottom:1px solid var(--line); }
 tr.msrow > td:not(.gantt) { background-color:var(--sec); padding:0 8px; }
 /* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
-/* 固定列（No.＋作業）は空の不透明セルで覆う＝横スクロールで見出しが左へ流れても、この下に隠れる（カレンダー
-   には決して被らない）。 */
-thead tr.msrow td.ms-frozen { position:sticky; left:0; z-index:6; }
-/* 見出しはカレンダーの左隣の表のセルに**右寄せ**で置く＝◆○のすぐ左（目線が動かない）だが、別のセルなので
-   カレンダーの中には入らない（構造的に侵食しない）。横スクロールで表と一緒に左へ動き、最後は ms-frozen の
-   下に隠れる。縦の格子（右罫）は持たない。 */
+/* 見出しはカレンダーの左隣の表のセル（ms-label）に**右寄せ**で置く＝◆○のすぐ左（目線が動かない）。作業表は
+   まるごと固定なので、横スクロールしてもこのセルはカレンダーの左隣に留まる（隠れない・カレンダーに被らない）。
+   z-index は同じ行の他セル（`thead tr.msrow > td`＝4）より上でないと、横スクロールで左へ滑ってくるカレンダー
+   （ms-track・同じ 4・DOM で後）に上書きされて消える。詳細度も高い専用規則で 6 に上げる（ms-frozen も同様）。 */
+thead tr.msrow td.ms-frozen, thead tr.msrow td.ms-label { position:sticky; z-index:6; }
 td.ms-label { text-align:right; border-right:0; font-size:10px; font-weight:600; color:var(--muted);
               letter-spacing:.02em; white-space:nowrap; overflow:hidden; }
 /* 記号（◆○）と今日線はガント列の中だけ（overflow:hidden で左へ漏れない）。 */
@@ -971,9 +967,8 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   .scroll { overflow:visible; max-height:none; border:1px solid var(--line-strong); border-radius:0; }
   table { min-width:0; }
   td.gantt { min-width:0; }
-  /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す。 */
-  th.code, td.code, th.name, td.name { position:static; }
-  td.name::after, th.name::after { display:none; }
+  /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す（JS が入れた left は position:static が無視する）。 */
+  thead th:not(.gantt), thead td:not(.gantt), tbody td:not(.gantt) { position:static; }
   /* 操作のボタンは紙に出さない。 */
   .ops { display:none; }
   /* 単位を広げたまま印刷すると紙からはみ出して右が切れるので、紙では必ず全期間を収める。 */
@@ -1078,7 +1073,24 @@ _VIEW_SCRIPT = r"""
     //   列名は last-child ではない）。
     var flow=vis('thead tr.grp + tr th.team')+vis('thead tr.grp + tr th.who')+vis('thead tr.grp + tr th.st');
     var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
+    freezePanel();  // 列を隠すと幅が変わる＝固定パネルの left を入れ直す
   }
+  // 左の作業表をまるごと固定する：各行でガント列の手前までのセルに、積み上げた幅を left として入れる。
+  // colspan セルも offsetWidth がそのぶん広いので、その次のセルの left が自然と正しくなる。作業名の可変幅も
+  // 実測なので効く。カレンダー（.gantt）の手前で止める＝カレンダーは固定しない（時間軸だけ横スクロール）。
+  function freezePanel(){
+    if(!scroll) return;
+    scroll.querySelectorAll('table tr').forEach(function(tr){
+      var x=0;
+      for(var i=0;i<tr.children.length;i++){
+        var c=tr.children[i];
+        if(c.classList.contains('gantt')) break;  // カレンダー列より左だけ固定
+        c.style.left=x+'px';
+        x+=c.offsetWidth;
+      }
+    });
+  }
+  window.addEventListener('resize', freezePanel);  // 作業名は可変幅なので、幅が変わったら入れ直す
   document.querySelectorAll('.col').forEach(function(b){
     b.addEventListener('click',function(){
       var on=scroll.classList.toggle('hide-'+b.dataset.col);
