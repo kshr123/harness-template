@@ -518,12 +518,12 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
         }
     )
     html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
-    labels = re.findall(r'<span class="ms-name">([^<]+)</span>', html)
+    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
     assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
     # 出来事は**開催日ごとの記号**（棒ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
     # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。◆（マイルストーン）より小さく淡い記号で描く。
     assert html.count('class="ev"') == 3
-    assert "gbar" not in html.split("マイルストーン</span>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
+    assert "gbar" not in html.split("マイルストーン</td>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
     # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
 
@@ -540,33 +540,37 @@ def test_the_milestone_lane_is_always_present_when_editable(tmp_path: Path) -> N
     wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
 
     view = render.render_html(wbs)
-    assert '<span class="ms-name">マイルストーン' not in view  # 閲覧用：節目 0 件なら帯は出さない
+    assert "マイルストーン</td>" not in view  # 閲覧用：節目 0 件なら帯は出さない
 
     edit = render.render_html(wbs, editable=True, token="t")
-    labels = re.findall(r'<span class="ms-name">([^<]+)</span>', edit)
+    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', edit)
     assert "マイルストーン" in labels  # 編集面：0 件でも帯を出す（クリックの的になる）
 
 
-def test_the_lane_label_sits_at_the_calendar_edge_and_covers_leaks(tmp_path: Path) -> None:
-    """レーンの見出しはカレンダー（ガント）の左端に置く＝◆○のすぐ左で目線が動かない。横スクロールでは
-    見えている左端（--frozen-w＝固定列の幅）で止まる。固定列は空の不透明セルで覆い、記号を左へ漏らさない。
+def test_the_lane_label_hugs_the_calendar_but_stays_out_of_it(tmp_path: Path) -> None:
+    """レーンの見出しは**カレンダーの左隣の表のセル**に右寄せで置く＝◆○のすぐ左（目線が動かない）だが、
+    カレンダーの中には決して入らない（別のセルなので構造的に侵食しない）。
 
-    見出しはガント列の中の span（ms-name）で、ガント列を overflow:visible にして sticky を効かせる（記号は
-    内枠 ms-clip でクリップ）。ガント列は広いので左へ流れきらない＝作業列超え・記号漏れが起きない。
+    以前カレンダー列の中に見出しを置いたら◆○を覆って侵食した。見出しは非ガントの ms-label セルに右寄せ、
+    記号はガント列（overflow:hidden）の中だけ＝両者は別セルで重ならない。順序は ms-label（表）→ ガント。
     """
     _tree(
         tmp_path,
         {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True},
     )
     html = _render(tmp_path, date(2026, 8, 5))
+    row_match = re.search(r'<tr class="msrow".*?</tr>', html, re.S)
+    assert row_match is not None
+    row = row_match.group(0)
+    # 見出しは非ガントのセルにあり、その右に別セルのガント（ms-track）が来る＝見出しはカレンダーの外。
+    assert row.index('class="ms-label"') < row.index("ms-track")
     style = html.split("<style>")[1].split("</style>")[0]
-    name_rule = next(ln for ln in style.splitlines() if "td.ms-track .ms-name" in ln and "position:sticky" in ln)
-    assert "left:var(--frozen-w" in name_rule  # カレンダーの見えている左端（固定列の幅）で止まる
+    label_rule = next(ln for ln in style.splitlines() if "td.ms-label {" in ln)
+    assert "text-align:right" in label_rule  # ◆○のすぐ左に来るよう右寄せ（カレンダーに隣接）
     track_rule = next(ln for ln in style.splitlines() if "td.ms-track {" in ln and "overflow" in ln)
-    assert "overflow:visible" in track_rule  # ガント列は visible（中の span の sticky を効かせる）
-    assert "td.ms-track .ms-clip { position:absolute; inset:0; overflow:hidden; }" in style  # 記号はここでクリップ
+    assert "overflow:hidden" in track_rule  # 記号はガント列の中だけ＝左（見出し側）へ漏れない
     frozen_rule = next(ln for ln in style.splitlines() if "td.ms-frozen" in ln and "position:sticky" in ln)
-    assert "left:0" in frozen_rule and "z-index:6" in frozen_rule  # 固定列を不透明で覆い記号を漏らさない
+    assert "left:0" in frozen_rule and "z-index:6" in frozen_rule  # 横スクロールで見出しはこの下に隠れる
 
 
 def test_lane_rows_are_exactly_one_lane_height_so_sticking_does_not_break(tmp_path: Path) -> None:

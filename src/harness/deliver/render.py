@@ -572,20 +572,18 @@ def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     レーンは時間軸への注釈（◆の集約と○）なので、**時間軸のすぐ下・作業表（まとまり見出し・列名・データ）の
     上**に置く（軸で測って読むものを軸の直下にまとめ、作業表の列名とデータ行の間には割り込ませない／縦スクロール
     でも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
-    見出し（`ms-name`）は**カレンダー（ガント）の左端**に置く＝◆○のすぐ左で目線が動かない。ガント列の中で
-    sticky にし、横スクロールではカレンダーの見えている左端（固定列の右＝`--frozen-w`）に貼り付いて止まる。
-    ガント列は広いので左へ流れきらない（作業列超え・記号漏れが起きない）。固定列（No.＋作業）は空の不透明セル
-    （`ms-frozen`）で覆い、ガントが下へ潜っても◆○が左へ漏れないようにする。記号と今日線はクリップする内枠
-    （`ms-clip`）に入れる（sticky は overflow:hidden の中では効かないので、見出しはクリップの外に置く）。
+    見出し（`ms-label`）は**カレンダーの左隣の表のセル**に右寄せで置く＝◆○のすぐ左（目線が動かない）だが
+    **カレンダーの中には決して入らない**（別のセルなので構造的に侵食しない）。横スクロールでは表と一緒に左へ
+    動き、ガントの左端に貼り付いたまま進み、最後は固定列（No.＋作業＝`ms-frozen`・不透明・前面）の下に隠れる
+    （カレンダーに被らない）。記号（◆○）と今日線はガント列（`overflow:hidden`）の中だけ＝左へ漏れない。
     `data-lane` で、見出しの操作からこのレーンだけを表示・非表示できる。
     """
     n_cols = len(COLUMNS)
     return (
         f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
         f'<td class="ms-frozen" colspan="2"></td>'
-        f'<td class="ms-pad" colspan="{n_cols - 2}"></td>'
-        f'<td class="gantt ms-track"><span class="ms-name">{_esc(label)}</span>'
-        f'<div class="ms-clip">{body}{today_mark}</div></td></tr>'
+        f'<td class="ms-label" colspan="{n_cols - 2}">{_esc(label)}</td>'
+        f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
     )
 
 
@@ -926,17 +924,16 @@ tr.hid { display:none; }
 tr.msrow > td { height:var(--lane-h); line-height:1; border-bottom:1px solid var(--line); }
 tr.msrow > td:not(.gantt) { background-color:var(--sec); padding:0 8px; }
 /* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
-/* 固定列（No.＋作業）は空の不透明セルで覆う＝ガントが下へ潜っても◆○が左へ漏れない。 */
+/* 固定列（No.＋作業）は空の不透明セルで覆う＝横スクロールで見出しが左へ流れても、この下に隠れる（カレンダー
+   には決して被らない）。 */
 thead tr.msrow td.ms-frozen { position:sticky; left:0; z-index:6; }
-td.ms-pad { border-right:0; }
-/* ガント列は overflow:visible にして、その中の見出し（ms-name）を sticky で効かせる（記号は内枠 ms-clip で
-   クリップする）。見出しはカレンダーの左端に置き、横スクロールで見えている左端（--frozen-w＝固定列の幅）に
-   貼り付いて止まる。ガント列は広いので左へ流れきらない＝作業列を超えない・記号も漏れない。 */
-td.ms-track { position:relative; overflow:visible; padding:0; }
-td.ms-track .ms-clip { position:absolute; inset:0; overflow:hidden; }
-td.ms-track .ms-name { position:sticky; left:var(--frozen-w, 214px); z-index:2; display:inline-block;
-              background-color:var(--canvas); padding:0 8px 0 4px; font-size:10px; font-weight:600;
-              color:var(--muted); letter-spacing:.02em; white-space:nowrap; }
+/* 見出しはカレンダーの左隣の表のセルに**右寄せ**で置く＝◆○のすぐ左（目線が動かない）だが、別のセルなので
+   カレンダーの中には入らない（構造的に侵食しない）。横スクロールで表と一緒に左へ動き、最後は ms-frozen の
+   下に隠れる。縦の格子（右罫）は持たない。 */
+td.ms-label { text-align:right; border-right:0; font-size:10px; font-weight:600; color:var(--muted);
+              letter-spacing:.02em; white-space:nowrap; overflow:hidden; }
+/* 記号（◆○）と今日線はガント列の中だけ（overflow:hidden で左へ漏れない）。 */
+td.ms-track { position:relative; overflow:hidden; padding:0; }
 td.ms-track .ms { top:50%; }
 footer { margin-top:14px; font-size:11px; color:var(--muted); }
 footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
@@ -1081,11 +1078,6 @@ _VIEW_SCRIPT = r"""
     //   列名は last-child ではない）。
     var flow=vis('thead tr.grp + tr th.team')+vis('thead tr.grp + tr th.who')+vis('thead tr.grp + tr th.st');
     var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
-    // レーンの見出し（ms-name）が横スクロールで止まる位置＝固定列（No.＋作業）の幅。実測して渡す
-    //（作業名の幅は内容で変わるので固定値にしない）。
-    var code=document.querySelector('thead tr.grp + tr th.code');
-    var name=document.querySelector('thead tr.grp + tr th.name');
-    if(code&&name) scroll.style.setProperty('--frozen-w', (code.offsetWidth + name.offsetWidth)+'px');
   }
   document.querySelectorAll('.col').forEach(function(b){
     b.addEventListener('click',function(){
