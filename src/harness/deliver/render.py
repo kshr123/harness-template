@@ -554,18 +554,23 @@ def _event_marks(event: Event, span: tuple[date, date]) -> list[str]:
     return out
 
 
-def _lane_row(label: str, body: str, today_mark: str) -> str:
-    """ガント上部のレーン 1 本（左に見出し・右に印や帯）。行の作りは表の行と同じ 1 つの `<tr>`。"""
+def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
+    """ガント上部のレーン 1 本（左に見出し・右に印や帯）。行の作りは表の行と同じ 1 つの `<tr>`。
+
+    レーンは時間軸への注釈（◆の集約と○）なので、時間軸と同じ `thead` の**最上部**に置く（列名とデータ行が
+    隣り合う＝間に割り込まない／縦スクロールでも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
+    `data-lane` で、見出しの操作からこのレーンだけを表示・非表示できる。
+    """
     n_cols = len(COLUMNS)
     return (
-        '<tr class="msrow">'
+        f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
         '<td class="ms-pad" colspan="2"></td>'
         f'<td class="ms-label" colspan="{n_cols - 2}">{_esc(label)}</td>'
         f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
     )
 
 
-def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
+def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> tuple[str, list[str]]:
     """ガントの最上部に置くレーン。
 
     種類の違うもの（承認・検収の**マイルストーン**と、繰り返す**出来事**）を同じ場所に混ぜず、意味ごとに
@@ -578,10 +583,10 @@ def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
     出来事は木に無いので、レーンと下の表で同じものが二重に出ることが起きない。
     """
     if span is None:
-        return ""
+        return "", []
     first, last = span
     total = (last - first).days + 1
-    out: list[str] = []
+    rows: list[tuple[str, str]] = []  # (レーン名, 中身の HTML)
 
     marks = [r for r in wbs.walk() if r.milestone and r.due is not None and first <= r.due <= last]
     if marks:
@@ -591,7 +596,7 @@ def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
             for r in marks
             if r.due is not None
         )
-        out.append(_lane_row("マイルストーン", diamonds, today_mark))
+        rows.append(("マイルストーン", diamonds))
 
     lanes: dict[str, list[Event]] = {}
     for event in wbs.overlay.events:
@@ -599,8 +604,10 @@ def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> str:
     for label, events in lanes.items():
         parts = [mark for event in events for mark in _event_marks(event, span)]
         if parts:
-            out.append(_lane_row(label, "".join(parts), today_mark))
-    return "".join(out)
+            rows.append((label, "".join(parts)))
+
+    html = "".join(_lane_row(label, body, today_mark, i) for i, (label, body) in enumerate(rows))
+    return html, [label for label, _ in rows]
 
 
 def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
@@ -680,11 +687,13 @@ h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }
 thead { display:table-header-group; }
 thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
-/* 見出しは 2 段（上＝列の意味のまとまり・下＝列名）。ガントは 2 段ぶちぬきで、時間軸の 2 段と高さが揃う。 */
-.grp th { height:22px; padding:0 8px; text-align:center; font-size:10px; letter-spacing:.08em;
-          border-bottom:1px solid var(--line); }
-thead tr:last-child th { height:22px; padding:0 8px; top:23px; }
-thead th.gantt { top:0; padding:0 2px; vertical-align:top; }
+/* レーンは thead の最上部＝縦スクロールでも常に見える。段ごとに --laneidx ぶん下げて重ねる。 */
+thead tr.msrow > td { position:sticky; top:calc(var(--laneidx) * 20px); z-index:4; }
+/* グループ見出しと列名は、レーンの段数（--lanes-h）ぶん下にずらして貼り付く。 */
+.grp th { top:var(--lanes-h); height:22px; padding:0 8px; text-align:center; font-size:10px;
+          letter-spacing:.08em; border-bottom:1px solid var(--line); }
+thead tr:last-child th { height:22px; padding:0 8px; top:calc(var(--lanes-h) + 23px); }
+thead th.gantt { top:var(--lanes-h); padding:0 2px; vertical-align:top; }
 /* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
 .gs { border-left:1px solid var(--line-strong) !important; }
 /* 作業グループの見出しの左半分（No.+作業）は固定列に合わせて貼り付ける（食い込み防止）。 */
@@ -718,7 +727,10 @@ th.gantt, td.gantt { width:40%; min-width:280px; padding:0; border-left:2px soli
 td.gantt { position:relative; overflow:hidden; }
 th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
 /* 見出しと本体で**同じ箱**にする（% は padding-box 基準。余白が違うと見出しだけ横にずれる）。 */
-thead th.gantt { background-color:var(--canvas); padding:0; position:relative; overflow:hidden; }
+/* 軸セルは sticky のまま（base の position:sticky を保つ）＝縦スクロールでレーンの下に貼り付く。
+   relative にすると top:var(--lanes-h) が「下方向シフト」になって軸が 1 段ぶん落ちる。sticky も
+   絶対配置（基準日の線）の基準になるので overflow:hidden と両立する。 */
+thead th.gantt { background-color:var(--canvas); padding:0; overflow:hidden; }
 /* 横に溢れたときも、どの作業の棒かが分かるように WBS 番号と作業名を左へ貼り付ける。 */
 th.code, td.code, th.name, td.name { position:sticky; z-index:2; background:var(--paper); }
 tbody td.code, tbody td.name { z-index:3; }
@@ -826,6 +838,14 @@ td.gantt { position:relative; }
 .ops button.zoom[aria-pressed="true"], .ops button.col[aria-pressed="true"] {
   background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); font-weight:600; }
 .ops button.col[aria-pressed="false"] { color:var(--muted); }
+.ops button.lane[aria-pressed="true"] { background:var(--btn-on-bg); color:var(--btn-on-ink);
+  border-color:var(--btn-on-bg); font-weight:600; }
+.ops button.lane[aria-pressed="false"] { color:var(--muted); }
+.ops .divider { width:1px; align-self:stretch; background:var(--line); margin:2px 4px; }
+thead tr.msrow.lane-off { display:none; }
+#addevent { color:var(--muted); border:0; background:none; font:inherit; font-size:11px; cursor:pointer;
+            padding:2px 6px; }
+#addevent:hover { color:var(--ink); }
 /* 取っ手（▾）と、子の無い行の空き枠は同じ幅にして番号の左端をそろえる。 */
 .tw { display:inline-block; width:15px; text-align:left; }
 button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
@@ -983,6 +1003,35 @@ _VIEW_SCRIPT = r"""
     if(saved==='off') scroll.classList.add('hide-'+b.dataset.col);
     b.setAttribute('aria-pressed', String(saved!=='off'));
   });
+  // レーン（マイルストーン・定例など）の表示トグル。列トグルと同じ作法（クラス付け外し＋保存）。
+  // 隠したら残りのレーンの貼り付く段（--laneidx）と全体の高さ（--lanes-h）を数え直す。
+  function laneRows(){ return document.querySelectorAll('thead tr.msrow[data-lane]'); }
+  function relayoutLanes(){
+    var i=0;
+    laneRows().forEach(function(r){
+      if(r.classList.contains('lane-off')) return;
+      r.style.setProperty('--laneidx', i); i++;
+    });
+    var add=document.querySelector('tr.lane-add'); if(add) add.style.setProperty('--laneidx', i);
+    scroll.style.setProperty('--lanes-h', (i*20)+'px');
+  }
+  function setLane(label, off){
+    laneRows().forEach(function(r){ if(r.dataset.lane===label) r.classList.toggle('lane-off', off); });
+    relayoutLanes();
+  }
+  document.querySelectorAll('.lane').forEach(function(b){
+    var label=b.dataset.lane;
+    b.addEventListener('click',function(){
+      var off=b.getAttribute('aria-pressed')!=='false';  // 今 表示中なら、これから隠す
+      b.setAttribute('aria-pressed', String(!off));
+      setLane(label, off);
+      try{ sessionStorage.setItem('wbs-lane-'+label, off?'off':'on'); }catch(e){}
+    });
+    var saved=null; try{ saved=sessionStorage.getItem('wbs-lane-'+label); }catch(e){}
+    if(saved==='off') setLane(label, true);
+    b.setAttribute('aria-pressed', String(saved!=='off'));
+  });
+  relayoutLanes();
   recount();
   var saved=null; try{ saved=sessionStorage.getItem('wbs-unit'); }catch(e){}
   unit(saved || (scroll ? scroll.dataset.unit : 'w'));
@@ -1280,7 +1329,6 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     in_span = span is not None and span[0] <= wbs.today <= span[1]
     today_x = f"{_pct(wbs.today, span) + _day_pct(span) / 2:.4f}%" if in_span and span else ""
     today_mark = '<i class="tl"></i>' if in_span else ""
-    today_style = f' style="--today-x:{today_x}"' if today_x else ""
     # work グループは固定列(No.+作業)と流動列(チーム+担当+状態)にまたがる。1 つの colspan セルは固定と
     # 流動をまたげない（横スクロールで固定列に食い込む）ので、見出しも 2 セルに割り、左だけ固定する。
     work_n = sum(1 for _, _, g in COLUMNS if g == "work")
@@ -1297,7 +1345,14 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
-    body = _lanes(wbs, span, today_mark) + "".join(
+    lanes_html, lane_labels = _lanes(wbs, span, today_mark)
+    if editable:  # 出来事を足す入口（幽霊行）。書き出す生成物には出さない＝閲覧用は今までどおり。
+        lanes_html += (
+            f'<tr class="msrow lane-add" style="--laneidx:{len(lane_labels)}"><td class="ms-pad" colspan="2"></td>'
+            f'<td class="ms-label" colspan="{len(COLUMNS) - 2}"></td>'
+            '<td class="gantt"><button id="addevent" type="button">＋ 出来事（定例など）を追加</button></td></tr>'
+        )
+    body = "".join(
         _row_html(
             row,
             span,
@@ -1313,12 +1368,17 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     client = f"<div>提出先: {_esc(wbs.overlay.client)}</div>" if wbs.overlay.client else ""
     period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
+    # 「表示」の 1 群にまとめる（押されている＝見えている。列かレーンかは利用者の関心事でない）。
+    lane_toggles = "".join(
+        f'<button class="lane" data-lane="{_esc(label)}" type="button">{_esc(label)}</button>' for label in lane_labels
+    )
     left = [
         '<button id="fold" type="button">すべて折りたたむ</button>',
         '<button id="unfold" type="button">すべて展開</button>',
-        '<span class="sep">列</span>',
+        '<span class="sep">表示</span>',
         '<button class="col" data-col="team" type="button">チーム</button>',
         '<button class="col" data-col="who" type="button">担当</button>',
+        ('<span class="divider"></span>' + lane_toggles) if lane_toggles else "",
     ]
     right = [
         '<span class="sep">時間軸</span>',
@@ -1341,13 +1401,16 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             f'<script data-token="{_esc(token)}" data-today="{wbs.today.isoformat()}"'
             f' data-statuses="{choices}">{_EDIT_SCRIPT}</script>'
         )
+    # スクロール枠の CSS 変数（レーンの段数と基準日の位置）を 1 つの style にまとめる。
+    scroll_vars = f"--lanes-h:{len(lane_labels) * 20}px" + (f";--today-x:{today_x}" if today_x else "")
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}{grid_css}</style>"
         f"<header><h1>{_esc(title)}</h1>{client}"
         f'<div class="meta">基準日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
-        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"{today_style}>'
-        f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
+        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}" style="{scroll_vars}">'
+        f"<table><thead>{lanes_html}"
+        f'<tr class="grp">{groups}{axis}</tr><tr>{head}</tr></thead>'
         f"<tbody>{body}</tbody></table></div>"
         f"<footer></footer><script>{_view_script()}</script>{edit_bits}"
     )

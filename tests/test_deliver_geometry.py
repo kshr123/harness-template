@@ -568,3 +568,19 @@ def test_the_axis_and_the_body_use_the_same_box(tmp_path: Path) -> None:
     html = _render(tmp_path, date(2026, 8, 5))
     assert "th.gantt, td.gantt { width:40%; min-width:280px; padding:0;" in html
     assert "thead th.gantt { background-color:var(--canvas); padding:0;" in html
+
+
+def test_lanes_sit_in_the_header_not_between_columns_and_data(tmp_path: Path) -> None:
+    """レーンは thead の最上部（列名とデータ行の間に割り込まない）。時間軸と同じ注釈だから見出しに置く。"""
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+        {"id": "T-9003", "kind": "task", "status": "todo", "due": "2026-08-05", "milestone": True},
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    thead = html.split("<thead>")[1].split("</thead>")[0]
+    tbody = html.split("<tbody>")[1].split("</tbody>")[0]
+    assert 'class="msrow"' in thead  # レーンは見出しの中
+    assert "msrow" not in tbody  # データ側には無い
+    # レーンはグループ見出しより前に出る（＝最上部）。
+    assert thead.index("msrow") < thead.index('class="grp"')
