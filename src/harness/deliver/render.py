@@ -564,8 +564,9 @@ def _event_marks(event: Event, span: tuple[date, date]) -> list[str]:
 def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     """ガント上部のレーン 1 本（左に見出し・右に印や帯）。行の作りは表の行と同じ 1 つの `<tr>`。
 
-    レーンは時間軸への注釈（◆の集約と○）なので、時間軸と同じ `thead` の**最上部**に置く（列名とデータ行が
-    隣り合う＝間に割り込まない／縦スクロールでも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
+    レーンは時間軸への注釈（◆の集約と○）なので、**時間軸のすぐ下・作業表（まとまり見出し・列名・データ）の
+    上**に置く（軸で測って読むものを軸の直下にまとめ、作業表の列名とデータ行の間には割り込ませない／縦スクロール
+    でも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
     `data-lane` で、見出しの操作からこのレーンだけを表示・非表示できる。
     """
     n_cols = len(COLUMNS)
@@ -577,7 +578,9 @@ def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     )
 
 
-def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> tuple[str, list[str]]:
+def _lanes(
+    wbs: Wbs, span: tuple[date, date] | None, today_mark: str, *, editable: bool = False
+) -> tuple[str, list[str]]:
     """ガントの最上部に置くレーン。
 
     種類の違うもの（承認・検収の**マイルストーン**と、繰り返す**出来事**）を同じ場所に混ぜず、意味ごとに
@@ -596,7 +599,9 @@ def _lanes(wbs: Wbs, span: tuple[date, date] | None, today_mark: str) -> tuple[s
     rows: list[tuple[str, str]] = []  # (レーン名, 中身の HTML)
 
     marks = [r for r in wbs.walk() if r.milestone and r.due is not None and first <= r.due <= last]
-    if marks:
+    # 編集面では節目が 0 件でもマイルストーン帯を出す（空の帯をクリックして最初の 1 件を登録できるように）。
+    # 閲覧用は節目があるときだけ（空の帯は読み手にとって雑音）。
+    if marks or editable:
         diamonds = "".join(
             f'<span class="ms" style="left:{((r.due - first).days + 0.5) / total * 100:.3f}%" '
             f'title="{_esc(r.name)}（{r.due.isoformat()}）">◆</span>'
@@ -646,7 +651,7 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#e9eef4; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c2c8d0; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -657,7 +662,7 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
-  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1d2228; --late-row:#282120;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#3a414c; --late-row:#282120;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
   }
@@ -668,7 +673,7 @@ _STYLE = """
   --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
   --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
   --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
-  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#1d2228; --late-row:#282120;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#3a414c; --late-row:#282120;
   --bar:#48699a; --bar-done:#9cc3ec;
   --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
 }
@@ -678,7 +683,7 @@ _STYLE = """
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#e9eef4; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c2c8d0; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
@@ -694,12 +699,17 @@ h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
 table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }
 thead { display:table-header-group; }
 thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
-/* ものさし（時間軸）が上・読み取り値（レーンの◆○）が下。レーンは見出し 2 段（46px）の下に貼り付く。 */
-.grp th { top:0; height:22px; padding:0 8px; text-align:center; font-size:10px;
-          letter-spacing:.08em; border-bottom:1px solid var(--line); }
-thead tr.grp + tr th { height:22px; padding:0 8px; top:23px; }
-thead tr.msrow > td { position:sticky; top:calc(46px + var(--laneidx) * 20px); z-index:4; }
-thead th.gantt { top:0; padding:0 2px; vertical-align:top; }
+/* 見出しは上から：時間軸（ものさし・45px）→ レーン（◆○ の読み取り値・1 本 20px）→ 作業表
+   （まとまり見出し 22px ＋ 列名 22px）。ものさしが上・読み取り値が下（P2）。box-sizing:border-box
+   なので各段の height に下罫が含まれ、次段の top はその累積で決まる（--lanes-h＝表示中のレーンの総高）。 */
+tr.ruler th { height:45px; }
+tr.ruler th.ruler-cell { padding:0; vertical-align:top; }
+thead tr.msrow > td { position:sticky; top:calc(45px + var(--laneidx) * 20px); z-index:4; }
+/* まとまり見出しの上罫＝レーン（注釈帯）と作業表の領域境界（最強の 2px・--sum）。 */
+.grp th { top:calc(45px + var(--lanes-h)); height:22px; padding:0 8px; text-align:center; font-size:10px;
+          letter-spacing:.08em; border-bottom:1px solid var(--line); border-top:2px solid var(--sum); }
+thead tr.grp + tr th { height:22px; padding:0 8px; top:calc(45px + var(--lanes-h) + 22px); }
+thead th.gantt-body { top:calc(45px + var(--lanes-h)); padding:0; }
 /* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
 .gs { border-left:1px solid var(--line-strong) !important; }
 /* 作業グループの見出しの左半分（No.+作業）は固定列に合わせて貼り付ける（食い込み防止）。 */
@@ -881,7 +891,7 @@ tr.hid { display:none; }
    一目で分かる）。行高 20px（データ行 約27px）の律動差も領域を分ける。 */
 tr.msrow > td:not(.gantt) { background-color:var(--sec); }
 tr.msrow > td { border-bottom:1px solid var(--line); }
-tbody tr:first-child > td { border-top:2px solid var(--sum); }  /* 注釈帯 → データ本体の領域境界 */
+/* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
 /* 左の空き（No.＋作業の 2 列ぶん）。見出しはガントのすぐ左に右寄せ。縦の格子（右罫）は持たない。 */
 td.ms-pad { position:sticky; left:0; z-index:3; background-color:var(--sec); border-right:0; }
 td.ms-label { text-align:right; z-index:2; background-color:var(--sec); font-size:11px; font-weight:600;
@@ -908,7 +918,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
   --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
   --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
   --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
-  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#e9eef4; --late-row:#f5edeb;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c2c8d0; --late-row:#f5edeb;
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
   }
@@ -1017,7 +1027,8 @@ _VIEW_SCRIPT = r"""
     // （合わせ直さないと 1 行目と 2 行目がずれる）。予定・実績は隠せないので触らない。
     function vis(sel){ var n=0; document.querySelectorAll(sel).forEach(function(c){
       if(getComputedStyle(c).display!=='none') n++; }); return n; }
-    // 列名の行は「グループ見出しの次の行」（レーンを thead 末尾に置いたので last-child では拾えない）。
+    // 列名の行は「グループ見出しの次の行」（thead は 時間軸→レーン→まとまり見出し→列名 の順で、
+    //   列名は last-child ではない）。
     var flow=vis('thead tr.grp + tr th.team')+vis('thead tr.grp + tr th.who')+vis('thead tr.grp + tr th.st');
     var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
   }
@@ -1353,6 +1364,41 @@ _EDIT_SCRIPT = r"""
                          else { busy=false; tell(r.body.detail||'できなかった',true); } })
       .catch(function(e){ busy=false; tell('できなかった: '+e,true); });
   }
+  // マイルストーン（節目）の書き込み。出来事と対称だが書き戻し先は work/（完了を追う対象だから木に載せる）。
+  function postMilestone(payload, okmsg){
+    if(busy) return; busy=true;
+    fetch('milestone',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify(payload)})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell(okmsg); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'できなかった',true); } })
+      .catch(function(e){ busy=false; tell('できなかった: '+e,true); });
+  }
+  function openMilestone(due){
+    var back=document.getElementById('evback'); back.innerHTML='';
+    var f=document.createElement('div'); f.className='evform';
+    function row(label, node){ var r=document.createElement('label'); r.className='evrow';
+      var s=document.createElement('span'); s.textContent=label; r.appendChild(s); r.appendChild(node); return r; }
+    var h=document.createElement('div'); h.className='evhead';
+    h.textContent='マイルストーンを追加 ── 書き戻す先: work/（milestone: true の作業単位）';
+    f.appendChild(h);
+    var name=document.createElement('input'); name.type='text';
+    f.appendChild(row('名前', name));
+    var d=document.createElement('input'); d.type='date'; if(due) d.value=due;
+    f.appendChild(row('日付', d));
+    var btns=document.createElement('div'); btns.className='evbtns';
+    var ok=document.createElement('button'); ok.type='button'; ok.textContent='追加';
+    var no=document.createElement('button'); no.type='button'; no.textContent='やめる';
+    no.addEventListener('click',function(){ back.style.display='none'; });
+    ok.addEventListener('click',function(){
+      if(!name.value.trim()){ name.focus(); return; }
+      back.style.display='none';
+      postMilestone({name:name.value.trim(), due:d.value||due}, '節目を足した');
+    });
+    btns.appendChild(ok); btns.appendChild(no); f.appendChild(btns);
+    back.appendChild(f); back.style.display='flex';
+    name.focus();
+  }
   function del2(eid){ del(eid); }  // /remove は EV- を出来事として消す
   var EVENTS={};  // 直すとき用に、この画面の出来事を id → 値で持つ
   try{ EVENTS=JSON.parse(document.currentScript.dataset.events||'{}'); }catch(e){}
@@ -1465,8 +1511,12 @@ _EDIT_SCRIPT = r"""
     if(mark && mark.dataset.eid){ editEvent(mark.dataset.eid); return; }
     var laneRow=e.target.closest && e.target.closest('tr.msrow[data-lane]');
     var track=e.target.closest && e.target.closest('td.ms-track');
-    if(laneRow && track && laneRow.dataset.lane!=='マイルストーン'){
-      openEvent({lane:laneRow.dataset.lane, dtstart:dayAt(track, e)}); return;
+    if(laneRow && track){
+      // クリックした帯の種類で既定を決める：マイルストーン帯＝節目の登録、それ以外＝その帯の出来事の登録。
+      var day=dayAt(track, e);
+      if(laneRow.dataset.lane==='マイルストーン') openMilestone(day);
+      else openEvent({lane:laneRow.dataset.lane, dtstart:day});
+      return;
     }
     var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
   document.addEventListener('keydown',function(e){
@@ -1517,14 +1567,19 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         for key, label in COLUMN_GROUPS
         if key != "work"
     )
-    axis = f'<th class="gantt" rowspan="2">{_axis_html(span, today_mark) if span else ""}</th>'
+    # 最上段は時間軸だけ（ものさし）。左は各列に合わせた空セル（列を隠すと一緒に隠れて幅がそろう）。
+    ruler_pad = "".join(f'<th class="{css}"></th>' for _, css, _ in COLUMNS)
+    axis = _axis_html(span, today_mark) if span else ""
+    ruler = f'<tr class="ruler">{ruler_pad}<th class="gantt ruler-cell">{axis}</th></tr>'
+    # グループ見出し＋列名のガント列は空（格子は背景・棒はデータ行）。2 段ぶちぬき。
+    body_gantt = '<th class="gantt gantt-body" rowspan="2"></th>'
     head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css, _ in COLUMNS)
     days = ((span[1] - span[0]).days + 1) if span else 0
     # 初期の単位は期間の長さで決める（短い案件は週・長い案件は月）。以後は利用者が選んだ単位が状態。
     unit = "m" if days > 120 else "w"
     rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
     parents = _holders(wbs.rows, "")
-    lanes_html, lane_labels = _lanes(wbs, span, today_mark)
+    lanes_html, lane_labels = _lanes(wbs, span, today_mark, editable=editable)
     body = "".join(
         _row_html(
             row,
@@ -1605,8 +1660,8 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
         f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"'
         f'{f' data-first="{span[0].isoformat()}"' if span else ""} style="{scroll_vars}">'
-        f'<table><thead><tr class="grp">{groups}{axis}</tr><tr>{head}</tr>'
-        f"{lanes_html}</thead>"
+        f"<table><thead>{ruler}{lanes_html}"
+        f'<tr class="grp">{groups}{body_gantt}</tr><tr>{head}</tr></thead>'
         f"<tbody>{body}</tbody></table></div>"
         f"<footer></footer><script>{_view_script()}</script>{edit_bits}"
     )

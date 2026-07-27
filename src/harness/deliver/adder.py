@@ -20,7 +20,7 @@ from pathlib import Path
 
 from harness import pm
 from harness.deliver import history
-from harness.deliver.editor import LOCK, EditRejected, find_item_path, walk_nodes
+from harness.deliver.editor import LOCK, EditRejected, _scalar, find_item_path, walk_nodes
 from harness.deliver.wbs_lint import all_problems
 
 # 足す単位の ID の形（作業単位の既定）。番号は既存の最大＋1 で、再利用しない。
@@ -64,6 +64,18 @@ def add_child(root: Path, parent_ref: str | None, *, today: date, milestone: boo
     """
     with LOCK:
         return _add(root, parent_ref, today=today, milestone=milestone)
+
+
+def add_milestone(root: Path, *, name: str, due: date, today: date) -> str:
+    """マイルストーンのレーンから、その日のマイルストーンを 1 つ作る（`work/` 直下の作業単位）。
+
+    マイルストーンは木から導出される（`milestone: true` の行）ので、置き場は作業単位＝木の中にする（節を
+    持たない案件でも必ずレーンに現れる）。レーンのクリックは「日付」しか与えないので、置き場は木の直下、
+    名前と日付だけを受け取る。出来事（定例）が `docs/wbs.yaml` に載るのと対称に、こちらは木に載る
+    （両者の違いは置き場ではなく完了の意味論＝マイルストーンは「その日に確定したか」を追う）。
+    """
+    with LOCK:
+        return _add(root, None, today=today, milestone=True, due=due, name=name)
 
 
 def add_sibling(root: Path, ref: str, *, above: bool, today: date, milestone: bool = False) -> str:
@@ -128,8 +140,22 @@ def _renumber(siblings: list[pm.Node], ref: str, new_id: str, *, above: bool, ro
         path.write_text(new_text, encoding="utf-8")
 
 
+def _safe_stem(name: str) -> str:
+    """ファイル名に使える形へ（パス区切りと制御文字を落とし、空白を詰める）。中身は frontmatter が正本。"""
+    cleaned = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "", name).strip()
+    cleaned = re.sub(r"\s+", "-", cleaned)
+    return cleaned[:40] or _NEW_MILESTONE
+
+
 def _add(
-    root: Path, parent_ref: str | None, *, today: date, skip_inherit: bool = False, milestone: bool = False
+    root: Path,
+    parent_ref: str | None,
+    *,
+    today: date,
+    skip_inherit: bool = False,
+    milestone: bool = False,
+    due: date | None = None,
+    name: str | None = None,
 ) -> str:
     nodes, problems = pm.load_tree(root)
     if any(p.level == "error" for p in problems):
@@ -171,10 +197,10 @@ def _add(
                 history.record(parent_path)  # 日程を子へ移すぶんの書き換え（取り消しで戻す）
                 parent_path.write_text(_strip_keys(parent_text, _MOVED_TO_CHILD), encoding="utf-8")
 
-    title = _NEW_MILESTONE if milestone else _NEW_TITLE
-    target = directory / f"{new_id}-{title}.md"
+    title = name.strip() if name and name.strip() else (_NEW_MILESTONE if milestone else _NEW_TITLE)
+    target = directory / f"{new_id}-{_safe_stem(title)}.md"
     fields = (
-        ["milestone: true", f"due: {today.isoformat()}"]
+        ["milestone: true", f"due: {(due or today).isoformat()}"]
         if milestone
         else [f"{key}: {value}" for key, value in inherited.items()]
     )
@@ -183,7 +209,7 @@ def _add(
         f"id: {new_id}",
         "kind: task",
         "status: todo",
-        f"title: {title}",
+        f"title: {_scalar(title)}",
         f"created: {today.isoformat()}",
         *fields,
         "requirements: []",

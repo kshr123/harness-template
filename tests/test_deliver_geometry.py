@@ -207,10 +207,10 @@ def test_the_gantt_is_the_last_column_right_of_progress(tmp_path: Path) -> None:
     )
     html = _render(tmp_path, date(2026, 8, 5))
     header = html.split("<thead>")[1].split("</thead>")[0]
-    columns = header.split("</tr>")[1]  # 2 段目＝列名の段
+    columns = header.split("<tr")[-1]  # 列名の段は thead の最後の行（時間軸→レーン→まとまり見出し→列名）
     labels = [re.sub("<[^>]+>", "", cell) for cell in re.findall(r"<th[^>]*>(.*?)</th>", columns, re.S)]
     assert labels[-1] == "進捗"  # 列名の最後が進捗（ガントは 2 段ぶちぬきで 1 段目にある）
-    assert 'class="gantt"' in header
+    assert 'class="gantt' in header
     row = _row_markup(html, "T-9001")
     assert row.rindex('class="gantt"') > row.rindex('class="n"')  # 本文でも進捗の右
 
@@ -513,6 +513,25 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
 
 
+def test_the_milestone_lane_is_always_present_when_editable(tmp_path: Path) -> None:
+    """編集面では節目が 0 件でもマイルストーン帯を出す（空の帯をクリックして最初の 1 件を登録できる）。
+
+    閲覧用は節目があるときだけ出す（空の帯は読み手には雑音）。帯の種類でクリックの既定が決まるので、
+    帯そのものが無いと「マイルストーン帯をクリックして節目を足す」導線が成立しない。
+    """
+    from harness.deliver.overlay import Overlay
+
+    _tree(tmp_path, {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"})
+    wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
+
+    view = render.render_html(wbs)
+    assert "マイルストーン</td>" not in view  # 閲覧用：節目 0 件なら帯は出さない
+
+    edit = render.render_html(wbs, editable=True, token="t")
+    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', edit)
+    assert "マイルストーン" in labels  # 編集面：0 件でも帯を出す（クリックの的になる）
+
+
 def test_the_document_contains_no_svg_at_all(tmp_path: Path) -> None:
     """文書のどこにも SVG を置かない。
 
@@ -570,7 +589,11 @@ def test_the_axis_and_the_body_use_the_same_box(tmp_path: Path) -> None:
 
 
 def test_lanes_sit_in_the_header_not_between_columns_and_data(tmp_path: Path) -> None:
-    """レーンは thead の最上部（列名とデータ行の間に割り込まない）。時間軸と同じ注釈だから見出しに置く。"""
+    """レーンは thead の中で 時間軸の下・作業表の上に置く（列名とデータ行の間に割り込まない）。
+
+    順序は 時間軸（ruler）→ マイルストーン等のレーン（msrow）→ 作業表（まとまり見出し grp → 列名 → データ）。
+    ものさし（時間軸）が上・読み取り値（◆○）が下、というガントの約束をそのまま縦の並びにする。
+    """
     _tree(
         tmp_path,
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
@@ -581,5 +604,5 @@ def test_lanes_sit_in_the_header_not_between_columns_and_data(tmp_path: Path) ->
     tbody = html.split("<tbody>")[1].split("</tbody>")[0]
     assert 'class="msrow"' in thead  # レーンは見出しの中
     assert "msrow" not in tbody  # データ側には無い
-    # レーンは時間軸（グループ見出しの行）より**後**に出る＝ものさしが上・読み取り値（◆○）が下。
-    assert thead.index('class="grp"') < thead.index("msrow")
+    # 時間軸（ものさし）が最上段、レーンはその下、作業表のまとまり見出しはさらに下。
+    assert thead.index('class="ruler"') < thead.index("msrow") < thead.index('class="grp"')

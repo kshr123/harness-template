@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from harness import pm
 from harness.deliver import wbs_lint
-from harness.deliver.adder import add_child, add_sibling
+from harness.deliver.adder import add_child, add_milestone, add_sibling
 from harness.deliver.server import create_app
 from harness.models import Kind, Status
 
@@ -248,3 +248,44 @@ def test_the_menu_offers_a_milestone(tmp_path: Path) -> None:
     _write(tmp_path / "work" / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
     page = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1").get("/").text
     assert "マイルストーンを下に追加" in page
+
+
+def test_a_lane_milestone_takes_a_name_and_a_day(tmp_path: Path) -> None:
+    """マイルストーン帯のクリックから、名前とその日でマイルストーンを足せる（基準日ではなく指した日）。"""
+    (tmp_path / "work").mkdir(parents=True)
+    new_id = add_milestone(tmp_path, name="最終検収", due=date(2026, 9, 30), today=TODAY)
+    item = _items(tmp_path)[new_id]
+    assert item.milestone is True
+    assert item.start is None
+    assert item.due == date(2026, 9, 30)  # クリックした日（基準日 8/20 ではない）
+    assert item.title == "最終検収"
+    assert (tmp_path / "work" / f"{new_id}-最終検収.md").is_file()  # 名前がファイル名にも入る
+    assert not [p for p in wbs_lint.check(tmp_path, today=TODAY) if p.level == "error"]
+
+
+def test_a_lane_milestone_name_with_unsafe_characters_is_kept_in_the_frontmatter(tmp_path: Path) -> None:
+    """名前にファイル名で使えない文字があってもファイルは作れ、名前は frontmatter に残る（正本は本文の欄）。"""
+    (tmp_path / "work").mkdir(parents=True)
+    new_id = add_milestone(tmp_path, name="設計/実装: 完了", due=date(2026, 9, 1), today=TODAY)
+    item = _items(tmp_path)[new_id]
+    assert item.title == "設計/実装: 完了"  # 名前はそのまま
+    files = list((tmp_path / "work").glob(f"{new_id}-*.md"))
+    assert len(files) == 1 and "/" not in files[0].name  # ファイル名からは区切り文字が落ちている
+
+
+def test_a_milestone_through_the_server_writes_to_the_edit_copy(tmp_path: Path) -> None:
+    """/milestone は編集の場に書く（正本は取り込みまで無傷）。トークンが要る。"""
+    (tmp_path / "work").mkdir(parents=True)
+    _write(tmp_path / "work" / "T-0001-a.md", {"id": "T-0001", "kind": "task", "status": "todo"})
+    client = TestClient(create_app(tmp_path, today=TODAY, token=TOKEN), base_url="http://127.0.0.1")
+
+    refused = client.post("/milestone", json={"name": "中間報告", "due": "2026-09-15"})
+    assert refused.status_code == 403
+    assert len(_items(tmp_path)) == 1
+
+    done = client.post("/milestone", json={"name": "中間報告", "due": "2026-09-15"}, headers={"X-WBS-Token": TOKEN})
+    assert done.status_code == 200, done.text
+    live_items = _items(_live(tmp_path))
+    assert done.json()["id"] in live_items
+    assert live_items[done.json()["id"]].due == date(2026, 9, 15)
+    assert len(_items(tmp_path)) == 1  # 正本は変わっていない

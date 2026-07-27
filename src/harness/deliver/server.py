@@ -33,7 +33,7 @@ from harness import pm
 from harness.deliver import history, render
 from harness.deliver import session as session_mod
 from harness.deliver import wbs as wbs_mod
-from harness.deliver.adder import add_child, add_sibling
+from harness.deliver.adder import add_child, add_milestone, add_sibling
 from harness.deliver.editor import LOCK, EditRejected, apply_cascade, apply_edit
 from harness.deliver.events import EventInput, remove_event, upsert_event
 from harness.deliver.overlay import EVENT_ID_PREFIX
@@ -133,6 +133,15 @@ class CascadeRequest(BaseModel):
     ref: str
     field: str
     value: str
+
+
+class MilestoneRequest(BaseModel):
+    """`POST /milestone` の本文。マイルストーンのレーンのクリックから、その日の節目を 1 つ作る。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    due: date
 
 
 def _prune_empty_dirs(start: Path, root: Path) -> None:
@@ -288,6 +297,24 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None,
         try:
             _run(op, f"出来事「{payload.name}」を{'直す' if payload.id else '追加'}")
         except (EditRejected, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return out
+
+    @app.post("/milestone")
+    def _milestone(payload: MilestoneRequest, x_wbs_token: str | None = Header(default=None)) -> dict[str, str]:
+        """マイルストーン（節目）を 1 つ足す（正本＝work/ 直下に milestone: true の作業単位を作る）。
+
+        出来事（定例）が docs/wbs.yaml に載るのと対称に、マイルストーンは木に載せる（完了を追う対象だから）。
+        """
+        _check_token(x_wbs_token)
+        out: dict[str, str] = {}
+
+        def op() -> None:
+            out["id"] = add_milestone(live, name=payload.name, due=payload.due, today=today)
+
+        try:
+            _run(op, f"マイルストーン「{payload.name}」を追加")
+        except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return out
 
