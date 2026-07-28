@@ -11,7 +11,7 @@ requirements: []
 depends_on: [T-0274]
 verified_by:
   - tests/test_deliver_geometry.py::test_the_whole_task_table_is_frozen_and_only_the_calendar_scrolls
-  - tests/test_deliver_geometry.py::test_the_lane_label_hugs_the_calendar_but_stays_out_of_it
+  - tests/test_deliver_geometry.py::test_the_lane_label_hangs_from_the_panel_edge_without_entering_the_calendar
 ---
 # T-0275 左の作業表をまるごと固定する（標準のガント）＝レーン見出しが横スクロールで隠れない
 

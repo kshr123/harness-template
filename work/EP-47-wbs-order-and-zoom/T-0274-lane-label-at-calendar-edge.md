@@ -10,7 +10,7 @@ effort_days: 1
 requirements: []
 depends_on: [T-0273]
 verified_by:
-  - tests/test_deliver_geometry.py::test_the_lane_label_hugs_the_calendar_but_stays_out_of_it
+  - tests/test_deliver_geometry.py::test_the_lane_label_hangs_from_the_panel_edge_without_entering_the_calendar
   - tests/test_deliver_geometry.py::test_lane_rows_are_exactly_one_lane_height_so_sticking_does_not_break
 ---
 # T-0274 レーン見出しをカレンダーの左隣（表のセル）に置く・帯の高さ潰れを確定的に直す

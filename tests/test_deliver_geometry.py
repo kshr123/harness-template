@@ -526,12 +526,12 @@ def test_lanes_separate_milestones_from_recurring_events(tmp_path: Path) -> None
         }
     )
     html = render.render_html(wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=overlay))
-    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', html)
+    labels = re.findall(r'<span class="ms-name">([^<]+)</span>', html)
     assert labels == ["マイルストーン", "定例", "報告"]  # 種類ごとに 1 本ずつ
     # 出来事は**開催日ごとの記号**（棒ではない）。隔週 3 回は 08-05・08-19・09-02 で、描画の窓（8 月）に
     # 入るのは 2 回。1 回きり（08-28）と合わせて 3 個。◆（マイルストーン）より小さく淡い記号で描く。
     assert html.count('class="ev"') == 3
-    assert "gbar" not in html.split("マイルストーン</td>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
+    assert "gbar" not in html.split("マイルストーン</span>")[1].split("</tr>")[0]  # ◆ の行に棒は無い
     # 出来事は木に無い＝下の表には出てこない（二重表示にならない）。
     assert "定例報告会" not in html.split("</thead>")[1].split('<tr class="lv0')[1]
 
@@ -548,19 +548,20 @@ def test_the_milestone_lane_is_always_present_when_editable(tmp_path: Path) -> N
     wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
 
     view = render.render_html(wbs)
-    assert "マイルストーン</td>" not in view  # 閲覧用：節目 0 件なら帯は出さない
+    assert '<span class="ms-name">マイルストーン' not in view  # 閲覧用：節目 0 件なら帯は出さない
 
     edit = render.render_html(wbs, editable=True, token="t")
-    labels = re.findall(r'<td class="ms-label"[^>]*>([^<]+)</td>', edit)
+    labels = re.findall(r'<span class="ms-name">([^<]+)</span>', edit)
     assert "マイルストーン" in labels  # 編集面：0 件でも帯を出す（クリックの的になる）
 
 
-def test_the_lane_label_hugs_the_calendar_but_stays_out_of_it(tmp_path: Path) -> None:
-    """レーンの見出しは**カレンダーの左隣の表のセル**に右寄せで置く＝◆○のすぐ左（目線が動かない）だが、
-    カレンダーの中には決して入らない（別のセルなので構造的に侵食しない）。
+def test_the_lane_label_hangs_from_the_panel_edge_without_entering_the_calendar(tmp_path: Path) -> None:
+    """レーンの見出しは、作業表パネルの右端（＝カレンダーの左隣）から**左へぶら下がる**（right:0）＝◆○の
+    すぐ左（目線が動かない）だが、右（カレンダー側）へは一切はみ出さない（構造的に侵食しない）。
 
-    以前カレンダー列の中に見出しを置いたら◆○を覆って侵食した。見出しは非ガントの ms-label セルに右寄せ、
-    記号はガント列（overflow:hidden）の中だけ＝両者は別セルで重ならない。順序は ms-label（表）→ ガント。
+    以前は colspan セルで見出しを置いたが、colspan セルの幅がデータ行の列合計とずれてカレンダーへはみ出した。
+    ここでは**データ行と同じ列構成**（各列に空セル）にして幅を 1px も違えず、見出しは最後の非ガントセルの
+    right:0（＝パネル右端）から左へ出す。記号はガント列（overflow:hidden）の中だけ。順序は 非ガント → ガント。
     """
     _tree(
         tmp_path,
@@ -570,17 +571,19 @@ def test_the_lane_label_hugs_the_calendar_but_stays_out_of_it(tmp_path: Path) ->
     row_match = re.search(r'<tr class="msrow".*?</tr>', html, re.S)
     assert row_match is not None
     row = row_match.group(0)
-    # 見出しは非ガントのセルにあり、その右に別セルのガント（ms-track）が来る＝見出しはカレンダーの外。
-    assert row.index('class="ms-label"') < row.index("ms-track")
+    # レーン行はデータ行と同じ列構成（各列に ms-cell 1 つ）＝colspan を使わない（幅がずれない）。
+    assert row.count('class="code ms-cell') == 1  # 先頭列
+    assert 'colspan="' not in row  # colspan は使わない
+    # 見出しは最後の非ガントセル（ms-anchor）の中の span で、その右にガント（ms-track）が来る＝カレンダーの外。
+    assert row.index("ms-anchor") < row.index("ms-track")
     style = html.split("<style>")[1].split("</style>")[0]
-    label_rule = next(ln for ln in style.splitlines() if "td.ms-label {" in ln and "text-align" in ln)
-    assert "text-align:right" in label_rule  # ◆○のすぐ左に来るよう右寄せ（カレンダーに隣接）
+    name_rule = next(ln for ln in style.splitlines() if "td.ms-anchor .ms-name" in ln)
+    assert "position:absolute" in name_rule and "right:0" in name_rule  # パネル右端から左へぶら下げる
     track_rule = next(ln for ln in style.splitlines() if "td.ms-track {" in ln and "overflow" in ln)
     assert "overflow:hidden" in track_rule  # 記号はガント列の中だけ＝左（見出し側）へ漏れない
-    # 見出しセルは同じ行の他セル（ガント＝z-index 4）より前面（6）＝横スクロールで滑ってくるカレンダーに
-    # 上書きされて消えない。作業表まるごと固定なので、見出しは常にカレンダーの左隣に留まる。
-    label_z = next(ln for ln in style.splitlines() if "td.ms-label" in ln and "z-index" in ln)
-    assert "z-index:6" in label_z
+    # アンカーセルは同じ行のガント（z-index 4）より前面（6）＝横スクロールで滑ってくるカレンダーに消されない。
+    anchor_rule = next(ln for ln in style.splitlines() if "td.ms-anchor {" in ln)
+    assert "z-index:6" in anchor_rule
 
 
 def test_lane_rows_are_exactly_one_lane_height_so_sticking_does_not_break(tmp_path: Path) -> None:

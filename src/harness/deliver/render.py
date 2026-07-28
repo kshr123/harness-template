@@ -572,18 +572,26 @@ def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
     レーンは時間軸への注釈（◆の集約と○）なので、**時間軸のすぐ下・作業表（まとまり見出し・列名・データ）の
     上**に置く（軸で測って読むものを軸の直下にまとめ、作業表の列名とデータ行の間には割り込ませない／縦スクロール
     でも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
-    見出し（`ms-label`）は**カレンダーの左隣の表のセル**に右寄せで置く＝◆○のすぐ左（目線が動かない）だが
-    **カレンダーの中には決して入らない**（別のセルなので構造的に侵食しない）。横スクロールでは表と一緒に左へ
-    動き、ガントの左端に貼り付いたまま進み、最後は固定列（No.＋作業＝`ms-frozen`・不透明・前面）の下に隠れる
-    （カレンダーに被らない）。記号（◆○）と今日線はガント列（`overflow:hidden`）の中だけ＝左へ漏れない。
+
+    **セルはデータ行と同じ列構成**（各列に空セル 1 つ）にする＝作業表まるごと固定と同じ幅計算に乗り、
+    パネルの右端＝カレンダーの左端の位置がデータ行と 1px もずれない（colspan セルだと幅がずれてカレンダーに
+    はみ出す）。見出しは**最後の非ガントセルの右端**（＝パネルの右端＝カレンダーの左隣）から**左へぶら下げる**
+    （`position:absolute; right:0`）＝◆○のすぐ左（目線が動かない）だが、右へは一切はみ出さない（カレンダーに
+    侵食しない）。記号（◆○）と今日線はガント列（`overflow:hidden`）の中だけ＝左へ漏れない。
     `data-lane` で、見出しの操作からこのレーンだけを表示・非表示できる。
     """
-    n_cols = len(COLUMNS)
+    last = len(COLUMNS) - 1
+    cells = "".join(
+        (
+            f'<td class="{css} ms-cell ms-anchor"><span class="ms-name">{_esc(label)}</span></td>'
+            if i == last
+            else f'<td class="{css} ms-cell"></td>'
+        )
+        for i, (_, css, _) in enumerate(COLUMNS)
+    )
     return (
         f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
-        f'<td class="ms-frozen" colspan="2"></td>'
-        f'<td class="ms-label" colspan="{n_cols - 2}">{_esc(label)}</td>'
-        f'<td class="gantt ms-track">{body}{today_mark}</td></tr>'
+        f'{cells}<td class="gantt ms-track">{body}{today_mark}</td></tr>'
     )
 
 
@@ -921,13 +929,22 @@ tr.hid { display:none; }
 tr.msrow > td { height:var(--lane-h); line-height:1; border-bottom:1px solid var(--line); }
 tr.msrow > td:not(.gantt) { background-color:var(--sec); padding:0 8px; }
 /* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
-/* 見出しはカレンダーの左隣の表のセル（ms-label）に**右寄せ**で置く＝◆○のすぐ左（目線が動かない）。作業表は
-   まるごと固定なので、横スクロールしてもこのセルはカレンダーの左隣に留まる（隠れない・カレンダーに被らない）。
-   z-index は同じ行の他セル（`thead tr.msrow > td`＝4）より上でないと、横スクロールで左へ滑ってくるカレンダー
-   （ms-track・同じ 4・DOM で後）に上書きされて消える。詳細度も高い専用規則で 6 に上げる（ms-frozen も同様）。 */
-thead tr.msrow td.ms-frozen, thead tr.msrow td.ms-label { position:sticky; z-index:6; }
-td.ms-label { text-align:right; border-right:0; font-size:10px; font-weight:600; color:var(--muted);
-              letter-spacing:.02em; white-space:nowrap; overflow:hidden; }
+/* パネル内は縦の格子を持たない（格子はデータの記号）。z-index は同じ行のガント（`thead tr.msrow > td`＝4）
+   より上（6）にしないと、横スクロールで滑ってくるカレンダー（ms-track・同 4・DOM で後）が空セルの上に
+   ◆○を描いてしまう（パネルへの漏れ）。詳細度の高い専用規則で 6 に上げる。 */
+thead tr.msrow td.ms-cell { z-index:6; }
+tr.msrow td.ms-cell { border-right:0; }
+/* 見出しは最後の非ガントセル（＝パネルの右端＝カレンダーの左隣）の右端から**左へぶら下げる**。right:0 は
+   パネルの右端そのものなので、右（カレンダー側）へは一切はみ出さない＝カレンダーに侵食しない。作業表まるごと
+   固定なので、横スクロールしてもこの位置はカレンダーの左隣に留まる（隠れない・被らない）。z-index は同じ行の
+   ガント（`thead tr.msrow > td`＝4）より上でないと、横スクロールで滑ってくるカレンダーに上書きされて消える
+   ＝詳細度の高い専用規則で 6 に上げる。 */
+/* position は一般規則の sticky を保つ（relative にすると固定が外れてカレンダーへ流れる）。sticky セルは
+   絶対配置の子の基準にもなるので、中の ms-name（right:0）はこのセルの右端＝パネル右端に貼り付く。 */
+thead tr.msrow td.ms-anchor { z-index:6; overflow:visible; padding:0; }
+td.ms-anchor .ms-name { position:absolute; right:0; top:50%; transform:translateY(-50%);
+              white-space:nowrap; text-align:right; font-size:10px; font-weight:600; color:var(--muted);
+              letter-spacing:.02em; background-color:var(--sec); padding-left:8px; }
 /* 記号（◆○）と今日線はガント列の中だけ（overflow:hidden で左へ漏れない）。 */
 td.ms-track { position:relative; overflow:hidden; padding:0; }
 td.ms-track .ms { top:50%; }
