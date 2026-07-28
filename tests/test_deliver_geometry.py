@@ -343,12 +343,16 @@ def test_the_top_bar_is_pared_down_and_the_legend_is_grouped(tmp_path: Path) -> 
     見出しで括る（パッと読めるように）。
     """
     _tree(tmp_path, {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"})
-    wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
+    wbs = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay(client="株式会社サンプル"))
     html = render.render_html(wbs, editable=True, token="t")
     # 「基準日」は分かりにくいので、見出しの日付も凡例も「本日」と書く（内部コメントの語は対象外）。
     assert "本日 2026-08-05" in html and "基準日 2026" not in html and "破線＝基準日" not in html
     assert "＋ 出来事" not in html  # 登録はレーンのクリックに一本化＝ボタンは置かない
     assert '<span class="lg-h">記号</span>' in html and '<span class="lg-h">行の状態</span>' in html  # 凡例を 2 群に
+    # 提出先（クライアント名）は載せない＝上部の雑音を減らす（client を設定しても出さない）。
+    assert "提出先" not in html
+    # 操作の説明文は画面に出さない（UI 自体で分かるようにする）。
+    assert "セルをクリックすると直せる" not in html and "行の操作は右クリック" not in html
 
 
 def test_the_first_tick_is_always_the_start_of_the_period() -> None:

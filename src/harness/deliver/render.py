@@ -869,25 +869,22 @@ line.leg { stroke:var(--bar); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
       color:var(--bar-done); pointer-events:none; }
-.ops { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;
-       justify-content:space-between; }
-.ops .left, .ops .right { display:flex; gap:6px; align-items:center; }
-.ops button { font:inherit; font-size:11px; color:var(--ink); background:var(--paper); cursor:pointer;
-              border:1px solid var(--line); border-radius:6px; padding:3px 10px; }
-.ops button:hover { background:var(--hover); border-color:var(--line-strong); }
-.ops .sep { color:var(--muted); font-size:11px; margin-left:10px; }
-.ops button.zoom { border-radius:0; margin-left:-1px; }
-.ops button.zoom:first-of-type { border-radius:6px 0 0 6px; margin-left:0; }
-.ops button.zoom:last-of-type { border-radius:0 6px 6px 0; }
-/* 時間軸（月/週/日）は主操作なので、押されている段だけはっきり示す（青）。 */
-.ops button.zoom[aria-pressed="true"] {
-  background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); font-weight:600; }
-/* 表示の入り切り（列・レーン）は脇役なので静かに：オン＝淡い地色の塗り、オフ＝薄い文字。青で主張させない。 */
+/* 操作バーは**脇役**（この表は本来 静的な提出物）。小さく・地に沈め、主役の表を邪魔しない。既定は枠なしの
+   薄字、押している・かざしたときだけ淡い地色のチップにする（大きな枠つきボタンで主張させない）。 */
+.ops { display:flex; gap:2px; align-items:center; margin-top:6px; flex-wrap:wrap;
+       justify-content:space-between; font-size:11px; }
+.ops .left, .ops .right { display:flex; gap:2px; align-items:center; }
+.ops button { font:inherit; font-size:11px; color:var(--muted); background:none; cursor:pointer;
+              border:0; border-radius:5px; padding:2px 7px; }
+.ops button:hover { background:var(--sec); color:var(--ink); }
+.ops .sep { color:var(--muted); font-size:10px; letter-spacing:.04em; margin:0 3px 0 8px; }
+/* 押している状態（列・レーンの表示オン／選んでいる時間軸）は淡い地色のチップで示す（青の大ブロックは使わない）。 */
+.ops button.zoom[aria-pressed="true"],
 .ops button.col[aria-pressed="true"], .ops button.lane[aria-pressed="true"] {
-  background:var(--head); color:var(--ink); border-color:var(--line-strong); font-weight:600; }
-.ops button.col[aria-pressed="false"], .ops button.lane[aria-pressed="false"] {
-  color:var(--muted); background:var(--paper); }
-.ops .divider { width:1px; align-self:stretch; background:var(--line); margin:2px 4px; }
+  background:var(--sec); color:var(--ink); font-weight:600; }
+/* 時間軸（月/週/日）は 1 つながりの選択に見せる（隙間を詰める）。 */
+.ops button.zoom { padding:2px 8px; }
+.ops .divider { width:1px; align-self:stretch; background:var(--line); margin:3px 5px; }
 thead tr.msrow.lane-off { display:none; }
 
 /* 出来事の登録フォーム（追加・修正で同じ）。画面中央に重ねる。 */
@@ -1033,7 +1030,6 @@ td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); back
        background:var(--ink); color:var(--paper); padding:8px 14px; border-radius:4px; font-size:12px;
        line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
 #say.bad { background:var(--late-ink); }
-.hint { color:var(--muted); font-size:11px; }
 #menu { position:absolute; display:none; z-index:20; min-width:180px; padding:4px 0;
         background:var(--paper); border:1px solid var(--line); border-radius:4px;
         box-shadow:0 8px 24px rgba(15,20,26,.16); }
@@ -1695,7 +1691,6 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
         for row in wbs.walk()
     )
     title = wbs.overlay.project or "WBS"
-    client = f"<div>提出先: {_esc(wbs.overlay.client)}</div>" if wbs.overlay.client else ""
     period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
     banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
     # 「表示」の 1 群にまとめる（押されている＝見えている。列かレーンかは利用者の関心事でない）。
@@ -1720,11 +1715,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     ops = [f'<div class="left">{"".join(left)}</div>', f'<div class="right">{"".join(right)}</div>']
     edit_bits = ""
     if editable:
-        banner += (
-            '<div class="hint">セルをクリックすると直せる（Enter で保存・Esc で取り消し）。'
-            "行の操作は右クリック（列ごとに変わる）。Ctrl+Z で直前の操作を戻す。"
-            "書き戻す先は正本（作業単位の frontmatter と docs/wbs.yaml）。導出される値に編集の口は無い。</div>"
-        )
+        # 操作の説明文は画面に出さない（自明にする）。編集できるセルは hover で手がかりを出す（_EDIT_STYLE）。
         # 状態の選択肢は「値と日本語の見出し」を組で渡す（画面には日本語だけを出し、送るのは正本の値）。
         choices = _esc(json.dumps([[s.value, label] for s, label in STATUS_LABEL.items()], ensure_ascii=False))
         # 出来事を直すとき用に、この画面の出来事を id → 値で渡す。レーン名の選択肢も。
@@ -1758,7 +1749,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     )
     inner = (
         f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}{grid_css}</style>"
-        f"<header><h1>{_esc(title)}</h1>{client}"
+        f"<header><h1>{_esc(title)}</h1>"
         f'<div class="meta">本日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
         f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
         f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"'
