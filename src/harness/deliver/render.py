@@ -1486,7 +1486,8 @@ _EDIT_SCRIPT = r"""
     postEvent({id:eid, name:ev.name, lane:ev.lane, dtstart:ev.dtstart||null, rrule:ev.rrule||'',
       rdate:ev.rdate||[], exdate:ex}, 'この回を外した');
   }
-  // 出来事の登録フォーム（追加・修正で同じ）。繰り返しはボタンで組み立て、RRULE 文字列も見せる（直接編集可）。
+  // 出来事の登録フォーム（追加・修正で同じ）。繰り返しは画面の操作（種類・曜日・初回/最終）だけで決める。
+  // RRULE の文字列は画面に出さない（専門用語なので誰でも使えない）＝裏で組み立てて送るだけ。
   var WD=[['月','MO'],['火','TU'],['水','WE'],['木','TH'],['金','FR'],['土','SA'],['日','SU']];
   var LANES=[];  try{ LANES=JSON.parse(document.currentScript.dataset.lanes||'[]'); }catch(e){}
   function ymd(d){ return d? d.replace(/-/g,''):''; }
@@ -1543,21 +1544,29 @@ _EDIT_SCRIPT = r"""
     var nth=document.createElement('select');
     [1,2,3,4].forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent='第'+n;
       nth.appendChild(o); });
-    var start=dt(ev.dtstart), end=dt(''); var once=inp((ev.rdate||[]).join(', '));
+    // 既存の出来事を直すときは、隠した数式の代わりに画面の操作へ復元する（種類・第N・最終日）。曜日は上で復元済み。
+    var rr=(ev.rrule||'').toUpperCase();
+    if(rr){ kind.value = /INTERVAL=2/.test(rr) ? 'biweekly' : (/FREQ=MONTHLY/.test(rr) ? 'monthly' : 'weekly'); }
+    else if((ev.rdate||[]).length){ kind.value='once'; }
+    var nthm=/BYDAY=([+-]?\d)/.exec(rr); if(nthm){ nth.value=String(Math.abs(parseInt(nthm[1],10))); }
+    var untilm=/UNTIL=(\d{4})(\d{2})(\d{2})/.exec(rr);
+    var start=dt(ev.dtstart);
+    var end=dt(untilm ? untilm[1]+'-'+untilm[2]+'-'+untilm[3] : '');
+    var once=inp((ev.rdate||[]).join(', ')); once.placeholder='例: 2026-09-30, 2026-10-15';
     var whenRule=document.createElement('div'); whenRule.className='evrow';
+    var whenLab=document.createElement('span'); whenLab.textContent='いつ'; whenRule.appendChild(whenLab);
     whenRule.appendChild(nth); whenRule.appendChild(wdset);
     whenRule.appendChild(document.createTextNode(' 初回')); whenRule.appendChild(start);
-    whenRule.appendChild(document.createTextNode(' 最終')); whenRule.appendChild(end);
+    whenRule.appendChild(document.createTextNode(' 最終（任意）')); whenRule.appendChild(end);
     var whenOnce=row('開催日（カンマ区切り）', once);
     f.appendChild(whenRule); f.appendChild(whenOnce);
-    var rule=inp(ev.rrule); var ruleRow=row('規則（自動で組み立て・直接書いてもよい）', rule); f.appendChild(ruleRow);
+    var rule={value:ev.rrule||''};  // 数式は画面に出さない（操作で組み立てて送るだけの控え）
     function build(){
       var k=kind.value;
       nth.style.display = k==='monthly'?'':'none';
       whenOnce.style.display = k==='once'?'':'none';
       whenRule.style.display = k==='once'?'none':'';
-      ruleRow.style.display = k==='once'?'none':'';
-      if(k==='once') return;
+      if(k==='once'){ rule.value=''; return; }
       var u=end.value?(';UNTIL='+ymd(end.value)):'';
       var days=selectedDays(); if(!days.length) days=['MO'];
       if(k==='weekly') rule.value='FREQ=WEEKLY;BYDAY='+days.join(',')+u;

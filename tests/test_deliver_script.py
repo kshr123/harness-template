@@ -84,3 +84,17 @@ def test_no_string_literal_is_cut_by_a_real_newline(tmp_path: Path) -> None:
     """文字列リテラルに本物の改行が混ざっていない（この壊れ方が実際に起きた）。"""
     for source in _scripts(_page(tmp_path, editable=True)):
         assert not _unterminated_string_lines(source)
+
+
+def test_the_event_form_never_shows_the_rrule_expression(tmp_path: Path) -> None:
+    """出来事フォームは画面の操作（種類・曜日・初回/最終）だけで完結し、RRULE の文字列（専門用語）を出さない。
+
+    RRULE は誰でも読めないので、画面に見せない＝裏で組み立てて送るだけ。人が使う語（毎週・隔週・毎月第N・
+    単発）は残す。「規則（…直接書いてもよい）」のような数式入力欄を出していないことを固定する。
+    """
+    html = _page(tmp_path, editable=True)
+    assert "毎週" in html and "隔週" in html and "毎月第N" in html and "単発" in html  # 人が使う語は残す
+    assert "規則（" not in html  # 数式の入力欄ラベル（規則（…））を出さない
+    assert "直接編集" not in html and "直接書いても" not in html  # 「直接書ける」導線も消す
+    # 数式を見せる行は row('規則…', rule) で作っていた＝その呼び出しが無いこと（rule は控えの変数に降格）。
+    assert "row('規則" not in html and 'row("規則' not in html
