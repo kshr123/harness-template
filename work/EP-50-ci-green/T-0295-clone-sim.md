@@ -23,6 +23,6 @@ fork 模擬（案件領域を白紙化＋`profiles=[]`＋素の uv sync）で ve
   ない。doclint が `CASE_AREA_ROOTS`（正本 = init_project）配下のパスを実在検査から除外する。
 
 ## 受け入れ基準
-- [ ] ds か agent が無効なら `test_promotion_rollback.py` が収集から外れる（disabled_profiles の glob に入る）。
-- [ ] doclint が案件領域パス（例 `docs/wbs.yaml`）の不在を error にしない一方、案件領域外の不在パスは従来どおり error。
-- [ ] fork 模擬（ローカル再現）で verify が緑。
+- [x] ds か agent が無効なら `test_promotion_rollback.py` が収集から外れる（disabled_profiles の glob に入る）。
+- [x] doclint が案件領域パス（例 `docs/wbs.yaml`）の不在を error にしない一方、案件領域外の不在パスは従来どおり error。
+- [x] fork 模擬（ローカル再現）で verify が緑。

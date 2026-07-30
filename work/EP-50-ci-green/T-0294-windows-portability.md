@@ -23,6 +23,6 @@ Windows の verify が 3 テストで落ちる（いずれも移植性バグ・d
   utf-8 stdio を強制する（test_conventions の autouse フィクスチャ）。
 
 ## 受け入れ基準
-- [ ] code_doc_lint の逆向き指摘のパスが常に `/` 区切り（プラットフォーム非依存）。
-- [ ] conftest が stdout/stderr を utf-8 に固定し、非 ASCII 文言のサブプロセス出力が読める。
-- [ ] 対応する既存テスト（reverse 系・conventions のサブプロセス系）が緑。
+- [x] code_doc_lint の逆向き指摘のパスが常に `/` 区切り（プラットフォーム非依存）。
+- [x] pytester サブプロセスに PYTHONUTF8=1 を継承させ、非 ASCII 文言の出力を親テストが utf-8 で読める。
+- [x] 対応する既存テスト（reverse 系・conventions のサブプロセス系）が緑。

@@ -19,10 +19,11 @@ import yaml
 from harness import profiles
 from harness.testing import check_collected_items
 
-# Windows のコンソール（cp932）でも日本語・記号の検査文言を素直に出せるよう utf-8 に固定する（cli.py と同じ作法）。
-# これが無いと、収集フックの UsageError（日本語）を pytester サブプロセスが cp932 で出し、それを utf-8 で
-# 読むテスト（test_conventions）が UnicodeDecodeError になる。`_REAL_CONFTEST` は実 conftest そのものを読むので、
-# ここに置けば実行時とサブプロセスの両方が直る。capture 下では reconfigure を持たない stream もあるので getattr で守る。
+# Windows のコンソール（cp932）でも、**この**テストプロセスが日本語・記号の検査文言を素直に出せるよう
+# utf-8 に固定する（cli.py と同じ作法）。対象は当プロセスの実端末出力だけ（capture 下では reconfigure を
+# 持たない stream もあるので getattr で守る＝その場合は何もしない no-op）。
+# 注意：これは pytester が起こす**別プロセス**には届かない。サブプロセスの日本語出力を親テストが utf-8 で
+# 読めるようにするのは test_conventions の PYTHONUTF8=1 フィクスチャの役目（CI で実測して分けた）。
 for _stream in (sys.stdout, sys.stderr):
     _reconfigure = getattr(_stream, "reconfigure", None)
     if _reconfigure is not None:
