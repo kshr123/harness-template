@@ -191,8 +191,7 @@ def _relative_to_stringified_lines(tree: ast.AST) -> list[int]:
 
 
 def run_checks(root: Path) -> list[pm.Problem]:
-    """テスト規約・ソース規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落・
-    リポ相対パスの `.as_posix()` 無し文字列化＝error。"""
+    """テスト規約・ソース規約の静的検査（種・--test・skip 理由・encoding・相対パスの as_posix 忘れ＝error）。"""
     problems: list[pm.Problem] = []
     for path, is_work_code in _target_files(root):
         rel = path.relative_to(root).as_posix()
