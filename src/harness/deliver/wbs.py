@@ -65,6 +65,16 @@ class WbsRow:
     children: list[WbsRow] = field(default_factory=list)
 
     @property
+    def key(self) -> str:
+        """時点をまたいで同じ行を突き合わせる鍵。作業単位・手動行は ID、顧客向けの節は名前（節は ID を持たない）。
+
+        ベースラインとの重ね描き（`export --against`）と差分（`baseline`）が**同じ鍵**でこの行を照合する
+        （突き合わせの規則を 2 か所に書かない）。改名した節はベースライン側で照合できず棒が付かないだけ・
+        子は ref で追随する。
+        """
+        return self.ref if self.ref is not None else f"節 {self.name}"
+
+    @property
     def scheduled(self) -> bool:
         """棒として描ける日程を持つか。持たない行は未日程として印を付けて出す（黙って消さない）。
 

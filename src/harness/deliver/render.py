@@ -220,13 +220,25 @@ def zoom_backgrounds(span: tuple[date, date], calendar: WorkCalendar) -> dict[st
     return out
 
 
-def _bar_html(row: WbsRow, span: tuple[date, date]) -> str:
-    """その行の棒（非置換の HTML 要素）。マイルストーンは点なので棒を描かない。"""
-    if row.milestone or row.start is None or row.due is None:
-        return ""
-    left = _pct(row.start, span)
-    width = max(_pct(row.due, span) + _day_pct(span) - left, 0.2)
-    return f'<i class="gbar" style="left:{left:.4f}%;width:{width:.4f}%"></i>'
+def _span_bar(css: str, start: date, due: date, span: tuple[date, date]) -> str:
+    """開始〜終了（終了日を含む）を、描画窓の割合で 1 本の棒にする。座標は `_pct`/`_day_pct` の 1 実装だけ。"""
+    left = _pct(start, span)
+    width = max(_pct(due, span) + _day_pct(span) - left, 0.2)
+    return f'<i class="{css}" style="left:{left:.4f}%;width:{width:.4f}%"></i>'
+
+
+def _bar_html(row: WbsRow, span: tuple[date, date], base: tuple[date | None, date | None] | None = None) -> str:
+    """その行の棒（非置換の HTML 要素）。マイルストーンは点なので棒を描かない。
+
+    `base`（合意した時点の開始・終了）があれば、現状の棒の**下に淡い棒**を先に描く（重ね描き＝計画対比）。
+    書いた順に重なる（後が前）ので、淡いベースラインを先・現状の棒を後にして、現状が前に出る。
+    """
+    parts: list[str] = []
+    if base is not None and base[0] is not None and base[1] is not None:
+        parts.append(_span_bar("gbar-base", base[0], base[1], span))
+    if not row.milestone and row.start is not None and row.due is not None:
+        parts.append(_span_bar("gbar", row.start, row.due, span))
+    return "".join(parts)
 
 
 def day_ticks(span: tuple[date, date]) -> list[date]:
@@ -424,6 +436,7 @@ def _row_html(
     editable: bool = False,
     rosters: dict[str, list[str]] | None = None,
     parent: str = "",
+    baseline: dict[str, tuple[date | None, date | None]] | None = None,
 ) -> str:
     """WBS の 1 行。節・作業単位・手動行を同じ描き方で出す（行の描き方は 1 つだけ）。
 
@@ -493,7 +506,8 @@ def _row_html(
         f'<td class="d" data-col="act_end">{_day_label(row.actual_finish)}</td>',
         f'<td class="n" data-col="progress">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
         # 重ね順はこの並びそのもの（後に書いたものが前に出る）。z-index は 1 つも使わない。
-        f'<td class="gantt" data-col="gantt">{_bar_html(row, span) if span else ""}'
+        f'<td class="gantt" data-col="gantt">'
+        f"{_bar_html(row, span, baseline.get(row.key) if baseline else None) if span else ''}"
         f"{_milestone(row, span)}{today_mark}</td>",
     ]
     holder = _esc(row.ref) if can_add else ""
@@ -857,6 +871,10 @@ tr.st-in-progress td.st { color:var(--prog); }
      横スクロールしても前後が入れ替わらない。はみ出しは overflow:hidden で不可能。 */
 td.gantt .gbar { position:absolute; top:50%; transform:translateY(-50%); height:8px; background:var(--bar); }
 tr.is-done .gbar { opacity:.45; }
+/* 合意した時点の棒（`export --against`）。現状の棒のすぐ下に、淡い細い線で重ねる＝計画対比。新色は足さない
+   （既存の淡青 --done）。書いた順で現状の棒が前に出る。 */
+td.gantt .gbar-base { position:absolute; top:calc(50% + 6px); transform:translateY(-50%); height:3px;
+                      background:var(--done); }
 /* 出来事は開催日ごとの記号（帯ではない）。◆（成果物・意思決定の点）より小さく淡くして退かせる
    ＝完了を追う対象でないと一目で分かる。続く日（合宿など）だけ細い淡い帯にする。 */
 td.ms-track .ev { position:absolute; top:50%; transform:translate(-50%, -50%); font-size:9px;
@@ -1655,7 +1673,15 @@ _DOCUMENT = (
 )
 
 
-def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable: bool = False, token: str = "") -> str:
+def render_html(
+    wbs: Wbs,
+    *,
+    provenance: str = "",
+    draft: bool = False,
+    editable: bool = False,
+    token: str = "",
+    baseline: dict[str, tuple[date | None, date | None]] | None = None,
+) -> str:
     """WBS 一式を完全な HTML 文書 1 つに描く。閲覧用と編集用で同じ描き方を使う。
 
     `provenance` は生成物の由来（どのコミット・いつ・どの木から出たか）を 1 行で表した文字列。
@@ -1664,6 +1690,14 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     ファイルに書き出す生成物は常に `editable=False`＝保存の口が無いので、渡した先で編集はできない。
     """
     data_span = wbs.span
+    # ベースラインの日付が現行の期間の外に出ることがある（合意時より前倒し・後ろ倒し）。描画窓は現行と
+    # ベースラインの日付の**合併**から作る＝窓外で `_pct` が 0–100% を外れない（座標式は 1 実装のまま）。
+    if baseline:
+        base_dates = [d for pair in baseline.values() for d in pair if d is not None]
+        if base_dates:
+            lo = min([*base_dates, data_span[0]]) if data_span else min(base_dates)
+            hi = max([*base_dates, data_span[1]]) if data_span else max(base_dates)
+            data_span = (lo, hi)
     span = drawing_window(data_span) if data_span else None
     # 下敷きはズームごとの CSS ルール 1 本ずつ（行ごとに図形を複製しない）。
     grids = zoom_backgrounds(span, wbs.overlay.calendar.to_calendar()) if span else {}
@@ -1707,6 +1741,7 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
             editable=editable,
             rosters=rosters,
             parent=parents.get(row.code, ""),
+            baseline=baseline,
         )
         for row in wbs.walk()
     )

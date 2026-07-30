@@ -64,6 +64,43 @@ def _render(root: Path, today: date) -> str:
     return render.render_html(wbs_mod.build(root, today=today, overlay=Overlay()))
 
 
+def _base_bar(markup: str) -> tuple[float, float]:
+    """行のベースライン棒（合意時点）の左端と幅（%）。"""
+    match = re.search(r'<i class="gbar-base" style="left:([\d.]+)%;width:([\d.]+)%"', markup)
+    assert match is not None, f"ベースライン棒が無い: {markup[:400]}"
+    return float(match.group(1)), float(match.group(2))
+
+
+def test_baseline_overlay_draws_the_agreed_bar_at_its_own_dates(tmp_path: Path) -> None:
+    """`--against` 相当：合意時点の期間が、現状の棒とは別の淡い棒（gbar-base）として同じ座標式で出る。"""
+    _tree(tmp_path, {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"})
+    built = wbs_mod.build(tmp_path, today=date(2026, 8, 5), overlay=Overlay())
+    # 合意時点では 08-03〜08-07 だった（＝前倒しから後ろ倒しへ）。行の鍵は ref（T-9001）。
+    html = render.render_html(built, baseline={"T-9001": (date(2026, 8, 3), date(2026, 8, 7))})
+    row = _row_markup(html, "T-9001")
+    cur_x, cur_w = _bar(row)
+    base_x, base_w = _base_bar(row)
+    assert cur_x == pytest.approx(_at(date(2026, 8, 10)), abs=0.01)  # 現状は据え置きの位置
+    assert base_x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)  # ベースラインは合意時点の位置
+    assert base_w == pytest.approx(5 * PER_DAY, abs=0.01)  # 08-03〜08-07＝5 日（終了日含む）
+
+
+def test_no_baseline_means_no_agreed_bar(tmp_path: Path) -> None:
+    """`--against` を渡さなければ淡い棒は一切出ない（従来どおり）。"""
+    _tree(tmp_path, {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"})
+    assert '<i class="gbar-base"' not in _render(tmp_path, date(2026, 8, 5))  # 要素として出ない（CSS 規則は常在）
+
+
+def test_baseline_outside_the_current_window_stays_within_the_column(tmp_path: Path) -> None:
+    """現行の期間の外にある合意時点の日付でも、描画窓を合併するので座標は 0–100% に収まる（列外へ出ない）。"""
+    _tree(tmp_path, {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-10", "due": "2026-08-12"})
+    built = wbs_mod.build(tmp_path, today=date(2026, 8, 15), overlay=Overlay())
+    # 合意時点は 6 月（現行 8 月のずっと前）。窓を合併しないと _pct が負になる。
+    html = render.render_html(built, baseline={"T-9001": (date(2026, 6, 1), date(2026, 6, 5))})
+    base_x, base_w = _base_bar(_row_markup(html, "T-9001"))
+    assert 0.0 <= base_x <= 100.0 and 0.0 < base_w <= 100.0 and base_x + base_w <= 100.01
+
+
 def test_a_bar_starts_at_its_start_day_and_covers_its_end_day(tmp_path: Path) -> None:
     """08-03〜08-07 の棒は、左端 0・幅 5 日分（終了日を含む）。"""
     _tree(

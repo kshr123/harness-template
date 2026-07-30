@@ -53,7 +53,7 @@ WBS 専用のファイルに階層と日程を持たせると、`work/` の fron
 ```
 uv sync --extra deliver
 uv run wbs edit [--port <番号>] [--today YYYY-MM-DD] [--idle-minutes 60] [--root <プロジェクトの根>]
-uv run wbs export [--out <出力先>] [--format html] [--today YYYY-MM-DD] [--at <合意した時点>] [--draft]
+uv run wbs export [--out <出力先>] [--format html] [--today YYYY-MM-DD] [--at <合意した時点>] [--against <合意した時点>] [--draft]
 uv run wbs report [--against <合意した時点>] [--out <出力先>] [--today YYYY-MM-DD] [--horizon-days 14] [--draft]
 uv run wbs diff <合意した時点> [--today YYYY-MM-DD] [--root <プロジェクトの根>]
 uv run wbs formats
@@ -64,6 +64,10 @@ uv run wbs lint [--today YYYY-MM-DD]
   セルをクリックして編集（Enter で保存・Esc で取り消し）。
 - `uv run wbs export` … 自己完結の HTML を 1 ファイル出す（既定 `artifacts/wbs/WBS.html`）。外部リソースを
   読まないので、そのままクライアントへ送れる。ブラウザの印刷から PDF にできる（A3 横・見出しは各ページに再掲）。
+  `--against <合意した時点>` を付けると、その時点の棒を淡色で現状の棒の下に重ねる（計画対比＝ベースライン。
+  座標は現状と同じ 1 実装・描画窓は両者の合併・新色なし）。重ねられるのは HTML だけで、`--at` とは排他・
+  非対応形式に渡すと明示的に拒否する（黙って層を落とさない）。マイルストーン（期日のみ）は棒に重ねられないので
+  重ね描きから除外し、その日程移動は `wbs report` の「前回からの変化」で示す。
 - `uv run wbs report`（`report.py`）… 定例・最終報告の **1 枚**（自己完結 HTML）を出す。マイルストーンの状況
   （達成／遅れ／予定。期日を過ぎた達成は予定と実績の両日付）・遅れている作業・今後 N 日の予定をまとめる。
   `--against <合意した時点>` を渡すと前回からの計画の変化も先頭に出す。値はすべて木・`baseline`・`stamp` の導出の

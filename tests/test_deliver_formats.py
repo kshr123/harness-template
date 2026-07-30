@@ -126,6 +126,47 @@ def test_the_spreadsheet_says_it_is_a_copy(tmp_path: Path) -> None:
     assert "取り込まれません" in str(sheet.cell(row=3, column=1).value)
 
 
+def test_against_is_refused_for_non_html_and_with_at(tmp_path: Path) -> None:
+    """--against（ベースライン重ね描き）は HTML のみ・--at とは排他（黙って層を落とさず明示的に拒否）。"""
+    _scaffold(tmp_path)
+    runner = CliRunner()
+    out = tmp_path / "WBS.xlsx"
+    r_xlsx = runner.invoke(
+        wbs_app,
+        [
+            "export",
+            "--root",
+            str(tmp_path),
+            "--against",
+            "HEAD",
+            "--format",
+            "xlsx",
+            "--out",
+            str(out),
+            "--today",
+            TODAY.isoformat(),
+        ],
+    )
+    assert r_xlsx.exit_code == 1 and "HTML のみ" in r_xlsx.output and not out.exists()
+    r_at = runner.invoke(
+        wbs_app,
+        [
+            "export",
+            "--root",
+            str(tmp_path),
+            "--against",
+            "HEAD",
+            "--at",
+            "HEAD",
+            "--out",
+            str(tmp_path / "WBS.html"),
+            "--today",
+            TODAY.isoformat(),
+        ],
+    )
+    assert r_at.exit_code == 1 and "同時に使えない" in r_at.output
+
+
 def test_the_spreadsheet_does_not_write_live_formulas_from_user_text(tmp_path: Path) -> None:
     """作業名・チーム・担当が数式記号（=+-@）で始まっても、生きた数式にせず文字として書く（数式注入対策）。
 

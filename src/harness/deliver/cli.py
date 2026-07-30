@@ -53,6 +53,9 @@ def _export(
     out: Annotated[Path | None, typer.Option(help=f"出力先（既定 {DEFAULT_OUT}）")] = None,
     today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
     at: Annotated[str | None, typer.Option(help="この時点の WBS を出す（git のタグ・コミット）")] = None,
+    against: Annotated[
+        str | None, typer.Option(help="合意した時点の棒を淡色で重ねる（HTML のみ・git のタグ・コミット）")
+    ] = None,
     fmt: Annotated[str, typer.Option("--format", help="出力形式（一覧は `uv run wbs formats`）")] = "html",
     draft: Annotated[bool, typer.Option("--draft", help="未コミットの変更を含んだまま下書きとして出す")] = False,
     root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
@@ -62,16 +65,38 @@ def _export(
     検査に失敗する状態・描く対象が 1 件も無い状態では出力しない（空の工程表を黙って渡さない）。
     未コミットの変更があるときも既定では出力しない（刻んだコミットが嘘になる）。`--draft` を付けたときだけ、
     下書きと分かる表示で出す。`--at` に合意した時点（タグ・コミット）を渡すと、その時点の WBS を出し直す。
+    `--against` に合意した時点を渡すと、その時点の棒を淡色で重ねる（計画対比。HTML のみ）。
     """
     base = _base_date(today)
     try:
         entry = formats.RENDERERS.resolve(fmt)
     except ValueError as exc:
         _fail(str(exc))
-        return
     writer, suffix = entry.factory, entry.suffix
+    # `--against`（重ね描き）は現状の上に重ねるので過去の断面を出す `--at` とは同時に使えない。また重ねられるのは
+    # HTML だけ＝他形式に渡したら黙って層を落とさず明示的に断る（fail-closed）。
+    baseline_map: dict[str, tuple[date | None, date | None]] | None = None
+    if against is not None:
+        if at is not None:
+            _fail("--against と --at は同時に使えない（--against は現状に重ね、--at は過去そのものを出す）")
+        if fmt != "html":
+            _fail(f"--against（ベースラインの重ね描き）は HTML のみ。--format {fmt} には重ねられない")
+        try:
+            baseline_map = dict(baseline.baseline_map(root, against, today=base))
+        except baseline.BaselineError as exc:
+            _fail(str(exc))
     if at is None:
-        _export_from(root, root, out=out, today=base, draft=draft, commit=None, suffix=suffix, writer=writer)
+        _export_from(
+            root,
+            root,
+            out=out,
+            today=base,
+            draft=draft,
+            commit=None,
+            suffix=suffix,
+            writer=writer,
+            baseline_map=baseline_map,
+        )
         return
     try:
         with baseline.tree_at(root, at) as snapshot:

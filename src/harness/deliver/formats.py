@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from harness.deliver import render
@@ -35,9 +36,20 @@ class RendererEntry(Entry):
 RENDERERS: Registry[RendererEntry] = Registry("出力形式", catalog="wbs formats", extras_hint={"xlsx": "openpyxl"})
 
 
-def _write_html(wbs: Wbs, path: Path, *, provenance: str = "", draft: bool = False) -> None:
-    """自己完結の HTML 1 ファイル（既定。外部リソースを読まないので、そのまま渡せる）。"""
-    path.write_text(render.render_html(wbs, provenance=provenance, draft=draft), encoding="utf-8")
+def _write_html(
+    wbs: Wbs,
+    path: Path,
+    *,
+    provenance: str = "",
+    draft: bool = False,
+    baseline: dict[str, tuple[date | None, date | None]] | None = None,
+) -> None:
+    """自己完結の HTML 1 ファイル（既定。外部リソースを読まないので、そのまま渡せる）。
+
+    `baseline`（合意した時点の棒の期間・行の鍵ごと）が渡ると、現状の棒の下に淡い棒を重ねる（計画対比）。
+    ベースラインを重ねられるのは HTML だけ＝他形式に `--against` を渡すと CLI が明示的に拒否する（黙って落とさない）。
+    """
+    path.write_text(render.render_html(wbs, provenance=provenance, draft=draft, baseline=baseline), encoding="utf-8")
 
 
 RENDERERS.register("html", _write_html, entry_cls=RendererEntry, suffix=".html")

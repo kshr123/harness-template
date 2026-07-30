@@ -187,14 +187,10 @@ def _value(row: WbsRow, attr: str) -> str | None:
 _DERIVED_ATTRS = frozenset({"start", "due", "status"})
 
 
-def _key(row: WbsRow) -> str:
-    """比較の突き合わせ鍵。作業単位・手動行は ID、顧客向けの節は名前（節は ID を持たない）。"""
-    return row.ref if row.ref is not None else f"節 {row.name}"
-
-
 def _rows_by_key(wbs: Wbs) -> dict[str, WbsRow]:
-    """節も含めた全行（節の日程が動いたことはクライアントが最も見るところなので、落とさない）。"""
-    return {_key(row): row for row in wbs.walk()}
+    """節も含めた全行（節の日程が動いたことはクライアントが最も見るところなので、落とさない）。突き合わせ鍵は
+    `WbsRow.key`（時点をまたいで同じ行を指す・重ね描きと共通・規則を 2 か所に持たない）。"""
+    return {row.key: row for row in wbs.walk()}
 
 
 def compare(before: Wbs, after: Wbs, *, root: Path, ref: str) -> list[Change]:
@@ -236,3 +232,19 @@ def changes_since(root: Path, ref: str, *, today: date) -> list[Change]:
     with tree_at(root, ref) as snapshot:
         then = build(snapshot, today=today)
     return compare(then, now, root=root, ref=ref)
+
+
+def baseline_map(root: Path, ref: str, *, today: date) -> dict[str, tuple[date, date]]:
+    """合意した時点の**棒の期間**を行の鍵ごとに集める（ガントのベースライン重ね描き用）。
+
+    棒として描ける行（期間を持つ・マイルストーンでない）だけを入れる。マイルストーン（期日のみ・start 無し）は
+    棒に重ねられないので除外する＝日程移動は report の「前回からの変化」で示す（黙って落とさない）。
+    鍵は `WbsRow.key`（現行との照合と同じ規則）。
+    """
+    with tree_at(root, ref) as snapshot:
+        then = build(snapshot, today=today)
+    return {
+        row.key: (row.start, row.due)
+        for row in then.walk()
+        if not row.milestone and row.start is not None and row.due is not None
+    }
