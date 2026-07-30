@@ -119,6 +119,50 @@ def _all_nodes(nodes: list[Node]) -> list[Node]:
     return out
 
 
+@dataclass(frozen=True)
+class RequirementTrace:
+    """要件(REQ)↔作業のトレース。lint（参照検査）と提出物の被覆ビューが**同じ導出**を見るための 1 か所。"""
+
+    known: set[str]  # docs/requirements にある REQ の ID
+    referenced_by: dict[str, list[str]]  # 既知 REQ → それを requirements に持つ単位 ID（見つかった順）
+    dangling: list[tuple[str, str]]  # (単位 ID, REQ)：参照先の REQ が実在しない
+
+    @property
+    def uncovered(self) -> list[str]:
+        """どの単位からも参照されていない要件（＝作業がぶら下がっていない要件）。"""
+        return sorted(self.known - set(self.referenced_by))
+
+
+def _known_reqs(root: Path) -> set[str]:
+    """docs/requirements にある REQ の ID。無ければ空（＝非空の requirements は参照切れ扱い＝fail-closed）。"""
+    req_dir = root / REQUIREMENTS_DIR
+    if not req_dir.is_dir():
+        return set()
+    return {m.group() for p in req_dir.glob("REQ-*.md") if (m := re.match(r"REQ-\d+", p.stem))}
+
+
+def _trace_from_nodes(nodes: list[Node], known: set[str]) -> RequirementTrace:
+    referenced_by: dict[str, list[str]] = {}
+    dangling: list[tuple[str, str]] = []
+    for n in nodes:
+        for req in n.item.requirements:
+            if req in known:
+                referenced_by.setdefault(req, []).append(n.item.id)
+            else:
+                dangling.append((n.item.id, req))
+    return RequirementTrace(known=known, referenced_by=referenced_by, dangling=dangling)
+
+
+def requirement_trace(root: Path) -> RequirementTrace:
+    """要件↔作業のトレースを導く（提出物の被覆ビューと lint が共通で使う）。
+
+    `docs/requirements/` が無ければ `known` は空になり、非空の `requirements` はすべて参照切れになる
+    （`satisfies` の検査と対称の fail-closed＝要件文書を消しても「書いたのに黙って緑」を作らない）。
+    """
+    top, _ = load_tree(root)
+    return _trace_from_nodes(_all_nodes(top), _known_reqs(root))
+
+
 def _collectable_test_names(path: Path) -> set[str]:
     """テストファイルを ast で解析し、pytest が nodeid で拾える名前の集合を返す。
 
@@ -294,28 +338,23 @@ def lint(root: Path) -> list[Problem]:
                 path.pop()
                 dfs.pop()
 
-    # requirements の指す先が無い＝参照エラー（失敗）。depends_on の検査と対称にする。
-    # docs/requirements/ が無い案件では要件の検査そのものを行わない（要件文書を持たない案件を咎めない）。
-    req_dir = root / REQUIREMENTS_DIR
-    if req_dir.is_dir():
-        # ID は先頭の REQ-<番号>。ファイル名は REQ-001.md でも REQ-001-<短い説明>.md でもよい（単位の命名規則と対称）。
-        known_reqs = {m.group() for p in req_dir.glob("REQ-*.md") if (m := re.match(r"REQ-\d+", p.stem))}
-        referenced: set[str] = set()
-        for n in everything:
-            for req in n.item.requirements:
-                referenced.add(req)
-                if req not in known_reqs:
-                    problems.append(
-                        Problem("error", f"{n.item.id}: requirements の '{req}' が見つからない（参照エラー）")
-                    )
-        # どの単位からも参照されない要件＝未カバーの要件。計画中（未分解）は正常なので失敗にはしない。
-        for req in sorted(known_reqs - referenced):
-            problems.append(Problem("info", f"{req}: 未カバーの要件（どの単位からも参照されていない）"))
+    # requirements の指す先が無い＝参照エラー（失敗）。depends_on・satisfies の検査と対称にする。
+    # **docs/requirements/ が無くても**、非空の requirements は参照切れにする（fork で要件文書が消えても
+    # 「書いたのに黙って緑」を作らない＝satisfies と対称の fail-closed）。要件を 1 つも書かない案件は known も
+    # requirements も空なので、これまでどおり何も要求されない。ID 規則（REQ-001-<説明>.md 可）と突き合わせは
+    # requirement_trace に集約し、被覆ビュー（提出物）と同じ導出を見る。
+    trace = _trace_from_nodes(everything, _known_reqs(root))
+    for unit_id, req in trace.dangling:
+        problems.append(Problem("error", f"{unit_id}: requirements の '{req}' が見つからない（参照エラー）"))
+    # どの単位からも参照されない要件＝未カバーの要件。計画中（未分解）は正常なので失敗にはしない。
+    for req in trace.uncovered:
+        problems.append(Problem("info", f"{req}: 未カバーの要件（どの単位からも参照されていない）"))
 
     # 要求→要件のトレース：REQ の satisfies が実在する DEM（要求）を指すこと（要件→作業の参照検査と対称・上流側）。
     # fail-closed：satisfies を書いたら実在 DEM-<番号> のみ許す。要求層（docs/demands/）が無くても
     # （fork で空ディレクトリが git から消えても）非空の satisfies は参照エラーにする＝「書いても黙って緑」を作らない。
     # satisfies を書かない案件は今までどおり何も要求されない。
+    req_dir = root / REQUIREMENTS_DIR
     if req_dir.is_dir():
         dem_dir = root / DEMANDS_DIR
         known_dems = (

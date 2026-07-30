@@ -203,6 +203,54 @@ def test_report_refuses_like_export(tmp_path: Path) -> None:
     assert r2.exit_code == 0 and out.exists()  # --draft なら出る
 
 
+def _write_req(root: Path, req_id: str) -> None:
+    (root / "docs" / "requirements").mkdir(parents=True, exist_ok=True)
+    (root / "docs" / "requirements" / f"{req_id}.md").write_text(
+        f"---\nid: {req_id}\nkind: functional\nstatus: accepted\nsatisfies: []\n---\n# {req_id}\n", encoding="utf-8"
+    )
+
+
+def test_the_requirement_trace_shows_coverage_and_gaps(tmp_path: Path) -> None:
+    """要件トレース節：REQ→作業→状態が出て、作業ゼロの REQ は「未カバーの要件」として穴が出る。
+
+    被覆集合は lint（pm.check）の未カバー info と同じ導出（requirement_trace）を見る＝表と検査が食い違わない。
+    """
+    from harness import pm
+
+    ep = tmp_path / "work" / "EP-90-x"
+    _write(ep / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    _write(
+        ep / "T-1.md",
+        {
+            "id": "T-0001",
+            "kind": "task",
+            "status": "done",
+            "start": "2026-08-03",
+            "due": "2026-08-07",
+            "requirements": ["REQ-001"],
+        },
+    )
+    _write(
+        ep / "T-2.md", {"id": "T-0002", "kind": "task", "status": "todo", "start": "2026-09-01", "due": "2026-09-05"}
+    )
+    _write_req(tmp_path, "REQ-001")
+    _write_req(tmp_path, "REQ-002")  # どの作業からも参照されない＝未カバー
+    trace = pm.requirement_trace(tmp_path)
+    html = _report(tmp_path, trace=trace)
+    sec = html.split("要件トレース")[1].split("</section>")[0]
+    assert "REQ-001" in sec and "T-0001" in sec and "完了" in sec  # 要件→作業→状態
+    assert "REQ-002" in sec and "未カバーの要件" in sec  # 作業ゼロの穴
+    # 被覆ビューの未カバー集合と lint の未カバー info が一致（同じ導出を見ている）。
+    assert trace.uncovered == ["REQ-002"]
+
+
+def test_the_trace_section_is_omitted_without_a_requirements_layer(tmp_path: Path) -> None:
+    """要件文書が無い案件では要件トレース節を出さない（空表を出さない）。"""
+    _scaffold(tmp_path)
+    html = _report(tmp_path, trace=None)
+    assert "要件トレース" not in html
+
+
 def test_user_text_is_escaped_in_the_report(tmp_path: Path) -> None:
     """利用者由来の文字列（作業名）は報告でもエスケープする。"""
     ep = tmp_path / "work" / "EP-90-x"

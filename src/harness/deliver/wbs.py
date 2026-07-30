@@ -58,6 +58,7 @@ class WbsRow:
     actual_start: date | None = None
     actual_finish: date | None = None
     depends_on: list[str] = field(default_factory=list)
+    requirements: list[str] = field(default_factory=list)  # 満たす要件 ID（REQ-…）。作業単位から導出（保存しない）。
     workdays: int | None = None  # 営業日数（開始〜終了の両端を含む）
     done_leaves: int = 0
     total_leaves: int = 0
@@ -162,6 +163,7 @@ def _from_work(node: pm.Node, code: str, calendar: WorkCalendar, today: date) ->
         milestone=item.milestone,
         effort_days=item.effort_days,
         depends_on=list(item.depends_on),
+        requirements=list(item.requirements),
         children=children,
     )
     if children:

@@ -535,12 +535,22 @@ def test_uncovered_requirement_is_info(tmp_path: Path) -> None:
     assert not [p for p in problems if p.level == "error"]
 
 
-def test_missing_requirements_dir_is_ok(tmp_path: Path) -> None:
+def test_no_requirements_at_all_is_ok(tmp_path: Path) -> None:
+    """要件を 1 つも書かない案件（docs/requirements/ 無し・requirements 参照も無し）は何も要求されない。"""
     _scaffold(tmp_path)
-    # docs/requirements/ が無い案件では、要件の検査そのものを行わない（エラーにしない）。
-    x: dict[str, object] = {"id": "T-0023", "kind": "task", "status": "todo", "requirements": ["REQ-001"]}
+    x: dict[str, object] = {"id": "T-0023", "kind": "task", "status": "todo"}
     _write(tmp_path / "work" / "EP-01-foundation" / "T-0023-x.md", x)
     assert not [p for p in pm.lint(tmp_path) if p.level == "error"]
+
+
+def test_requirements_referencing_missing_docs_is_an_error_even_without_the_dir(tmp_path: Path) -> None:
+    """docs/requirements/ が無くても、非空の requirements が実在 REQ を指さなければ参照エラー（satisfies と対称の
+    fail-closed）。fork で要件文書が消えても「書いたのに黙って緑」にしない。"""
+    _scaffold(tmp_path)  # この scaffold は docs/requirements/ を作らない
+    x: dict[str, object] = {"id": "T-0023", "kind": "task", "status": "todo", "requirements": ["REQ-001"]}
+    _write(tmp_path / "work" / "EP-01-foundation" / "T-0023-x.md", x)
+    errors = [p for p in pm.lint(tmp_path) if p.level == "error"]
+    assert any("REQ-001" in p.message and "参照エラー" in p.message for p in errors)
 
 
 def _write_dem(root: Path, dem_id: str) -> None:

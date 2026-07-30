@@ -134,6 +134,7 @@ def _report(
     `--against` に合意した時点（タグ・コミット）を渡すと、そこからの計画の変化も先頭に出す。
     出力を拒否する条件は `export` と同じ（検査失敗・日程 0 件・未コミット。`--draft` で下書きとして出せる）。
     """
+    from harness import pm
     from harness.deliver import report as report_mod
 
     base = _base_date(today)
@@ -152,6 +153,7 @@ def _report(
         against=against,
         changes=changes,
         horizon_days=horizon_days,
+        trace=pm.requirement_trace(root),  # 要件トレース被覆（要件層が無ければ節ごと出ない）
     )
     target = out if out is not None else root / (DEFAULT_REPORT + ".html")
     target.parent.mkdir(parents=True, exist_ok=True)

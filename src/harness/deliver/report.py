@@ -18,12 +18,13 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
-from harness.deliver.render import _DOCUMENT, _TOKENS, _esc
+from harness.deliver.render import _DOCUMENT, _TOKENS, STATUS_LABEL, _esc
 from harness.models import Status
 
 if TYPE_CHECKING:
     from harness.deliver.baseline import Change
     from harness.deliver.wbs import Wbs, WbsRow
+    from harness.pm import RequirementTrace
 
 _REPORT_STYLE = (
     _TOKENS
@@ -146,6 +147,34 @@ def _section(title: str, body: str) -> str:
     return f"<section><h2>{_esc(title)}</h2>{body}</section>"
 
 
+def _trace_section(wbs: Wbs, trace: RequirementTrace | None) -> str:
+    """要件トレース被覆（DEM→REQ→work の見返り）。要件層が無い案件では節ごと出さない（空表を出さない）。
+
+    可視化でありゲートではない（参照切れ・未カバーは pm.check（lint）が既に扱う）。画面語は pm と同じ
+    「未カバーの要件」を使う（造語しない）。作業の状態は木（WbsRow）から引く。
+    """
+    if trace is None or not trace.known:
+        return ""  # 要件文書を持たない案件＝この節は出さない
+    status_of = {row.ref: row.status for row in wbs.walk() if row.ref is not None}
+
+    def _label(wid: str) -> str:
+        status = status_of.get(wid)
+        return STATUS_LABEL[status] if status is not None else "—"
+
+    items: list[str] = []
+    for req in sorted(trace.known):
+        works = trace.referenced_by.get(req, [])
+        if works:
+            detail = "、".join(f"{wid}（{_label(wid)}）" for wid in works)
+            badge = '<span class="badge b-done">作業あり</span>'
+        else:
+            detail = "未カバーの要件（作業がぶら下がっていない）"
+            badge = '<span class="badge b-late">未カバー</span>'
+        tail = f"<span style='flex:1'></span><span class='who'>{_esc(detail)}</span>"
+        items.append(f"<li>{badge}<span>{_esc(req)}</span>{tail}</li>")
+    return _section("要件トレース（要件→作業）", f'<ul class="items">{"".join(items)}</ul>')
+
+
 def render_report(
     wbs: Wbs,
     *,
@@ -155,6 +184,7 @@ def render_report(
     against: str | None = None,
     changes: list[Change] | None = None,
     horizon_days: int = 14,
+    trace: RequirementTrace | None = None,
 ) -> str:
     """定例・最終報告の 1 枚を組む。値はすべて既存の導出の合成（新しい保存を作らない）。"""
     title = wbs.overlay.project or "WBS"
@@ -166,6 +196,7 @@ def render_report(
     parts.append(_milestones_section(wbs, today))
     parts.append(_late_section(wbs, today))
     parts.append(_upcoming_section(wbs, today, horizon_days))
+    parts.append(_trace_section(wbs, trace))
     body = (
         f"<style>{_REPORT_STYLE}</style>"
         f"<header><h1>{_esc(title)}　報告</h1>"
