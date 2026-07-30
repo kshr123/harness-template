@@ -661,7 +661,9 @@ def _digest_of(row: WbsRow) -> str:
 # きかない。完了は状態の列・実績の日付・進捗の数・棒の淡さで 4 重に表しているので、色相に頼らなくてよい。
 # 罫線は重みを 3 段に分ける（弱＝行の区切りと日/週の格子／強＝見出しの下端・月の格子・貼り付く列の右／
 # 2px＝表とガントの領域の境目）。すべて同じ太さで引くと表計算の初期状態に見える。
-_STYLE = """
+# 色トークン（明暗＋テーマ切替）は 1 か所に置き、report など別ビューも同じトークンを参照する
+# （色の第 2 台帳＝ダークテーマ追随漏れを作らない）。レイアウトは各ビュー固有でよいが、色だけはここ 1 か所。
+_TOKENS = """
 :root {
   --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
   --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
@@ -708,6 +710,11 @@ _STYLE = """
   --bar:#7ba3cf; --bar-done:#2f6099;
   --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
 }
+"""
+
+_STYLE = (
+    _TOKENS
+    + """
 * { box-sizing:border-box; }
 body { margin:0; padding:20px 24px; color:var(--ink); background:var(--paper);
        font:13px/1.45 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif; }
@@ -1003,6 +1010,7 @@ footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
 .scroll th.gantt, .scroll td.gantt { width:var(--gw,40%); min-width:var(--gw,280px); }
 table { min-width:0; }
 """
+)
 
 
 def _legend() -> str:

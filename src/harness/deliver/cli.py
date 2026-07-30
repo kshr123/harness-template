@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -32,8 +32,8 @@ wbs_app = typer.Typer(help="作業単位の木から顧客向けの WBS・ガン
 DEFAULT_OUT = "artifacts/wbs/WBS"  # 拡張子は形式が決める（RendererEntry.suffix）
 
 
-def _fail(message: str) -> None:
-    """指摘を出して止める（既定を不合格側に置く＝黙って空の成果物を出さない）。"""
+def _fail(message: str) -> NoReturn:
+    """指摘を出して止める（既定を不合格側に置く＝黙って空の成果物を出さない）。必ず送出する。"""
     typer.echo(message, err=True)
     raise typer.Exit(1)
 
@@ -46,7 +46,6 @@ def _base_date(today: str | None) -> date:
         return date.fromisoformat(today)
     except ValueError:
         _fail(f"基準日は YYYY-MM-DD で書く（受け取った値: {today}）")
-        raise  # pragma: no cover - _fail が必ず送出する
 
 
 @wbs_app.command("export")
@@ -90,10 +89,95 @@ def _export(
         _fail(str(exc))
 
 
+DEFAULT_REPORT = "artifacts/wbs/REPORT"
+
+
+@wbs_app.command("report")
+def _report(
+    against: Annotated[
+        str | None, typer.Option(help="合意した時点（git のタグ・コミット）。渡すと前回からの変化を出す")
+    ] = None,
+    out: Annotated[Path | None, typer.Option(help=f"出力先（既定 {DEFAULT_REPORT}.html）")] = None,
+    today: Annotated[str | None, typer.Option(help="基準日（YYYY-MM-DD。既定は実行日）")] = None,
+    horizon_days: Annotated[int, typer.Option(help="「今後 N 日の予定」に入れる日数")] = 14,
+    draft: Annotated[bool, typer.Option("--draft", help="未コミットの変更を含んだまま下書きとして出す")] = False,
+    root: Annotated[Path, typer.Option(help="プロジェクトの根")] = Path("."),
+) -> None:
+    """定例・最終報告の 1 枚（自己完結 HTML）を出す。
+
+    マイルストーンの状況（達成／遅れ／予定）・遅れている作業・今後 N 日の予定を 1 枚にまとめる。
+    `--against` に合意した時点（タグ・コミット）を渡すと、そこからの計画の変化も先頭に出す。
+    出力を拒否する条件は `export` と同じ（検査失敗・日程 0 件・未コミット。`--draft` で下書きとして出せる）。
+    """
+    from harness.deliver import report as report_mod
+
+    base = _base_date(today)
+    changes = None
+    if against is not None:
+        try:
+            changes = baseline.changes_since(root, against, today=base)
+        except baseline.BaselineError as exc:
+            _fail(str(exc))
+    built, provenance, dirty = _prepare(root, root, today=base, draft=draft, commit=None)
+    html = report_mod.render_report(
+        built,
+        today=base,
+        provenance=provenance,
+        draft=dirty,
+        against=against,
+        changes=changes,
+        horizon_days=horizon_days,
+    )
+    target = out if out is not None else root / (DEFAULT_REPORT + ".html")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(html, encoding="utf-8")
+    typer.echo(f"{target}: 報告を出力した　{provenance}")
+
+
 @wbs_app.command("formats")
 def _formats() -> None:
     """出せる形式の一覧（入れていない依存の形式はここに出ない＝選べる形式が使える形式）。"""
     render_catalog(formats.RENDERERS)
+
+
+def _prepare(
+    root: Path,
+    source: Path,
+    *,
+    today: date,
+    draft: bool,
+    commit: str | None,
+) -> tuple[wbs_mod.Wbs, str, bool]:
+    """出力の**唯一の関門**：組み立て→検査→日程 0 件→未コミット を順に確かめ、(WBS, 由来の刻印, 下書きか) を返す。
+
+    export も report もここを通る（拒否の順序と文言の第 2 実装を作らない）。どれか 1 つでも塞げば `_fail` が送出し、
+    呼び出し側には到達しない（fail-closed）。`commit` を渡す＝過去の時点を出すので未コミット検査は掛けない。
+    """
+    # 例外の種類ごとに節を分ける（ruff format が `except (A, B):` を壊す既知の不具合を踏まないため）。
+    try:
+        built = wbs_mod.build(source, today=today)
+    except ValueError as exc:  # 上書きの検証エラー（pydantic の ValidationError を含む）
+        _fail(f"WBS を組み立てられない: {exc}")
+    except OSError as exc:  # ファイルが読めない
+        _fail(f"WBS を組み立てられない: {exc}")
+    errors = [p for p in wbs_lint.check(source, today=today) if p.level == "error"]
+    if errors:
+        for problem in errors:
+            typer.echo(f"error: {problem.message}", err=True)
+        _fail(f"WBS の検査に {len(errors)} 件失敗した（直してから出す）")
+    if built.span is None:
+        _fail(
+            "日程（start / due）を持つ作業単位が 1 件も無い。空のガントは出さない"
+            "（work/ の単位に start・due を書くか、docs/wbs.yaml に手動行を足す）"
+        )
+    dirty = commit is None and stamp.is_dirty(root)
+    if dirty and not draft:
+        _fail(
+            "作業ツリーに未コミットの変更がある。このまま出すと生成物に刻むコミットが実際の中身と食い違う"
+            "（先にコミットする。下書きとして出すなら --draft を付ける）"
+        )
+    provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone(), commit=commit)
+    return built, provenance, dirty
 
 
 def _export_from(
@@ -106,40 +190,16 @@ def _export_from(
     commit: str | None,
     suffix: str,
     writer: Callable[..., None],
+    baseline_map: dict[str, tuple[date | None, date | None]] | None = None,
 ) -> None:
     """`source` の中身から WBS を出す（`root` は出力先と git を見る先）。過去の時点も同じ道を通る。"""
-    # 例外の種類ごとに節を分ける（ruff format が `except (A, B):` を壊す既知の不具合を踏まないため）。
-    try:
-        built = wbs_mod.build(source, today=today)
-    except ValueError as exc:  # 上書きの検証エラー（pydantic の ValidationError を含む）
-        _fail(f"WBS を組み立てられない: {exc}")
-        return
-    except OSError as exc:  # ファイルが読めない
-        _fail(f"WBS を組み立てられない: {exc}")
-        return
-    errors = [p for p in wbs_lint.check(source, today=today) if p.level == "error"]
-    if errors:
-        for problem in errors:
-            typer.echo(f"error: {problem.message}", err=True)
-        _fail(f"WBS の検査に {len(errors)} 件失敗した（直してから出す）")
-        return
-    if built.span is None:
-        _fail(
-            "日程（start / due）を持つ作業単位が 1 件も無い。空のガントは出さない"
-            "（work/ の単位に start・due を書くか、docs/wbs.yaml に手動行を足す）"
-        )
-        return
-    dirty = commit is None and stamp.is_dirty(root)
-    if dirty and not draft:
-        _fail(
-            "作業ツリーに未コミットの変更がある。このまま出すと生成物に刻むコミットが実際の中身と食い違う"
-            "（先にコミットする。下書きとして出すなら --draft を付ける）"
-        )
-        return
+    built, provenance, dirty = _prepare(root, source, today=today, draft=draft, commit=commit)
     target = out if out is not None else root / (DEFAULT_OUT + suffix)
     target.parent.mkdir(parents=True, exist_ok=True)
-    provenance = stamp.stamp(root, built, generated_at=datetime.now(UTC).astimezone(), commit=commit)
-    writer(built, target, provenance=provenance, draft=dirty)
+    if baseline_map is not None:
+        writer(built, target, provenance=provenance, draft=dirty, baseline=baseline_map)
+    else:
+        writer(built, target, provenance=provenance, draft=dirty)
     rows = len(built.walk())
     note = f"（未日程 {len(built.unscheduled)} 件）" if built.unscheduled else ""
     typer.echo(f"{target}: {rows} 行を出力した{note}　{provenance}")

@@ -54,6 +54,7 @@ WBS 専用のファイルに階層と日程を持たせると、`work/` の fron
 uv sync --extra deliver
 uv run wbs edit [--port <番号>] [--today YYYY-MM-DD] [--idle-minutes 60] [--root <プロジェクトの根>]
 uv run wbs export [--out <出力先>] [--format html] [--today YYYY-MM-DD] [--at <合意した時点>] [--draft]
+uv run wbs report [--against <合意した時点>] [--out <出力先>] [--today YYYY-MM-DD] [--horizon-days 14] [--draft]
 uv run wbs diff <合意した時点> [--today YYYY-MM-DD] [--root <プロジェクトの根>]
 uv run wbs formats
 uv run wbs lint [--today YYYY-MM-DD]
@@ -63,6 +64,10 @@ uv run wbs lint [--today YYYY-MM-DD]
   セルをクリックして編集（Enter で保存・Esc で取り消し）。
 - `uv run wbs export` … 自己完結の HTML を 1 ファイル出す（既定 `artifacts/wbs/WBS.html`）。外部リソースを
   読まないので、そのままクライアントへ送れる。ブラウザの印刷から PDF にできる（A3 横・見出しは各ページに再掲）。
+- `uv run wbs report`（`report.py`）… 定例・最終報告の **1 枚**（自己完結 HTML）を出す。マイルストーンの状況
+  （達成／遅れ／予定。期日を過ぎた達成は予定と実績の両日付）・遅れている作業・今後 N 日の予定をまとめる。
+  `--against <合意した時点>` を渡すと前回からの計画の変化も先頭に出す。値はすべて木・`baseline`・`stamp` の導出の
+  合成（新しい台帳を作らない）。拒否条件は export と同じ関門（`cli._prepare`）を通る。
 - `uv run wbs diff <合意した時点>` … 合意した計画といまの計画の差を並べる（下の節）。
 - `uv run wbs formats` … 出せる形式の一覧（入れていない依存の形式はここに出ない）。
 - `uv run wbs lint` … `uv run verify` が回すのと同じ WBS の検査だけを単体で走らせる。
