@@ -202,6 +202,38 @@ def test_the_spreadsheet_does_not_write_live_formulas_from_user_text(tmp_path: P
     assert team_cell.data_type == "s", "チームが生きた数式として書かれている（数式注入）"
 
 
+def test_the_spreadsheet_marks_the_today_week_and_holiday_weeks_and_has_a_legend(tmp_path: Path) -> None:
+    """xlsx の体裁パリティ：本日を含む週は見出しを赤字・休業（祝日/会社休）を含む週は淡い灰・凡例行を出す。"""
+    from openpyxl import load_workbook
+
+    from harness.deliver import wbs as wbs_mod
+    from harness.deliver.overlay import Overlay
+    from harness.deliver.render import COLUMN_LABELS
+    from harness.deliver.xlsx import write_xlsx
+
+    _write(
+        tmp_path / "work" / "T-1.md",
+        {"id": "T-0001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-28"},
+    )
+    # 会社休を 08-19（水）に置く＝08/17 の週が休業週。本日は別の週（08-06）に置いて印を分けて確かめる。
+    overlay = Overlay.model_validate({"calendar": {"extra_holidays": ["2026-08-19"]}})
+    built = wbs_mod.build(tmp_path, today=date(2026, 8, 6), overlay=overlay)
+    out = tmp_path / "WBS.xlsx"
+    write_xlsx(built, out)
+    sheet = load_workbook(out).active
+    assert sheet is not None
+    base = len(COLUMN_LABELS) + 1
+    weeks = {sheet.cell(row=5, column=c).value: sheet.cell(row=5, column=c) for c in range(base, base + 8)}
+    # 本日（08-06）は 08/03 の週＝赤字。
+    assert weeks["08/03"].font.color.rgb.endswith("B12F1F")
+    # 休業を含む 08/17 の週＝淡い灰の塗り。休業の無い 08/03 の週は塗らない。
+    assert weeks["08/17"].fill.patternType == "solid" and weeks["08/17"].fill.fgColor.rgb.endswith("EDF0F3")
+    assert weeks["08/03"].fill.patternType is None
+    # 凡例行（意味の対応）が出る。
+    assert sheet.cell(row=4, column=1).value == "凡例"
+    assert {sheet.cell(row=4, column=c).value for c in range(2, 8)} >= {"期間", "完了", "遅れ", "休業週", "本日"}
+
+
 def test_the_spreadsheet_folds_by_depth(tmp_path: Path) -> None:
     """階層は表計算側の折りたたみ（アウトライン）で表す＝先方が畳んで読める。"""
     _scaffold(tmp_path)

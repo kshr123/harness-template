@@ -1,7 +1,7 @@
 ---
 id: EP-48
 kind: epic
-status: todo
+status: done
 plan: detailed
 requirements: []
 depends_on: [EP-47]

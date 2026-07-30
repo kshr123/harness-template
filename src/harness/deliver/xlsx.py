@@ -22,8 +22,9 @@ from harness.models import Status
 if TYPE_CHECKING:  # 型だけ（実体は書き出すときに取り込む）
     from openpyxl.worksheet.worksheet import Worksheet
 
-# 週の列の塗り（HTML の棒と同じ意味・同じ色合い）。
-_FILL = {"plan": "5B87B8", "done": "4F9D72", "late": "C8635A", "ms": "1B1F24"}
+# 週の列の塗り（HTML の棒と同じ意味・同じ色合い）。`off` は非稼働（HTML の --off と同じ意味の淡い灰）。
+_FILL = {"plan": "5B87B8", "done": "4F9D72", "late": "C8635A", "ms": "1B1F24", "off": "EDF0F3"}
+_TODAY_INK = "B12F1F"  # 本日（HTML の --today と同じ赤）。週の見出しの色で示す。
 
 _NOTICE = "この表は生成した写しです。正本は work/ の作業単位で、この表への記入は取り込まれません。"
 
@@ -112,17 +113,35 @@ def write_xlsx(wbs: Wbs, path: Path, *, provenance: str = "", draft: bool = Fals
     sheet.cell(row=2, column=1, value=f"基準日 {wbs.today.isoformat()}　{provenance}")
     sheet.cell(row=3, column=1, value=("【下書き】" if draft else "") + _NOTICE).font = Font(color="A8352A")
 
+    fills = {name: PatternFill("solid", fgColor=color) for name, color in _FILL.items()}
+    # 凡例（HTML と同じ意味・同じ色）。塗った小さなセル＋語で示す（1 行）。
+    legend = [("plan", "期間"), ("done", "完了"), ("late", "遅れ"), ("ms", "◆節目"), ("off", "休業週")]
+    sheet.cell(row=4, column=1, value="凡例").font = Font(bold=True, size=9)
+    for i, (kind, label) in enumerate(legend):
+        cell = sheet.cell(row=4, column=2 + i, value=label)
+        cell.fill = fills[kind]
+        cell.font = Font(size=8, color="FFFFFF" if kind in ("plan", "done", "late", "ms") else "1F242B")
+        cell.alignment = Alignment(horizontal="center")
+    today_cell = sheet.cell(row=4, column=2 + len(legend), value="本日")
+    today_cell.font = Font(size=8, bold=True, color=_TODAY_INK)
+
+    calendar = wbs.overlay.calendar.to_calendar()
     header = 5
     for column, label in enumerate(_COLUMNS, start=1):
         cell = sheet.cell(row=header, column=column, value=label)
         cell.font = Font(bold=True)
     for offset, monday in enumerate(weeks):
+        week = [monday + timedelta(days=n) for n in range(7)]
+        # 休業週＝土日以外の非稼働日（祝日・案件の休業）を含む週。土日はどの週にもあるので信号にしない。
+        holiday_week = any(d.weekday() < 5 and not calendar.is_workday(d) for d in week)
+        today_week = monday <= wbs.today <= monday + timedelta(days=6)
         cell = sheet.cell(row=header, column=len(_COLUMNS) + 1 + offset, value=monday.strftime("%m/%d"))
-        cell.font = Font(bold=True, size=8)
+        cell.font = Font(bold=True, size=8, color=_TODAY_INK if today_week else "1F242B")
         cell.alignment = Alignment(textRotation=90)
+        if holiday_week:
+            cell.fill = fills["off"]  # 休業を含む週は淡い灰で沈める（HTML の非稼働の面と同じ意味）
         sheet.column_dimensions[get_column_letter(len(_COLUMNS) + 1 + offset)].width = 3.2
 
-    fills = {name: PatternFill("solid", fgColor=color) for name, color in _FILL.items()}
     for index, row in enumerate(wbs.walk(), start=header + 1):
         _write_row(sheet, index, row, weeks, fills)
 
