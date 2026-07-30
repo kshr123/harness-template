@@ -315,7 +315,11 @@ def test_the_fill_is_reserved_for_late_and_stops_at_the_gantt(tmp_path: Path) ->
 
 
 def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:
-    """全部閉じる／全部展開の操作を出す（階層が深い工程表を 1 手で見渡せるように）。"""
+    """全部たたむ／全部ひらく（階層の開閉）を出す（階層が深い工程表を 1 手で見渡せるように）。
+
+    階層の開閉は「一度きりの操作」なので「表示」の入り切りとは見た目を変え（`.act` の文字リンク調・
+    行頭の三角と同じ ▾▸ 付き）、「階層」という群見出しで**何を**開閉するのかを示す。
+    """
     epic = tmp_path / "work" / "EP-90-alpha"
     _write(epic / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
     _write(
@@ -323,7 +327,11 @@ def test_the_view_has_fold_and_unfold(tmp_path: Path) -> None:
         {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
     )
     html = _render(tmp_path, date(2026, 8, 5))
-    assert "すべて折りたたむ" in html and "すべて展開" in html
+    assert 'id="unfold" class="act"' in html and 'id="fold" class="act"' in html  # 操作（.act）＝表示の切替と別扱い
+    assert "全部ひらく" in html and "全部たたむ" in html  # 何を＝行頭の三角と同じ ▾▸ を付けて示す
+    # 群見出し（階層／表示）で領域を分ける。
+    assert '<span class="grp-lbl">階層</span>' in html
+    assert '<span class="grp-lbl">表示</span>' in html
 
 
 def test_the_header_states_the_period_in_full_dates(tmp_path: Path) -> None:

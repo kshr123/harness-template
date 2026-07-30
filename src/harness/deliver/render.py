@@ -869,22 +869,32 @@ line.leg { stroke:var(--bar); stroke-width:2; }
 td.gantt { position:relative; }
 .ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
       color:var(--bar-done); pointer-events:none; }
-/* 操作バーは**脇役**（この表は本来 静的な提出物）。小さく・地に沈め、主役の表を邪魔しない。既定は枠なしの
-   薄字、押している・かざしたときだけ淡い地色のチップにする（大きな枠つきボタンで主張させない）。 */
-.ops { display:flex; gap:2px; align-items:center; margin-top:6px; flex-wrap:wrap;
+/* 操作バーは**脇役**（この表は本来 静的な提出物）。小さく・地に沈め、主役の表を邪魔しない。
+   3 群（階層＝行の開閉／表示＝列・帯の入り切り／時間軸）を、群見出し（grp-lbl）と区切り（divider）で分ける。
+   種類で見た目を変える＝**別物だと分かる**：
+   - 階層（.act）＝一度きりの操作。行頭の三角と同じ ▾▸ を付けた**文字リンク調**（枠なし・下線 hover）。
+   - 表示（.col/.lane）＝オン/オフの状態。押している間だけ淡い地色の**チップ**（丸み）。
+   - 時間軸（.zoom）＝どれか 1 つを選ぶ。**ひとつながりの分割ボタン**（seg で囲む）。 */
+.ops { display:flex; gap:4px; align-items:center; margin-top:6px; flex-wrap:wrap;
        justify-content:space-between; font-size:11px; }
-.ops .left, .ops .right { display:flex; gap:2px; align-items:center; }
+.ops .left, .ops .right { display:flex; gap:4px; align-items:center; }
 .ops button { font:inherit; font-size:11px; color:var(--muted); background:none; cursor:pointer;
-              border:0; border-radius:5px; padding:2px 7px; }
-.ops button:hover { background:var(--sec); color:var(--ink); }
-.ops .sep { color:var(--muted); font-size:10px; letter-spacing:.04em; margin:0 3px 0 8px; }
-/* 押している状態（列・レーンの表示オン／選んでいる時間軸）は淡い地色のチップで示す（青の大ブロックは使わない）。 */
-.ops button.zoom[aria-pressed="true"],
+              border:0; border-radius:10px; padding:2px 8px; }
+.ops .grp-lbl { color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.06em; margin-right:1px; }
+.ops .divider { width:1px; align-self:stretch; background:var(--line-strong); margin:2px 8px; }
+/* 階層の操作（一度きり）＝文字リンク調。押しっぱなしの状態は持たない（チップにしない）。 */
+.ops button.act { color:var(--ink); border-radius:5px; }
+.ops button.act:hover { background:var(--sec); text-decoration:underline; }
+/* 表示の入り切り（状態）＝丸いチップ。オンのとき淡い地色で塗る（青の大ブロックは使わない）。 */
+.ops button.col:hover, .ops button.lane:hover { background:var(--sec); color:var(--ink); }
 .ops button.col[aria-pressed="true"], .ops button.lane[aria-pressed="true"] {
   background:var(--sec); color:var(--ink); font-weight:600; }
-/* 時間軸（月/週/日）は 1 つながりの選択に見せる（隙間を詰める）。 */
-.ops button.zoom { padding:2px 8px; }
-.ops .divider { width:1px; align-self:stretch; background:var(--line); margin:3px 5px; }
+/* 時間軸＝ひとつながりの分割ボタン（1 つ選ぶ）。枠で 1 群と分かるようにし、選択中だけ塗る。 */
+.ops .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.ops .seg button.zoom { border-radius:0; padding:2px 9px; }
+.ops .seg button.zoom + button.zoom { border-left:1px solid var(--line); }
+.ops button.zoom:hover { background:var(--sec); color:var(--ink); }
+.ops button.zoom[aria-pressed="true"] { background:var(--sec); color:var(--ink); font-weight:600; }
 thead tr.msrow.lane-off { display:none; }
 
 /* 出来事の登録フォーム（追加・修正で同じ）。画面中央に重ねる。 */
@@ -1697,20 +1707,25 @@ def render_html(wbs: Wbs, *, provenance: str = "", draft: bool = False, editable
     lane_toggles = "".join(
         f'<button class="lane" data-lane="{_esc(label)}" type="button">{_esc(label)}</button>' for label in lane_labels
     )
+    # 3 群を「見出し＋区切り」で分ける：階層（行の開閉＝一度きりの操作）／表示（列・帯の入り切り＝状態の切替）／
+    # 時間軸（右）。階層の操作は行頭の三角（▾▸）と同じ字を付け、何を開閉するのかを一目で分かるようにする。
     left = [
-        '<button id="fold" type="button">すべて折りたたむ</button>',
-        '<button id="unfold" type="button">すべて展開</button>',
-        '<span class="sep">表示</span>',
+        '<span class="grp-lbl">階層</span>',
+        '<button id="unfold" class="act" type="button">▾ 全部ひらく</button>',
+        '<button id="fold" class="act" type="button">▸ 全部たたむ</button>',
+        '<span class="divider"></span>',
+        '<span class="grp-lbl">表示</span>',
         '<button class="col" data-col="team" type="button">チーム</button>',
         '<button class="col" data-col="who" type="button">担当</button>',
-        ('<span class="divider"></span>' + lane_toggles) if lane_toggles else "",
+        lane_toggles,  # 帯（マイルストーン・定例など）も「表示」の入り切り＝同じ群
         # 出来事・マイルストーンの登録は「レーンの空きをクリック」に一本化した（操作バーにボタンは置かない）。
     ]
     right = [
-        '<span class="sep">時間軸</span>',
-        '<button class="zoom" data-zoom="m" type="button">月</button>',
-        '<button class="zoom" data-zoom="w" type="button">週</button>',
-        '<button class="zoom" data-zoom="d" type="button">日</button>',
+        '<span class="grp-lbl">時間軸</span>',
+        '<span class="seg">'
+        '<button class="zoom" data-zoom="m" type="button">月</button>'
+        '<button class="zoom" data-zoom="w" type="button">週</button>'
+        '<button class="zoom" data-zoom="d" type="button">日</button></span>',
     ]
     ops = [f'<div class="left">{"".join(left)}</div>', f'<div class="right">{"".join(right)}</div>']
     edit_bits = ""
