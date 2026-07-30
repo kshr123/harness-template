@@ -51,18 +51,34 @@ from harness import issues, pm
 from harness.init_project import CASE_AREA_ROOTS
 
 
+def _covers(entry: str, ref: str) -> bool:
+    """CASE_AREA_ROOTS の 1 エントリが ref を覆うか（セグメント境界で判定）。
+
+    - glob 文字を持たないエントリ（ディレクトリ `work`／ファイル `docs/wbs.yaml`）＝完全一致か、その配下
+      （`work` → `work/…`）。`docs/requirements-old.md` は `docs/requirements` の配下ではない（境界一致）。
+    - glob エントリ（今は `docs/structure-review-*.md`）＝セグメント数一致かつ各セグメントを `fnmatchcase` で照合。
+      セグメント単位なので `*` が `/` を跨がない（pathlib の glob と同じ）。`fnmatch` でなく `fnmatchcase` を使う＝
+      `fnmatch` は Windows で大小無視になり免除が OS で変わるため、常に大小区別で判定する。
+    """
+    entry = entry.rstrip("/")
+    if not any(c in entry for c in "*?["):
+        return ref == entry or ref.startswith(entry + "/")
+    entry_parts = entry.split("/")
+    ref_parts = ref.split("/")
+    if len(entry_parts) != len(ref_parts):
+        return False
+    return all(fnmatch.fnmatchcase(r, e) for e, r in zip(entry_parts, ref_parts, strict=True))
+
+
 def _is_case_area(ref: str) -> bool:
     """ref が案件領域（init-project が白紙化する per-project の置き場・正本は init_project.CASE_AREA_ROOTS）に属するか。
 
     そこに在るべきファイル（例 `docs/wbs.yaml`）は fresh clone に無くて当然なので、durable な docs がそれを
     指しても壊れリンクではない＝実在検査から除外する（案件領域外の不在パスは従来どおり error のまま）。
+    判定はセグメント境界一致（`_covers`）＝`*` が `/` を跨がず、OS 差で免除が広がらない。
     """
     normalized = ref.rstrip("/")
-    for root in CASE_AREA_ROOTS:
-        base = root.rstrip("/")
-        if normalized == base or normalized.startswith(base + "/") or fnmatch.fnmatch(normalized, base):
-            return True
-    return False
+    return any(_covers(root, normalized) for root in CASE_AREA_ROOTS)
 
 
 # 固定の対象（存在するものだけ読む）。glob の対象は _target_files を参照。

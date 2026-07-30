@@ -47,7 +47,8 @@ def _digest(path: Path) -> str:
 
 def inputs_of(root: Path) -> list[str]:
     """WBS の入力になるファイル（正本からの相対パス）。これだけを写す・これだけを取り込む。"""
-    out = [str(p.relative_to(root)) for p in sorted((root / pm.WORK_DIR).rglob("*")) if p.is_file()]
+    # 相対パスは常に `/`（Windows で `\` キーにしない＝編集セッションの指紋キーをプラットフォーム非依存に保つ）。
+    out = [p.relative_to(root).as_posix() for p in sorted((root / pm.WORK_DIR).rglob("*")) if p.is_file()]
     if (root / OVERLAY_PATH).is_file():
         out.append(str(OVERLAY_PATH))
     return out

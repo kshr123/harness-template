@@ -205,6 +205,29 @@ def test_check_collected_items_flags_unmarked(pytester: pytest.Pytester) -> None
 _REAL_CONFTEST = (REPO_ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
 
 
+def test_stringifying_a_relative_path_without_as_posix_is_flagged(tmp_path: Path) -> None:
+    """リポ相対パスの文字列化は `.as_posix()` 必須（Windows で `\\` にしない）。
+
+    中心の 2 形（`str(x.relative_to(y))` と f-string の `{x.relative_to(y)}`）を捕まえ、`.as_posix()` 版・
+    `.parts` 版・Path のまま使う形は誤検出しない（期待値はソースの構成から導く）。
+    """
+    _write(
+        tmp_path,
+        "src/harness/x.py",
+        "from pathlib import Path\n"
+        "def f(p: Path, root: Path):\n"
+        "    a = str(p.relative_to(root))\n"  # 中心形1 → error
+        "    b = f'{p.relative_to(root)}'\n"  # 中心形2 → error
+        "    c = str(p.relative_to(root).as_posix())\n"  # 直っている → OK
+        "    d = f'{p.relative_to(root).as_posix()}'\n"  # 直っている → OK
+        "    e = p.relative_to(root).parts\n"  # 文字列化でない → OK
+        "    g = p.relative_to(root)\n"  # Path のまま → OK
+        "    return a, b, c, d, e, g\n",
+    )
+    errors = [m for m in _errors(tmp_path) if "as_posix" in m]
+    assert len(errors) == 2, errors
+
+
 def test_real_conftest_errors_on_slow_without_iss(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(_REAL_CONFTEST)
     pytester.makepyfile("import pytest\npytestmark = [pytest.mark.unit, pytest.mark.slow]\ndef test_x():\n    pass\n")

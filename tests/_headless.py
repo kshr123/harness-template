@@ -15,10 +15,16 @@ from pathlib import Path
 
 import pytest
 
-# よくある実体の置き場（macOS の既定パス）と、PATH 上の実行名。
+# よくある実体の置き場（OS ごとの既定パス）と、PATH 上の実行名。macOS・Windows・Linux のどれでも見つかるように
+# 各 OS の既定パスを並べる（GitHub ランナーは ubuntu も windows も Chrome を標準搭載＝Windows のパスを足すだけで
+# Windows の CI でも実測が走る。Chrome の入っていない環境だけ skip にフォールバックする）。
 _APP_PATHS = (
+    # macOS
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    # Windows（実行ディレクトリは PATH に載らないので実体パスで探す）
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 )
 _PATH_NAMES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome")
 
@@ -32,7 +38,7 @@ def chrome_path() -> str:
         found = shutil.which(name)
         if found:
             return found
-    pytest.skip("ISS-0018: headless Chrome が無いので実測テストを飛ばす（Chrome を入れた環境では回る）")
+    pytest.skip("ISS-0018: この環境に Chrome が無いので実測を飛ばす（Mac/Windows/Linux いずれも Chrome があれば回る）")
 
 
 def dump_dom(html: str, *, inject: str) -> str:

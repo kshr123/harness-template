@@ -190,6 +190,18 @@ def test_apply_and_discard_need_the_token(tmp_path: Path) -> None:
     assert client.post("/discard").status_code == 403
 
 
+def test_input_keys_are_posix_not_backslash(tmp_path: Path) -> None:
+    """編集セッションの指紋キー（inputs_of）は常に `/` 区切り＝Windows で `\\` キーにしない（プラットフォーム非依存）。
+
+    mac/linux では str==as_posix なので自明に真だが、この repo が回す windows CI では実際に意味を持つ検査。
+    """
+    _scaffold(tmp_path)  # 入れ子のある入力ファイル（親フォルダ配下の単位）を作る
+    keys = session_mod.inputs_of(tmp_path)
+    assert keys, "入力が空"
+    assert all("\\" not in key for key in keys), keys
+    assert any("/" in key for key in keys), "入れ子があるので / を含むキーがあるはず"
+
+
 def test_a_second_apply_after_more_edits_succeeds(tmp_path: Path) -> None:
     """取り込んだ後に続けて編集して 2 度目に取り込んでも、自分の apply を「別の手」と誤検知して 409 にならない（A）。
 

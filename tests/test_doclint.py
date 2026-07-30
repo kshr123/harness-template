@@ -71,6 +71,22 @@ def test_non_case_area_missing_path_is_still_an_error(tmp_path: Path) -> None:
     assert any("docs/nonexistent-guide.md" in m for m in _errors(tmp_path))
 
 
+def test_case_area_subtree_is_exempt_but_boundary_sibling_is_not(tmp_path: Path) -> None:
+    # 案件領域ディレクトリ（work）の配下は免除・境界の別物は免除しない（セグメント境界一致）。
+    _doc(tmp_path, "AGENTS.md", "配下は work/deep/nested/file.md、境界の別物は docs/requirements-old.md。")
+    errors = _errors(tmp_path)
+    assert not any("work/deep/nested/file.md" in m for m in errors)  # work/ 配下＝免除
+    assert any("docs/requirements-old.md" in m for m in errors)  # docs/requirements の配下ではない→error
+
+
+def test_case_area_glob_matches_per_segment_not_across_slash(tmp_path: Path) -> None:
+    # glob 免除（docs/structure-review-*.md）は 1 セグメントのファイル名パターン＝`*` が `/` を跨がない。
+    _doc(tmp_path, "AGENTS.md", "レビューは docs/structure-review-notes.md、入れ子は docs/structure-review-x/y.md。")
+    errors = _errors(tmp_path)
+    assert not any("structure-review-notes.md" in m for m in errors)  # 1 セグメント＝免除
+    assert any("structure-review-x/y.md" in m for m in errors)  # `/` を跨ぐ＝免除しない→error
+
+
 def test_extensionless_reference_whose_parent_dir_is_absent_is_error(tmp_path: Path) -> None:
     # 親ディレクトリごと撤去された仕組みへの参照（例 docs/decisions/DEC-0006）は error のまま。
     _doc(tmp_path, "AGENTS.md", "根拠は docs/decisions/DEC-0006 を参照。")

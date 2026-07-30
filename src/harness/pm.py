@@ -465,7 +465,7 @@ def render_status(root: Path, extra_pending: list[str] | None = None) -> str:
     if work.is_dir():
         for md in sorted(work.rglob("*.md")):
             if "[要確認]" in md.read_text(encoding="utf-8"):
-                pending.append(f"- {md.relative_to(root)}：未解決の [要確認] あり")
+                pending.append(f"- {md.relative_to(root).as_posix()}：未解決の [要確認] あり")
     if extra_pending:
         pending.extend(extra_pending)
 
