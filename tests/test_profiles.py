@@ -102,6 +102,19 @@ def test_ds_profile_owns_its_optional_dependency_tests() -> None:
         assert any(fnmatch.fnmatch(name, glob) for glob in ds.test_globs), name
 
 
+def test_promotion_rollback_is_owned_by_both_ds_and_agent() -> None:
+    # numpy/sklearn（DS）と agent を module-top で import する test_promotion_rollback は、ds・agent の
+    # どちらが無効でも収集から外れる必要がある（fork 模擬＝profiles=[] の素の uv sync で numpy 収集エラーにしない）。
+    # test_promotion_characterization と同じ扱い（両方の test_globs が所有＝union なので片方無効で外れる）。
+    root = Path(__file__).resolve().parents[1]
+    discovered = profiles.discover_profiles(root)
+    for module in ("harness.ds", "harness.agent"):
+        globs = discovered[module].test_globs
+        assert any(fnmatch.fnmatch("test_promotion_rollback.py", g) for g in globs), module
+    disabled = profiles.disabled_profiles(root, enabled=["harness.agent"])  # ds だけ無効でも外れる
+    assert any(fnmatch.fnmatch("test_promotion_rollback.py", g) for p in disabled for g in p.test_globs)
+
+
 def test_stats_profile_shipped_and_owns_its_tests() -> None:
     # stats プロファイルが同梱され（ソースの実在）、test_stats_*.py を所有する。profiles=[] の複製では
     # この glob が収集除外・mypy 除外に載る（pymc を import する stats テストを素の環境から外す）。

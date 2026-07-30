@@ -32,6 +32,7 @@ _DS_TEST_GLOBS = (
     "test_serve_cli.py",
     "test_serve_shadow.py",
     "test_promotion_characterization.py",
+    "test_promotion_rollback.py",  # numpy/sklearn（DS）と agent を import＝ds/agent 無効の複製では収集しない
 )
 
 PROFILE = Profile(name="ds", invariant_checks=(schema.data_lint,), test_globs=_DS_TEST_GLOBS)

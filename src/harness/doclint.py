@@ -42,11 +42,28 @@ ID 参照の実在検査（`ISS-<番号>` 等）:
 from __future__ import annotations
 
 import ast
+import fnmatch
 import re
 import tomllib
 from pathlib import Path
 
 from harness import issues, pm
+from harness.init_project import CASE_AREA_ROOTS
+
+
+def _is_case_area(ref: str) -> bool:
+    """ref が案件領域（init-project が白紙化する per-project の置き場・正本は init_project.CASE_AREA_ROOTS）に属するか。
+
+    そこに在るべきファイル（例 `docs/wbs.yaml`）は fresh clone に無くて当然なので、durable な docs がそれを
+    指しても壊れリンクではない＝実在検査から除外する（案件領域外の不在パスは従来どおり error のまま）。
+    """
+    normalized = ref.rstrip("/")
+    for root in CASE_AREA_ROOTS:
+        base = root.rstrip("/")
+        if normalized == base or normalized.startswith(base + "/") or fnmatch.fnmatch(normalized, base):
+            return True
+    return False
+
 
 # 固定の対象（存在するものだけ読む）。glob の対象は _target_files を参照。
 _FIXED_FILES = (
@@ -203,6 +220,8 @@ def _path_ref_problems(rel: str, text: str, root: Path) -> list[pm.Problem]:
     """相対パス参照の実在検査（拡張子/ディレクトリ参照＝そのまま判定、それ以外＝先頭 2 セグメントだけ判定）。"""
     problems: list[pm.Problem] = []
     for ref in sorted(_path_refs(text)):
+        if _is_case_area(ref):
+            continue  # 案件領域（fresh clone で白紙化される per-project の置き場）は不在を咎めない
         target = root / ref
         if ref.endswith("/"):
             if not target.is_dir():
@@ -210,6 +229,8 @@ def _path_ref_problems(rel: str, text: str, root: Path) -> list[pm.Problem]:
         elif not target.exists():
             problems.append(pm.Problem("error", f"{rel}: 参照先のパス '{ref}' が存在しない"))
     for ref in sorted(_bare_path_refs(text)):
+        if _is_case_area(ref):
+            continue
         # 参照先そのものの実在は問わない（拡張子が無いので、ファイルか節の見出しか判別できない）。
         # 「参照先を含むディレクトリが存在するか」だけを見る＝撤去された仕組み（docs/decisions/…）を捕まえ、
         # 拡張子を省いたファイル参照（tests/conftest）は誤検出しない。
