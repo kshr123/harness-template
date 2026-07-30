@@ -10,5 +10,8 @@
 #   # requests の CVE-2099-0001 は当リポの使い方（ローカル実行のみ・外部入力なし）では踏めない。2026-09 に再確認
 #   CVE-2099-0001
 #
-# 現在の免除：なし（空＝最善の状態。2026-07-07 時点で pip-audit は既知脆弱性ゼロ）
-
+# pymdown-extensions 10.21.3 の CVE-2026-61632 は marimo（EDA スキルの notebook 開発ツール）の推移的依存。
+# marimo は全リリースが pymdown-extensions<11 を固定しており、fix 版 11.0.0 を今は採れない（床>=11 を宣言すると
+# uv lock が解決不能になるのを実測）。markdown 拡張の脆弱性で、当リポに信頼できない markdown を通す経路は無い
+# （dev/notebook 用途のみ）。marimo が pymdown-extensions>=11 を許す版を出したら床を上げて外す。2026-10 に再確認。
+CVE-2026-61632

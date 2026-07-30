@@ -25,6 +25,10 @@ configs/config.local.yaml
 # STATUS.md は生成物：その都度 `uv run status` で作り直す・追跡しない
 STATUS.md
 
+# 生成した成果物（WBS の HTML・予測ログ等）。正本から作り直せるので追跡しない。
+# クライアントへ出した版を残すなら、生成物でなく git のタグ（合意した時点の正本）で固定する。
+artifacts/
+
 # データ実体・マニフェスト（正本は config の保存先URI。コミットしない）
 data/**/*.parquet
 data/**/*.manifest.yaml
@@ -38,3 +42,6 @@ mlflow.db
 
 # エージェントの作業用 worktree（一時的。リポジトリに含めない）
 .claude/worktrees/
+
+# 編集の場（作業用の写し）。第 2 の正本にしないため、コミットできないようにする。
+.harness/wbs-edit/

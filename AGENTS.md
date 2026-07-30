@@ -76,11 +76,13 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 ## 作業単位（item）
 - 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。
   - `id`（例 `EP-01` / `T-0007` / `E-0003`。一意・再利用しない）／`kind`（epic | task | experiment）／`status`／`plan`（epic・実験）／`requirements`（REQ-…）／`depends_on`（先行する単位の ID）。
+  - 任意：`owner`（担当 1 名）・`team`（担当チーム）。顧客向けの WBS では `docs/wbs.yaml` の名簿（`members`・`teams`）から選ぶ。
   - 任意：`priority`（`high | normal | low`。**人が置く判断**を `uv run status --next` の並べ替えに運ぶ＝機械は決めず順位を執行するだけ。未指定は normal と同じ＝並びは既定の ID 順のまま。列挙なのでタイポは検証で失敗する）。
   - 任意（顧客向けの WBS・ガントの材料）：`start`／`due`（予定開始・予定終了の日付）・`effort_days`（見積り工数＝人日）・`milestone`（`true` で節目）。すべて任意（無指定は正常）。**%完了・実績日付は持たない**＝進捗は木から、実績は `created`/`closed` から導出する（二重台帳を作らない）。検査：`start > due`・`milestone` なのに `due` 無しは失敗（task-lint）。
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。
 - **着手の提案は `uv run status --next`**：仕掛かり中（in-progress の末端＝再開の候補）→ いま着手できる（todo・依存充足）→ 依存待ち → 分解の候補、の順で出す。並びは `priority`→ID。門番ではない（時間経過で赤にはしない＝可視化のみ）。
 - **トレースの鎖（コンサル向け・任意）**：要求 `docs/demands/DEM-*`（クライアントの言葉・MoSCoW）→ 要件 `docs/requirements/REQ-*`（`satisfies: [DEM-…]` で上流参照・`kind` は functional/non-functional）→ 作業 `work/`（`requirements: [REQ-…]`）→ 検証（`verified_by`）。要求層を持たない案件は `satisfies` を書かなければ何も要求されない。検査：REQ の `satisfies` が実在 DEM を指すこと（task-lint。要件→作業の参照検査と対称）。雛形は `.harness/templates/demand.md`・`requirement.md`。
+- **顧客向けの WBS・工程表（コンサル向け・任意）**：作業単位の木からの**生成ビュー**として出す（`uv run wbs export`）。日程・階層・状態の正本は `work/` の frontmatter ひとつで、WBS 側に第 2 の台帳を作らない（WBS 番号・営業日数・進捗率・親の日程は**書く欄が無い**＝毎回導出する）。案件固有の上書き `docs/wbs.yaml`（雛形 `.harness/templates/wbs.yaml`）に書くのは、暦・顧客向けの節の構成・`work/` に置けない行（クライアントの承認待ち・定例会議）だけ。手順は wbs スキル、正本は `docs/deliver.md`。
 
 ## 手順（1 タスク）
 1. その単位の `item.md`（またはファイル）と本ファイルだけを読む。全単位は読まない（読み込みすぎない）。
@@ -97,6 +99,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - `uv run data --help` … DS プロファイルを使い始めるコマンド（テーブル・特徴量・実験・モデルのカタログ。使い方は eda / experiment / features スキル）
 - `uv run serve --help` … 配信プロファイルを使い始めるコマンド（champion の FastAPI 配信。正本は `docs/serve.md`）
 - `uv run agent --help` … LLMOps プロファイルを使い始めるコマンド（AgentSpec の評価・カタログ。正本は `docs/agent.md`）
+- `uv run wbs edit` / `uv run wbs export` / `uv run wbs lint` … クライアントに見せる WBS・ガントを作業単位の木から出す・手元のブラウザで直す・検査する（deliver プロファイル。正本は `docs/deliver.md`）
 - `uv run stats --help` … ベイズ統計モデリング（stats プロファイル）を使い始めるコマンド（モデル・サンプラー・診断・PPC のカタログ。正本は `docs/stats.md`）
 
 ## してはいけないこと

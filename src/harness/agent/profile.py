@@ -15,5 +15,5 @@ from harness.profiles import Profile
 PROFILE = Profile(
     name="agent",
     invariant_checks=(lint.run_checks, schedule_lint.run_checks),
-    test_globs=("test_agent_*.py", "test_promotion_characterization.py"),
+    test_globs=("test_agent_*.py", "test_promotion_characterization.py", "test_promotion_rollback.py"),
 )

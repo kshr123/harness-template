@@ -1,0 +1,1847 @@
+"""WBS を自己完結の HTML 1 ファイルに描く（行レンダラ＋外殻）。
+
+外部リソースを一切読まない（CSS もスクリプトも本文に埋め込む・画像もフォントも外から取らない）＝
+クライアントの担当者がファイル 1 つを社内へ転送しても、そのまま開ける。
+
+**構造の要**：左に表・右に大きな 1 枚のガント、という 2 枚組にはしない。1 つの表にして、ガントのバーは
+各行のセルの中に小さな SVG として描く。こうすると改ページで行とバーがずれず、時間軸の見出しを各ページに
+再掲でき（`display: table-header-group`）、行単位で改ページを避けられる（`break-inside: avoid`）。
+提出物として印刷に耐える形はこれだけ。今日の線も各行の SVG に同じ位置で描く＝行ごとに完結するのでずれない。
+
+横軸は暦日の一次変換にする（営業日で詰めると、休みを挟む工程の長さが見た目と合わなくなる）。営業日は
+「日数」列の数字で示す＝軸の直感と数え方の正しさを両立させる。
+"""
+
+from __future__ import annotations
+
+import html
+import json
+from collections.abc import Callable
+from datetime import date, timedelta
+
+from harness.deliver.calendar import WorkCalendar
+from harness.deliver.overlay import Event
+from harness.deliver.wbs import Wbs, WbsRow
+from harness.models import Status
+
+# 状態の表示名（顧客に見せる語）。コード側の語彙（Status）を 2 つに増やさないための表示専用の対応表。
+# 画面に出す言葉。**語そのものが意味を運ぶ**ようにする（読んで分からない名前を注釈で補うのは負け）。
+# 「確認中」は誰かが作業中に見えるが、実際は作る側の手が離れて待っている状態なので「確認待ち」。
+# 「停止」は強すぎて中止と紛らわしく、次の一手も示さないので、この分野で通用する「保留」にする。
+STATUS_LABEL: dict[Status, str] = {
+    Status.todo: "未着手",
+    Status.in_progress: "進行中",
+    Status.in_review: "確認待ち",
+    Status.blocked: "保留",
+    Status.done: "完了",
+}
+
+# 状態の 1 行の意味。**成果物そのものに持たせる**（docs を読まないと分からない状態を作らない）。
+STATUS_MEANING: dict[Status, str] = {
+    Status.todo: "まだ始めていない",
+    Status.in_progress: "いま手が動いている",
+    Status.in_review: "作る側の手は離れ、確認する人の判断を待っている",
+    Status.blocked: "進められない（障害・外部待ち）",
+    Status.done: "検証に成功した",
+}
+
+# 表の列（見出し・幅と寄せを決める区分・意味のまとまり）。見出しの並びは形式に依らないので、表計算もここから引く。
+# **まとまりごとに見出しをもう 1 段置く**（作業／予定／実績）。11 列が同じ重みで並んでいると、どこまでが
+# 予定でどこからが実績なのかを列名だけで読み分けることになる。まとまりの先頭には強い縦罫（`gs`）を引く。
+COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("No.", "code", "work"),
+    ("作業", "name", "work"),
+    ("チーム", "team", "work"),
+    ("担当", "who", "work"),
+    ("状態", "st", "work"),
+    ("予定開始", "d gs", "plan"),
+    ("予定終了", "d", "plan"),
+    ("日数", "n", "plan"),
+    ("実績開始", "d gs", "act"),
+    ("実績終了", "d", "act"),
+    ("進捗", "n", "act"),
+)
+
+# まとまりの見出し（列の意味を 1 段上でまとめる）。
+COLUMN_GROUPS: tuple[tuple[str, str], ...] = (("work", "作業"), ("plan", "予定"), ("act", "実績"))
+
+COLUMN_LABELS: tuple[str, ...] = tuple(label for label, _, _ in COLUMNS)
+
+# ガントの SVG の内部座標の幅（viewBox の幅）。実際の表示幅は CSS が決める（preserveAspectRatio="none"）。
+
+
+def _esc(value: object) -> str:
+    """HTML に埋める文字列（None は空文字）。"""
+    return "" if value is None else html.escape(str(value))
+
+
+def _day_label(value: date | None) -> str:
+    return "" if value is None else value.strftime("%m/%d")
+
+
+# 日の目盛を出す上限（これより長い期間では日の線・非稼働日の面を出さない＝細かすぎて読めない）。
+_MAX_DAY_TICKS = 400
+
+# レーン（マイルストーン・定例など）1 本の高さ（px）。データ行より低くして注釈帯だと分かる律動差を作る。
+# 主役ではないので占有を抑える（見出しの文字も小さめ）。CSS（--lane-h）・JS（--lanes-h の計算）・初期の
+# scroll_vars で使う唯一の出どころ。
+_LANE_H = 14
+
+
+def drawing_window(span: tuple[date, date]) -> tuple[date, date]:
+    """図を描く期間。データの期間を**月の境目に合わせて広げる**（1 日始まり・月末終わり）。
+
+    月に揃えるのは、日を数字で並べたときに「1 から月末まで」になるため（途中の日から始まると、
+    何月の何日を見ているのか読みにくい）。月の見出しの区切りとも位置が合う。データの期間をそのまま使うと、
+    数日しかない案件で棒が列の端から端まで伸びて「ただの帯」になる、という問題もこれで解ける
+    （1 か月は必ず 28 日以上あるため）。
+    """
+    first, last = span
+    first = first.replace(day=1)
+    last = _month_end(last)
+    return first, last
+
+
+def _month_end(day: date) -> date:
+    """その月の末日。"""
+    if day.month == 12:
+        return date(day.year, 12, 31)
+    return date(day.year, day.month + 1, 1) - timedelta(days=1)
+
+
+# 1 日あたりの幅（px）。粗い単位ほど狭い＝情報量を落とすとガントも短くなる。**ここが唯一の出どころ**で、
+# 画面（列幅）と格子の間引き（下）の両方がこの値を使う。2 か所に書くと片方だけ直して食い違う。
+PX_PER_DAY: dict[str, float] = {"d": 26.0, "w": 9.0, "m": 2.4}
+
+# 2 本の罫線がこれより近いと、にじんで 1 本の太い線に見える（＝線が「重なっている」と読まれる）。
+_MIN_GAP_PX = 6.0
+
+# その単位より粗い単位（線の優先順位。粗い方を残す）。
+_COARSER: dict[str, tuple[str, ...]] = {"d": ("w", "m"), "w": ("m",), "m": ()}
+
+
+def _offdays(span: tuple[date, date], calendar: WorkCalendar) -> list[tuple[date, date]]:
+    """非稼働日（土日・祝日・案件の休業日）の連なりを [開始日, 終了日] の並びにまとめる。
+
+    1 日ずつ矩形を出すと数が増えるので、続いている日はひとまとめにする（土日なら 1 つ）。
+    振替出勤は稼働日なので、その日で連なりが切れる。
+    """
+    first, last = span
+    runs: list[tuple[date, date]] = []
+    day = first
+    while day <= last:
+        if calendar.is_workday(day):
+            day += timedelta(days=1)
+            continue
+        start = day
+        while day <= last and not calendar.is_workday(day):
+            day += timedelta(days=1)
+        runs.append((start, day - timedelta(days=1)))
+    return runs
+
+
+# 縦線の重み（細→太）。太い方が粗い単位。
+_GRID_COLOR: dict[str, str] = {"d": "var(--line)", "w": "var(--guide)", "m": "var(--line-strong)"}
+# そのズームで出す単位＝「選んだ単位＋1 つ細かい単位」。
+_VISIBLE_KINDS: dict[str, tuple[str, ...]] = {"m": ("m", "w"), "w": ("m", "w", "d"), "d": ("m", "w", "d")}
+# 非稼働日の面を出すズーム（1 日が狭い月では縞にしかならないので出さない）。
+_FILL_ZOOMS = ("w", "d")
+
+
+def _pct(day: date, span: tuple[date, date]) -> float:
+    """描画窓の中での、その日の**左端**の位置（%）。"""
+    first, last = span
+    return (day - first).days / ((last - first).days + 1) * 100.0
+
+
+def _day_pct(span: tuple[date, date]) -> float:
+    """1 日ぶんの幅（%）。"""
+    first, last = span
+    return 100.0 / ((last - first).days + 1)
+
+
+def _gradient(bands: list[tuple[str, str, str]]) -> str:
+    """[(左端, 右端, 色)] を 1 枚の linear-gradient にする（位置は CSS の長さ式のまま渡す）。"""
+    if not bands:
+        return ""
+    stops = ["transparent 0"]
+    for start, end, color in bands:
+        stops += [f"transparent {start}", f"{color} {start}", f"{color} {end}", f"transparent {end}"]
+    stops.append("transparent 100%")
+    return "linear-gradient(90deg," + ",".join(stops) + ")"
+
+
+def _visible_lines(span: tuple[date, date], zoom: str) -> list[tuple[date, str]]:
+    """そのズームで**実際に引く**縦線（日付と単位）。近すぎて 1 本に見える線はここで落とす。
+
+    表示/非表示を CSS の切り替えでなく**生成時の判断**にするので、判定は純粋な Python として検査できる。
+    """
+    first, last = span
+    days = (last - first).days + 1
+    coarser = {"w": set(week_ticks(span)), "m": set(month_ticks(span))}
+    limit = _MIN_GAP_PX / PX_PER_DAY[zoom]
+    ticks_of = {"d": day_ticks, "w": week_ticks, "m": month_ticks}
+    out: list[tuple[date, str]] = []
+    for kind in _VISIBLE_KINDS[zoom]:
+        if kind == "d" and days > _MAX_DAY_TICKS:
+            continue
+        for tick in ticks_of[kind](span):
+            if tick == first:  # 先頭は列の左端なので線を引かない
+                continue
+            if any(abs((tick - other).days) <= limit for c in _COARSER[kind] for other in coarser[c]):
+                continue
+            out.append((tick, kind))
+    out.sort(key=lambda pair: pair[0])
+    return out
+
+
+def zoom_backgrounds(span: tuple[date, date], calendar: WorkCalendar) -> dict[str, str]:
+    """ズームごとの下敷きを、`background-image` の値として返す（縦の格子と非稼働日の面）。
+
+    **下敷きを背景にするのが要点**。背景は要素の箱を常に満たし（高さの計算式が存在しない）、自分の箱の外へ
+    出られず、要素の border より下に塗られる（CSS の定義）。だから「行の高さいっぱいに通る」「隣の行へ
+    はみ出さない」「横罫を塗り潰さない」が、指定の正しさではなく**仕様として**保証される。
+    重ねる順は列挙順で決まる（先頭が最前）ので、線を先・面を後に置く＝面が線を覆うことも起きない。
+    """
+    days = (span[1] - span[0]).days + 1
+    out: dict[str, str] = {}
+    for zoom in PX_PER_DAY:
+        lines = [
+            (f"calc({_pct(tick, span):.4f}% - .5px)", f"calc({_pct(tick, span):.4f}% + .5px)", _GRID_COLOR[kind])
+            for tick, kind in _visible_lines(span, zoom)
+        ]
+        fills: list[tuple[str, str, str]] = []
+        if zoom in _FILL_ZOOMS and days <= _MAX_DAY_TICKS:
+            fills = [
+                (f"{_pct(start, span):.4f}%", f"{_pct(end, span) + _day_pct(span):.4f}%", "var(--off)")
+                for start, end in _offdays(span, calendar)
+            ]
+        out[zoom] = ",".join(layer for layer in (_gradient(lines), _gradient(fills)) if layer)
+    return out
+
+
+def _span_bar(css: str, start: date, due: date, span: tuple[date, date]) -> str:
+    """開始〜終了（終了日を含む）を、描画窓の割合で 1 本の棒にする。座標は `_pct`/`_day_pct` の 1 実装だけ。"""
+    left = _pct(start, span)
+    width = max(_pct(due, span) + _day_pct(span) - left, 0.2)
+    return f'<i class="{css}" style="left:{left:.4f}%;width:{width:.4f}%"></i>'
+
+
+def _bar_html(row: WbsRow, span: tuple[date, date], base: tuple[date | None, date | None] | None = None) -> str:
+    """その行の棒（非置換の HTML 要素）。マイルストーンは点なので棒を描かない。
+
+    `base`（合意した時点の開始・終了）があれば、現状の棒の**下に淡い棒**を先に描く（重ね描き＝計画対比）。
+    書いた順に重なる（後が前）ので、淡いベースラインを先・現状の棒を後にして、現状が前に出る。
+    """
+    parts: list[str] = []
+    if base is not None and base[0] is not None and base[1] is not None:
+        parts.append(_span_bar("gbar-base", base[0], base[1], span))
+    if not row.milestone and row.start is not None and row.due is not None:
+        parts.append(_span_bar("gbar", row.start, row.due, span))
+    return "".join(parts)
+
+
+def day_ticks(span: tuple[date, date]) -> list[date]:
+    """日の目盛（1 日ごと）。"""
+    first, last = span
+    out: list[date] = []
+    day = first
+    while day <= last:
+        out.append(day)
+        day += timedelta(days=1)
+    return out
+
+
+def week_ticks(span: tuple[date, date]) -> list[date]:
+    """週の目盛（月曜）。期間の頭は必ず入れる。"""
+    first, last = span
+    out: list[date] = []
+    day = first - timedelta(days=first.weekday())
+    while day <= last:
+        if day >= first:
+            out.append(day)
+        day += timedelta(days=7)
+    if not out or out[0] != first:
+        out = [first, *out]
+    return out
+
+
+def month_ticks(span: tuple[date, date]) -> list[date]:
+    """月の目盛（月の頭）。期間の頭は必ず入れる。"""
+    first, last = span
+    out: list[date] = []
+    year, month = first.year, first.month
+    while True:
+        current = date(year, month, 1)
+        if current > last:
+            break
+        if current >= first:
+            out.append(current)
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+    if not out or out[0] != first:
+        out = [first, *out]
+    return out
+
+
+def year_ticks(span: tuple[date, date]) -> list[date]:
+    """年の目盛（年の頭）。期間の頭は必ず入れる。"""
+    first, last = span
+    out = [date(y, 1, 1) for y in range(first.year, last.year + 1) if date(y, 1, 1) >= first]
+    if not out or out[0] != first:
+        out = [first, *out]
+    return out
+
+
+def _intervals(ticks: list[date], span: tuple[date, date]) -> list[tuple[date, float, float]]:
+    """目盛を「区間」にする（その日・左端の割合・幅の割合）。ラベルは区間の真ん中に置く。
+
+    目盛の線の右に文字を寄せると、どの線の分の文字なのかが読めない。区間の中央に置けば対応が一目で分かる。
+    """
+    first, last = span
+    out: list[tuple[date, float, float]] = []
+    for i, tick in enumerate(ticks):
+        nxt = ticks[i + 1] if i + 1 < len(ticks) else last + timedelta(days=1)
+        left = _pct(tick, span)
+        out.append((tick, left, _pct(nxt, span) - left if nxt <= last else 100.0 - left))
+    return out
+
+
+def _labels(
+    ticks: list[date],
+    span: tuple[date, date],
+    kind: str,
+    text: Callable[[date, bool], str],
+    *,
+    min_days: int = 0,
+) -> str:
+    """区間の真ん中に置くラベルの並び（年が変わるところだけ年を添える）。
+
+    `min_days` より短い区間にはラベルを置かない。月の頭で切れた半端な週などは、置いても文字が途中で
+    切れて読めない（`8/` のように見える）ので、線だけ残して文字は出さない。
+    """
+    parts: list[str] = []
+    shown_year: int | None = None
+    total = (span[1] - span[0]).days + 1
+    for day, left, width in _intervals(ticks, span):
+        if width / 100 * total < min_days:
+            shown_year = day.year
+            continue
+        label = text(day, day.year != shown_year)
+        shown_year = day.year
+        parts.append(f'<span class="axis-lab lab-{kind}" style="left:{left:.3f}%;width:{width:.3f}%">{label}</span>')
+    return "".join(parts)
+
+
+_WD = "月火水木金土日"
+
+
+def _weekdays(span: tuple[date, date]) -> str:
+    """曜日のラベル（日表示のときだけ出す 3 段目）。土日は薄くする。"""
+    parts: list[str] = []
+    for day, left, width in _intervals(day_ticks(span), span):
+        weekend = " we" if day.weekday() >= 5 else ""
+        parts.append(
+            f'<span class="axis-lab lab-wd{weekend}" style="left:{left:.3f}%;width:{width:.3f}%">'
+            f"{_WD[day.weekday()]}</span>"
+        )
+    return "".join(parts)
+
+
+def _axis_html(span: tuple[date, date], today_mark: str) -> str:
+    """時間軸の見出し（2 段）。上段＝大きい単位・下段＝選んだ単位。
+
+    単位（月・週・日）を切り替えると**下段の中身が変わり、上段はその親の単位になる**。段数は常に 2 で
+    固定する（切り替えのたびに高さが跳ねない）。
+
+    **縦の目盛は描かない。** 見出しのセルにも本体と同じ下敷き（`zoom_backgrounds` の background）が当たって
+    いるので、ここで線を引くと同じものの 2 つ目の実装になり、いつかずれる（実際にずれた）。文字だけを置く。
+    """
+    days = (span[1] - span[0]).days + 1
+    text = "".join(
+        (
+            _labels(year_ticks(span), span, "y", lambda d, _: f"{d.year}年", min_days=40),
+            _labels(month_ticks(span), span, "m", lambda d, _: f"{d.month}月", min_days=10),
+            _labels(
+                month_ticks(span),
+                span,
+                "my",
+                lambda d, y: f"{d.year}年{d.month}月" if y else f"{d.month}月",
+                min_days=10,
+            ),
+            _labels(week_ticks(span), span, "w", lambda d, _: f"{d.month}/{d.day}w", min_days=4),
+            _labels(day_ticks(span), span, "d", lambda d, _: str(d.day)) if days <= _MAX_DAY_TICKS else "",
+            _weekdays(span) if days <= _MAX_DAY_TICKS else "",
+        )
+    )
+    return f'<div class="axis-wrap">{text}{today_mark}</div>'
+
+
+def _editable_fields(row: WbsRow) -> dict[str, str]:
+    """その行で直せる欄（表示上の列 → 正本のキー）。導出値・節の行はここに出てこない。
+
+    表題は親でも直せる（保存された値だから）。日程・状態・担当は末端だけ＝親の値は子から導くので、
+    直す先が無い（画面に編集の口を作らないことで、そもそも矛盾を入力できない）。
+    """
+    if row.path is None:
+        return {}
+    manual = row.source == "manual"
+    fields = {"name": "name" if manual else "title"}
+    if row.children:
+        return fields
+    fields["status"] = "status"
+    fields["start"] = "start"
+    fields["due"] = "due"
+    fields["team"] = "team"
+    fields["assignees"] = "assignees" if manual else "owner"
+    return fields
+
+
+def _cell(
+    column: str,
+    inner: str,
+    raw: str,
+    row: WbsRow,
+    fields: dict[str, str],
+    digest: str,
+    *,
+    css: str = "",
+    choices: list[str] | None = None,
+) -> str:
+    """1 つのセル。直せる欄なら、書き戻し先（ID・キー・読んだ時点の指紋）を持たせる。
+
+    `choices` を渡した欄は、自由入力でなく**名簿から選ぶ**（毎回打つと表記ゆれが起きるため）。
+    名簿に無い名前を入れる口も残し、入れたらその名簿にも足す。
+    """
+    field = fields.get(column)
+    col = f' data-col="{column}"'  # 右クリックのメニューを列で出し分けるための表示列の名前
+    klass = f' class="{css}"' if css else ""
+    if field is None or row.ref is None:
+        return f"<td{klass}{col}>{inner}</td>"
+    picks = f' data-choices="{_esc(json.dumps(choices, ensure_ascii=False))}"' if choices is not None else ""
+    attrs = (
+        f' class="edit{" " + css if css else ""}"{col} data-ref="{_esc(row.ref)}" data-field="{_esc(field)}"'
+        f' data-value="{_esc(raw)}" data-base="{_esc(digest)}"{picks}'
+    )
+    return f'<td{attrs} tabindex="0">{inner or '<span class="blank">＋</span>'}</td>'
+
+
+def _row_html(
+    row: WbsRow,
+    span: tuple[date, date] | None,
+    today: date,
+    today_mark: str = "",
+    *,
+    editable: bool = False,
+    rosters: dict[str, list[str]] | None = None,
+    parent: str = "",
+    baseline: dict[str, tuple[date | None, date | None]] | None = None,
+) -> str:
+    """WBS の 1 行。節・作業単位・手動行を同じ描き方で出す（行の描き方は 1 つだけ）。
+
+    編集できる状態でも描き方は変えない（直せる欄に書き戻し先の目印が増えるだけ）＝閲覧用と編集用で
+    2 つの描き方を持たない。
+    """
+    depth = row.code.count(".")
+    classes = [f"lv{depth}", f"src-{row.source}"]
+    if row.status is not None:
+        classes.append(f"st-{row.status.value}")  # 状態を視覚の強さに割り当てる（面・左バー・文字）
+    if row.late:
+        classes.append("is-late")
+    if row.status is Status.done:
+        classes.append("is-done")
+    unscheduled = not row.children and not row.scheduled
+    if unscheduled:
+        classes.append("is-unscheduled")
+    name = _esc(row.name)
+    if row.ref and row.ref != row.name:  # 題を書いていない単位は ID がそのまま名前なので、2 回出さない
+        name += f'<span class="ref">{_esc(row.ref)}</span>'
+    # 祖先の数だけ縦ガイド線を前に置く（深さ＝番号の点の数。列は増やさず線で階層を示す）。
+    guides = '<span class="ind"></span>' * depth
+    name = f'<span class="nmwrap">{guides}<span class="nm">{name}</span></span>'
+    fields = _editable_fields(row) if editable else {}
+    digest = _digest_of(row) if fields else ""
+    names = rosters or {"teams": [], "members": []}
+    status_label = STATUS_LABEL[row.status] if row.status is not None else ""
+    status_hint = f' title="{_esc(STATUS_MEANING[row.status])}"' if row.status is not None else ""
+    # 折りたたみの取っ手は WBS 番号の列に置く（表題の列は直せる欄なので、押すたびに編集が始まってしまう）。
+    # 取っ手の有無で番号がずれないよう、子を持たない行にも同じ幅の空き枠を置く（番号の左端をそろえる）。
+    toggle = (
+        f'<button class="tw" type="button" data-code="{_esc(row.code)}" aria-expanded="true">▾</button>'
+        if row.children
+        else '<span class="tw"></span>'
+    )
+    # 下の階層はどの作業単位にも足せる（ファイル 1 つの単位は、足すときにフォルダの単位へ変わる＝分解）。
+    can_add = editable and row.source == "work" and row.ref is not None
+    cells = [
+        f'<td class="code" data-col="no">{toggle}{_esc(row.code)}</td>',
+        _cell("name", name, row.name, row, fields, digest, css="name"),
+        _cell("team", _esc(row.team), row.team or "", row, fields, digest, css="team", choices=names["teams"]),
+        _cell(
+            "assignees",
+            _esc("、".join(row.assignees)),
+            "、".join(row.assignees),
+            row,
+            fields,
+            digest,
+            css="who",
+            choices=names["members"],
+        ),
+        _cell(
+            "status",
+            f"<span{status_hint}>{_esc(status_label)}</span>" if status_label else "",
+            row.status.value if row.status else "",
+            row,
+            fields,
+            digest,
+            css="st",
+        ),
+        _cell(
+            "start", _day_label(row.start), row.start.isoformat() if row.start else "", row, fields, digest, css="d gs"
+        ),
+        _cell("due", _day_label(row.due), row.due.isoformat() if row.due else "", row, fields, digest, css="d"),
+        f'<td class="n" data-col="days">{"" if row.workdays is None else row.workdays}</td>',
+        f'<td class="d gs" data-col="act_start">{_day_label(row.actual_start)}</td>',
+        f'<td class="d" data-col="act_end">{_day_label(row.actual_finish)}</td>',
+        f'<td class="n" data-col="progress">{f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else ""}</td>',
+        # 重ね順はこの並びそのもの（後に書いたものが前に出る）。z-index は 1 つも使わない。
+        f'<td class="gantt" data-col="gantt">'
+        f"{_bar_html(row, span, baseline.get(row.key) if baseline else None) if span else ''}"
+        f"{_milestone(row, span)}{today_mark}</td>",
+    ]
+    holder = _esc(row.ref) if can_add else ""
+    # 先行（depends_on）は JSON 配列で持つ（ID に空白が入っても壊れない）。後続は JS が逆写像で作る。
+    deps = _esc(json.dumps(row.depends_on, ensure_ascii=False))
+    return (
+        f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}" data-ref="{_esc(row.ref or "")}"'
+        f' data-name="{_esc(row.name)}" data-level="{depth + 1}" data-kids="{1 if row.children else 0}"'
+        f' data-deps="{deps}" data-holder="{holder}" data-parent="{_esc(parent)}">{"".join(cells)}</tr>'
+    )
+
+
+def _holders(rows: list[WbsRow], holder: str) -> dict[str, str]:
+    """各行の「同じ階層に足すときの足し先」（＝いちばん近い、子を置けるフォルダの単位）を集める。
+
+    右クリックの「同じ階層に作業を足す」がどこへ足すかを、画面側で組み立て直さないための対応。
+    """
+    out: dict[str, str] = {}
+    for row in rows:
+        out[row.code] = holder
+        mine = row.ref if row.source == "work" and row.ref else holder
+        out.update(_holders(row.children, mine))
+    return out
+
+
+def _view_script() -> str:
+    """閲覧の仕掛け（折りたたみ・列の表示切替・時間軸のズーム）。
+
+    1 日あたりの幅は Python 側の `PX_PER_DAY` が唯一の出どころ（格子の間引きも同じ値を使うので、
+    2 か所に書くと片方だけ直して食い違う）。
+    """
+    return _VIEW_SCRIPT.replace("__PX__", json.dumps(PX_PER_DAY))
+
+
+def _runs(days: tuple[date, ...]) -> list[tuple[date, date]]:
+    """続いている日をひとまとめにする（1 日きりは長さ 1 の塊）。"""
+    runs: list[tuple[date, date]] = []
+    for day in days:
+        if runs and day == runs[-1][1] + timedelta(days=1):
+            runs[-1] = (runs[-1][0], day)
+        else:
+            runs.append((day, day))
+    return runs
+
+
+def _event_marks(event: Event, span: tuple[date, date]) -> list[str]:
+    """出来事を**開催日ごとの印**として描く。
+
+    繰り返す会議に 1 本の帯を引くと「その間ずっとやっている」という嘘になる。開催日の集合をそのまま点で
+    描き、続いている日（合宿など）だけその幅を持つ＝印と期間の区別は**描画時の導出**で、欄は増えない。
+    """
+    first, last = span
+    # 記号を右クリックしたときに「この出来事」を特定できるよう、id・名前・その回の日付を持たせる。
+    data = f' data-eid="{_esc(event.id)}" data-ename="{_esc(event.name)}"'
+    out: list[str] = []
+    for begin, end in _runs(tuple(d for d in event.occurrences if first <= d <= last)):
+        title = f' title="{_esc(event.name)}（{begin.isoformat()}）"'
+        if begin == end:
+            # 1 日の会は**記号**（小さな中空の丸）。◆（成果物・意思決定の点）より小さく淡くして退かせる。
+            center = _pct(begin, span) + _day_pct(span) / 2
+            out.append(
+                f'<span class="ev" style="left:{center:.4f}%"{data} data-day="{begin.isoformat()}"{title}>○</span>'
+            )
+        else:
+            # 続く日（合宿など）は、その期間だけ細い淡い帯にする。
+            left = _pct(begin, span)
+            width = _pct(end, span) + _day_pct(span) - left
+            out.append(
+                f'<i class="ev-run" style="left:{left:.4f}%;width:{width:.4f}%"{data}'
+                f' data-day="{begin.isoformat()}"{title}></i>'
+            )
+    return out
+
+
+def _lane_row(label: str, body: str, today_mark: str, index: int) -> str:
+    """ガント上部のレーン 1 本（左に見出し・右に印や帯）。行の作りは表の行と同じ 1 つの `<tr>`。
+
+    レーンは時間軸への注釈（◆の集約と○）なので、**時間軸のすぐ下・作業表（まとまり見出し・列名・データ）の
+    上**に置く（軸で測って読むものを軸の直下にまとめ、作業表の列名とデータ行の間には割り込ませない／縦スクロール
+    でも常に見える）。`--laneidx` は縦スクロールで固定するときの段。
+
+    **セルはデータ行と同じ列構成**（各列に空セル 1 つ）にする＝作業表まるごと固定と同じ幅計算に乗り、
+    パネルの右端＝カレンダーの左端の位置がデータ行と 1px もずれない（colspan セルだと幅がずれてカレンダーに
+    はみ出す）。見出しは**最後の非ガントセルの右端**（＝パネルの右端＝カレンダーの左隣）から**左へぶら下げる**
+    （`position:absolute; right:0`）＝◆○のすぐ左（目線が動かない）だが、右へは一切はみ出さない（カレンダーに
+    侵食しない）。記号（◆○）と今日線はガント列（`overflow:hidden`）の中だけ＝左へ漏れない。
+    `data-lane` で、見出しの操作からこのレーンだけを表示・非表示できる。
+    """
+    last = len(COLUMNS) - 1
+    cells = "".join(
+        (
+            f'<td class="{css} ms-cell ms-anchor"><span class="ms-name">{_esc(label)}</span></td>'
+            if i == last
+            else f'<td class="{css} ms-cell"></td>'
+        )
+        for i, (_, css, _) in enumerate(COLUMNS)
+    )
+    return (
+        f'<tr class="msrow" data-lane="{_esc(label)}" style="--laneidx:{index}">'
+        f'{cells}<td class="gantt ms-track">{body}{today_mark}</td></tr>'
+    )
+
+
+def _lanes(
+    wbs: Wbs, span: tuple[date, date] | None, today_mark: str, *, editable: bool = False
+) -> tuple[str, list[str]]:
+    """ガントの最上部に置くレーン。
+
+    種類の違うもの（承認・検収の**マイルストーン**と、繰り返す**出来事**）を同じ場所に混ぜず、意味ごとに
+    1 本ずつの帯に分ける。分け方は**既にあるデータの型から導く**（レーンを指定する欄を行に足さない）：
+
+    - マイルストーンのレーン … `milestone: true` の行を集めた**導出**（作業単位でも手動行でも同じ）。
+    - 出来事のレーン … `docs/wbs.yaml` の `events` を `lane` ごとにまとめたもの。定例会議・社内の定例
+      レビュー・最終報告会など、**完了状態を持たない**もの。木に入らないので進捗にも数えない。
+
+    出来事は木に無いので、レーンと下の表で同じものが二重に出ることが起きない。
+    """
+    if span is None:
+        return "", []
+    first, last = span
+    total = (last - first).days + 1
+    rows: list[tuple[str, str]] = []  # (レーン名, 中身の HTML)
+
+    marks = [r for r in wbs.walk() if r.milestone and r.due is not None and first <= r.due <= last]
+    # 編集面では節目が 0 件でもマイルストーン帯を出す（空の帯をクリックして最初の 1 件を登録できるように）。
+    # 閲覧用は節目があるときだけ（空の帯は読み手にとって雑音）。
+    if marks or editable:
+        diamonds = "".join(
+            f'<span class="ms" style="left:{((r.due - first).days + 0.5) / total * 100:.3f}%" '
+            f'title="{_esc(r.name)}（{r.due.isoformat()}）">◆</span>'
+            for r in marks
+            if r.due is not None
+        )
+        rows.append(("マイルストーン", diamonds))
+
+    lanes: dict[str, list[Event]] = {}
+    for event in wbs.overlay.events:
+        lanes.setdefault(event.lane, []).append(event)
+    for label, events in lanes.items():
+        parts = [mark for event in events for mark in _event_marks(event, span)]
+        if parts:
+            rows.append((label, "".join(parts)))
+
+    html = "".join(_lane_row(label, body, today_mark, i) for i, (label, body) in enumerate(rows))
+    return html, [label for label, _ in rows]
+
+
+def _milestone(row: WbsRow, span: tuple[date, date] | None) -> str:
+    """マイルストーンの印。引き伸ばす図形の中に置くと横に潰れるので、割合の位置に重ねる要素として描く。"""
+    if span is None or not row.milestone or row.due is None:
+        return ""
+    first, last = span
+    total = (last - first).days + 1
+    left = ((row.due - first).days + 0.5) / total * 100
+    return f'<span class="ms" style="left:{left:.3f}%">◆</span>'
+
+
+def _digest_of(row: WbsRow) -> str:
+    """その行の値が入っているファイルの指紋（保存時の競合検出に使う）。"""
+    from harness.deliver.editor import file_digest
+
+    return file_digest(row.path) if row.path is not None else ""
+
+
+# 色は 3 色まで（白・黒・青）＋警告の 1 色（赤）。濃さは変えてよいので、黒は 5 段・青は 3 段・赤は 2 段で作る。
+# **＋1 色を赤にした理由**：顧客向けの工程表で読み落とすと実害が出るのは「遅れ」だけで、警告は赤以外に代えが
+# きかない。完了は状態の列・実績の日付・進捗の数・棒の淡さで 4 重に表しているので、色相に頼らなくてよい。
+# 罫線は重みを 3 段に分ける（弱＝行の区切りと日/週の格子／強＝見出しの下端・月の格子・貼り付く列の右／
+# 2px＝表とガントの領域の境目）。すべて同じ太さで引くと表計算の初期状態に見える。
+# 色トークン（明暗＋テーマ切替）は 1 か所に置き、report など別ビューも同じトークンを参照する
+# （色の第 2 台帳＝ダークテーマ追随漏れを作らない）。レイアウトは各ビュー固有でよいが、色だけはここ 1 か所。
+_TOKENS = """
+:root {
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
+  --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
+  --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
+  --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c9ced5; --done-ink:#949aa4; --late-row:#f5edeb;
+  --head:#d7dce4;
+  --bar:#7ba3cf; --bar-done:#2f6099;
+  --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349; --canvas:#10141a;
+  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c; --off:#1b2027;
+  --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
+  --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
+  --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#333a44; --done-ink:#727b87; --late-row:#282120;
+  --head:#2a313a;
+  --bar:#48699a; --bar-done:#9cc3ec;
+  --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#15181d; --sec:#20252c; --hover:#242b34; --sel:#223349; --canvas:#10141a;
+  --line:#2e343c; --line-strong:#5b6672; --guide:#3c434c; --off:#1b2027;
+  --ink:#e7eaee; --muted:#9aa4b0; --sum:#b6bec7;
+  --plan:#5f9ede; --done:#456c96; --prog:#aecff2;
+  --late:#e26a58; --late-ink:#e8a094; --today:#e26a58;
+  --tag-bg:#282120; --tag-ink:#e8a094; --done-row:#333a44; --done-ink:#727b87; --late-row:#282120;
+  --head:#2a313a;
+  --bar:#48699a; --bar-done:#9cc3ec;
+  --btn-on-bg:#5f9ede; --btn-on-ink:#0d1b2a;
+}
+:root[data-theme="light"] {
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
+  --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
+  --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
+  --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c9ced5; --done-ink:#949aa4; --late-row:#f5edeb;
+  --head:#d7dce4;
+  --bar:#7ba3cf; --bar-done:#2f6099;
+  --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
+}
+"""
+
+_STYLE = (
+    _TOKENS
+    + """
+* { box-sizing:border-box; }
+body { margin:0; padding:20px 24px; color:var(--ink); background:var(--paper);
+       font:13px/1.45 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif; }
+header { border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:12px; }
+h1 { font-size:16px; font-weight:700; letter-spacing:.01em; margin:0 0 2px; }
+.meta { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+/* 表の外枠は入れ物 1 枚に集める（セルの外周罫を撤去＝方眼に見えないようにする）。 */
+.scroll { overflow:auto; max-height:calc(100vh - 150px); border:1px solid var(--line); border-radius:8px;
+          container-type:scroll-state; }
+table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; }
+thead { display:table-header-group; }
+thead th { position:sticky; top:0; z-index:4; border-top:0; border-bottom:1px solid var(--line-strong); }
+/* 見出しは上から：時間軸（ものさし・45px）→ レーン（◆○ の読み取り値・1 本 20px）→ 作業表
+   （まとまり見出し 22px ＋ 列名 22px）。ものさしが上・読み取り値が下（P2）。box-sizing:border-box
+   なので各段の height に下罫が含まれ、次段の top はその累積で決まる（--lanes-h＝表示中のレーンの総高）。 */
+tr.ruler th { height:45px; }
+tr.ruler th.ruler-cell { padding:0; vertical-align:top; }
+/* 時間軸の左側（各列に合わせた空セル）は罫を一切引かない＝空白に無用な縦横の線を出さない。上の横罫も
+   縦のグループ罫（.gs の強い縦線）も消し、マイルストーン帯の上の罫は日付の下（ruler-cell）だけに出す。 */
+tr.ruler th:not(.ruler-cell) { border:0 !important; background:var(--paper); }
+thead tr.msrow > td { position:sticky; top:calc(45px + var(--laneidx) * var(--lane-h)); z-index:4; }
+/* 作業表の見出し（まとまり見出し＋列名）は地色を一段濃く（--head）＝表の頭だとひと目で分かる。上罫は
+   レーン（注釈帯）と作業表の領域境界（最強の 2px・--sum）。 */
+.grp th { top:calc(45px + var(--lanes-h)); height:22px; padding:0 8px; text-align:center; font-size:10px;
+          letter-spacing:.08em; background:var(--head); border-bottom:1px solid var(--line);
+          border-top:2px solid var(--sum); }
+thead tr.grp + tr th { height:22px; padding:0 8px; top:calc(45px + var(--lanes-h) + 22px); background:var(--head); }
+thead th.gantt-body { top:calc(45px + var(--lanes-h)); padding:0; background-color:var(--head); }
+/* まとまりの先頭には強い縦罫を引く（どこまでが予定でどこからが実績かを、列名を読まずに分ける）。 */
+.gs { border-left:1px solid var(--line-strong) !important; }
+/* 作業グループの見出しの左半分（No.+作業）は固定列に合わせて貼り付ける（食い込み防止）。 */
+thead th.grp-fix { position:sticky; left:0; z-index:6; background:var(--head); }
+thead th.grp-flow { background:var(--head); }
+th, td { border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+         padding:5px 8px; vertical-align:middle; white-space:nowrap; }
+th:first-child, td:first-child { border-left:0; }
+th:last-child, td:last-child { border-right:0; }
+th { background:var(--sec); color:var(--muted); font-weight:600; font-size:11px;
+     letter-spacing:.02em; text-align:left; }
+tr { break-inside:avoid; }
+th.code, td.code { width:64px; min-width:64px; color:var(--muted);
+                   font-variant-numeric:tabular-nums; text-align:left; }
+/* 番号（1.1.1）は点の数で深さが読めるので字下げしない＝左端をそろえる。階層の見た目は作業名の
+   縦ガイド線（下）が担う。列を階層ぶん足すより線 1 本ぶんで済み、深さの上限も作らない。 */
+th.who, td.who, th.team, td.team { width:74px; overflow:hidden; text-overflow:ellipsis; }
+/* 要らない列は消せる（案件によってはチームも担当も無い）。まとまりの見出しの幅は JS が数え直す。 */
+.scroll.hide-team th.team, .scroll.hide-team td.team { display:none; }
+.scroll.hide-who th.who, .scroll.hide-who td.who { display:none; }
+th.st, td.st { width:46px; }
+th.d, td.d { width:46px; }
+th.n, td.n { width:34px; }
+td.d, td.n { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
+th.d, th.n { text-align:right; }
+th.name, td.name { white-space:normal; min-width:150px; }
+/* 左の表（セルの格子）とガント（時間の図）は別の領域。ガント専用の淡い地色・ページ最強の縦罫・時間の
+   格子で 3 重に割る。棒・格子・今日線は常に無地のキャンバスに載る（状態の行色はガントに入れない）。 */
+th.gantt, td.gantt { width:40%; min-width:280px; padding:0; border-left:2px solid var(--sum);
+                     background-color:var(--canvas); }
+td.gantt { position:relative; overflow:hidden; }
+th:nth-last-child(2), td:nth-last-child(2) { border-right:0; }
+/* 見出しと本体で**同じ箱**にする（% は padding-box 基準。余白が違うと見出しだけ横にずれる）。 */
+/* 軸セルは sticky のまま（base の position:sticky を保つ）＝縦スクロールでレーンの下に貼り付く。
+   relative にすると top:var(--lanes-h) が「下方向シフト」になって軸が 1 段ぶん落ちる。sticky も
+   絶対配置（基準日の線）の基準になるので overflow:hidden と両立する。 */
+/* 見出し帯は全幅 --sec に統一（時間軸の見出しだけ地色が違う例外を作らない）。時間の面（--canvas）は
+   レーンの track と本体のガント列だけが持つ。 */
+thead th.gantt { background-color:var(--sec); padding:0; overflow:hidden; }
+/* **左の作業表はまるごと固定**（標準のガント：作業表は据え置き、時間軸〔カレンダー〕だけ横スクロール）。
+   これで横にどれだけ流しても、作業表の右端＝カレンダーの左端の位置は変わらない＝レーンの見出しも
+   カレンダーの左隣に**常に**居られる（作業列を超えて隠れることも、カレンダーに被ることも起きない）。
+   各列の left は JS（freezePanel）が実測して入れる：作業名は可変幅・チーム/担当は隠せるので固定値にしない。
+   地色は不透明にして、下を流れるカレンダーを隠す（行の状態色〔節・完了・遅れ〕はより詳細度が高いので勝つ）。 */
+tbody td:not(.gantt) { position:sticky; z-index:3; background:var(--paper); }
+thead th:not(.gantt), thead td:not(.gantt) { position:sticky; z-index:6; }
+/* 地色は表の側だけ。罫は全幅に通す（罫まで :not(.gantt) にすると、そこだけ罫が切れて太さが揃わない）。 */
+tr.lv0 > td:not(.gantt) { background-color:var(--sec); }
+tr.lv0 > td { font-weight:600; border-top:1px solid var(--line-strong); }
+/* 階層は作業名の前に「祖先の数だけ縦ガイド線」を通して示す（罫線が無いと段差が読めない、への答え）。
+   線は 1 本ぶんの span。フォルダの深さぶん生成するだけなので階層数に上限を作らない。 */
+td.name .nmwrap { display:flex; align-items:stretch; margin:-5px 0 -5px -8px; min-height:calc(1em + 10px); }
+td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
+td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
+tbody tr:hover > td:not(.gantt) { background-color:var(--hover); }
+tr.is-sel > td:not(.gantt) { background-color:var(--sel); }
+/* 依存の可視化：かざした行の先行/後続を淡く光らせる（既存の選択色。新色なし・ガント列には当てない）。 */
+tr.dep-hi > td:not(.gantt) { background-color:var(--sel); }
+tr.dep-hi > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
+/* **行の地色は決してガント列に当てない**（すべて :not(.gantt)）。当てると左の塗りがガントへ食い込み格子が濁る。
+   状態→視覚の強さ＝**見た人が取るべき行動の量**に対応させる（顕著性の予算は「基準面＝白からの逸脱」）。
+   **彩度のある面は遅れ専用**（注意を上げる逸脱）／**完了は無彩色の沈む面**（注意を下げる逸脱）＝方向が逆なので
+   予算を食い合わない。むしろ完了が沈むと、白い行（これからの仕事）と赤い行（火事）が一層ポップアウトする。
+   進捗の前線は 2 軸で導出：時間方向＝基準日の破線、作業方向＝灰（完了）が白（未完了）に変わる境目。 */
+tr.is-late td.d, tr.is-late td.name { color:var(--late-ink); }
+tr.is-late > td:not(.gantt) { background-color:var(--late-row); }
+tr.is-late.lv0 > td:not(.gantt) { background-color:var(--late-row); }  /* 遅れフェーズは節の面に勝つ（最も見る信号） */
+/* 完了＝無彩色の淡い面で沈める（文字も灰・棒も淡く）＝済んだ話に注意を奪わせない。灰の連なりが切れて白に
+   なる行＝次にやる所（前線）が一目で分かる。ガント列には当てない（時間面は濁さない）。 */
+tr.is-done > td:not(.gantt) { color:var(--done-ink); background-color:var(--done-row); }
+tr.is-done > td.gantt { color:var(--done-ink); }
+/* 左端 3px の縦バーで「動いているもの」を示す（border だと該当行だけ番号がずれるので inset 影で描く）。 */
+tr.st-in-progress > td:first-child { box-shadow:inset 3px 0 0 var(--prog); }
+tr.st-in-review > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
+tr.st-blocked > td:first-child { box-shadow:inset 3px 0 0 var(--ink); }
+tr.is-late > td:first-child { box-shadow:inset 3px 0 0 var(--late); }  /* 遅れは赤が勝つ */
+/* 状態語の強調：進行中・保留は太字で「動き」と「詰まり」を一目で拾えるようにする。進行中は濃青。 */
+tr.st-in-progress td.st, tr.st-blocked td.st { font-weight:600; }
+tr.st-in-progress td.st { color:var(--prog); }
+.ref { display:none; }
+.tag { background:var(--tag-bg); color:var(--tag-ink); font-size:10px; font-weight:600;
+       padding:0 5px; margin-left:6px; border-radius:3px; }
+/* 時間軸：2 段（上＝大きい単位・下＝選んだ単位）。段の間に横罫、区間ごとに縦罫を引く。 */
+.axis-wrap { position:relative; height:44px; }
+.axis-wrap::before { content:""; position:absolute; top:22px; left:0; right:0; border-top:1px solid var(--line); }
+/* 日付は区間の**左**に寄せる（線の右すぐ＝その区間の始まりの日、と読める）。 */
+.axis-lab { display:none; position:absolute; height:22px; line-height:22px; font-size:10px;
+            font-variant-numeric:tabular-nums;
+            color:var(--muted); text-align:left; padding-left:4px; white-space:nowrap; overflow:hidden;
+            border-left:1px solid var(--line); }
+.lab-y, .lab-m, .lab-my { border-left-color:var(--line-strong); color:var(--ink); }
+/* 上段のラベルは地を敷いて、下位の格子線が上段を貫通しないようにする（空マスが並ぶのを消す）。 */
+.lab-y, .lab-my { background:var(--sec); }  /* 上段ラベルの地は見出し帯と同じ（例外を作らない） */
+.scroll.u-m .lab-y, .scroll.u-m .lab-m { display:block; }
+.scroll.u-w .lab-my, .scroll.u-w .lab-w { display:block; }
+.scroll.u-d .lab-my, .scroll.u-d .lab-d, .scroll.u-d .lab-wd { display:block; }
+.scroll.u-m .lab-y, .scroll.u-w .lab-my { top:0; height:22px; line-height:22px; font-size:11px; font-weight:600; }
+.scroll.u-m .lab-m, .scroll.u-w .lab-w { top:22px; height:22px; line-height:22px; }
+/* 日表示は 3 段（年月・日にち・曜日）。上段 22px が左見出しの段罫と 1 本に繋がる。全段とも線の右・左揃え。 */
+.scroll.u-d .lab-my { top:0; height:22px; line-height:22px; font-size:11px; font-weight:600; }
+.scroll.u-d .lab-d { top:22px; height:11px; line-height:11px; }
+.scroll.u-d .lab-wd { top:33px; height:11px; line-height:11px; font-size:10px;
+                      padding-left:4px; border-left:1px solid var(--line); }
+.scroll.u-d .lab-wd.we { color:var(--muted); }
+/* 3 段目の区切り線（日表示だけ）。 */
+.scroll.u-d .axis-wrap::after { content:""; position:absolute; top:33px; left:0; right:0;
+                                border-top:1px solid var(--line); }
+/* 格子の重み：日 < 週 < 月の 3 段を線種で固定（消えかけの薄線をやめ、空白でも方眼に見えるようにする）。 */
+/* 非稼働日（土日・祝日・案件の休業日）の面。1 日が狭い月表示では縞になるだけなので出さない。 */
+/* ガント列には **SVG も z-index も置かない**。下敷き（格子・非稼働日の面）はセルの background で、
+   前景（棒・◆・基準日の線）は非置換の HTML 要素を**書いた順**に重ねる。
+   - 背景は箱を常に満たす（高さの式が無い＝書き忘れようがない）・箱の外へ出られない・border より下に塗る。
+     この 3 つは CSS の定義なので、「行の高さいっぱいに通る／隣へはみ出さない／横罫を覆わない」が構造で決まる。
+   - 前景は z-index を書かない＝木の順で重なる。固定列(2・3)・見出し(4 以上)と**同じ数直線に乗らない**ので、
+     横スクロールしても前後が入れ替わらない。はみ出しは overflow:hidden で不可能。 */
+td.gantt .gbar { position:absolute; top:50%; transform:translateY(-50%); height:8px; background:var(--bar); }
+tr.is-done .gbar { opacity:.45; }
+/* 合意した時点の棒（`export --against`）。現状の棒のすぐ下に、淡い細い線で重ねる＝計画対比。新色は足さない
+   （既存の淡青 --done）。書いた順で現状の棒が前に出る。 */
+td.gantt .gbar-base { position:absolute; top:calc(50% + 6px); transform:translateY(-50%); height:3px;
+                      background:var(--done); }
+/* 出来事は開催日ごとの記号（帯ではない）。◆（成果物・意思決定の点）より小さく淡くして退かせる
+   ＝完了を追う対象でないと一目で分かる。続く日（合宿など）だけ細い淡い帯にする。 */
+td.ms-track .ev { position:absolute; top:50%; transform:translate(-50%, -50%); font-size:9px;
+                  color:var(--muted); cursor:pointer; }
+td.ms-track .ev-run { cursor:pointer; }
+td.ms-track { cursor:pointer; }  /* 空きを左クリック＝その日・そのレーンで登録 */
+td.ms-track .ev-run { position:absolute; top:50%; transform:translateY(-50%); height:4px;
+                      background:var(--muted); opacity:.5; }
+td.gantt .tl, td.ms-track .tl { position:absolute; top:0; bottom:0; left:var(--today-x); width:0;
+                                border-left:2px dashed var(--today); pointer-events:none; }
+svg.bar rect { rx:0; }
+/* ガントは 1 色（青）のベタ塗り。予定・完了・遅れを色で分けない（状態は行の面で分かる）。
+   まとめ（子を持つ行）は色でなく形＝細い帯＋両端の脚で区別する。 */
+rect.bar { fill:var(--bar); }
+rect.sum { fill:var(--bar); }
+line.leg { stroke:var(--bar); stroke-width:2; }
+td.gantt { position:relative; }
+.ms { position:absolute; top:50%; transform:translateY(-50%); margin-left:-4px; font-size:12px;
+      color:var(--bar-done); pointer-events:none; }
+/* 操作バーは**脇役**（この表は本来 静的な提出物）。小さく・地に沈め、主役の表を邪魔しない。
+   3 群（階層＝行の開閉／表示＝列・帯の入り切り／時間軸）を、群見出し（grp-lbl）と区切り（divider）で分ける。
+   種類で見た目を変える＝**別物だと分かる**：
+   - 階層（.act）＝一度きりの操作。行頭の三角と同じ ▾▸ を付けた**文字リンク調**（枠なし・下線 hover）。
+   - 表示（.col/.lane）＝オン/オフの状態。押している間だけ淡い地色の**チップ**（丸み）。
+   - 時間軸（.zoom）＝どれか 1 つを選ぶ。**ひとつながりの分割ボタン**（seg で囲む）。 */
+.ops { display:flex; gap:4px; align-items:center; margin-top:6px; flex-wrap:wrap;
+       justify-content:space-between; font-size:11px; }
+.ops .left, .ops .right { display:flex; gap:4px; align-items:center; }
+.ops button { font:inherit; font-size:11px; color:var(--muted); background:none; cursor:pointer;
+              border:0; border-radius:10px; padding:2px 8px; }
+.ops .grp-lbl { color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.06em; margin-right:1px; }
+.ops .divider { width:1px; align-self:stretch; background:var(--line-strong); margin:2px 8px; }
+/* 階層の操作（一度きり）＝文字リンク調。押しっぱなしの状態は持たない（チップにしない）。 */
+.ops button.act { color:var(--ink); border-radius:5px; }
+.ops button.act:hover { background:var(--sec); text-decoration:underline; }
+/* 表示の入り切り（状態）＝丸いチップ。オンのとき淡い地色で塗る（青の大ブロックは使わない）。 */
+.ops button.col:hover, .ops button.lane:hover { background:var(--sec); color:var(--ink); }
+.ops button.col[aria-pressed="true"], .ops button.lane[aria-pressed="true"] {
+  background:var(--sec); color:var(--ink); font-weight:600; }
+/* 時間軸＝ひとつながりの分割ボタン（1 つ選ぶ）。枠で 1 群と分かるようにし、選択中だけ塗る。 */
+.ops .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.ops .seg button.zoom { border-radius:0; padding:2px 9px; }
+.ops .seg button.zoom + button.zoom { border-left:1px solid var(--line); }
+.ops button.zoom:hover { background:var(--sec); color:var(--ink); }
+.ops button.zoom[aria-pressed="true"] { background:var(--sec); color:var(--ink); font-weight:600; }
+thead tr.msrow.lane-off { display:none; }
+
+/* 出来事の登録フォーム（追加・修正で同じ）。画面中央に重ねる。 */
+#evback { display:none; position:fixed; inset:0; background:rgba(15,20,26,.35); align-items:center;
+          justify-content:center; z-index:30; }
+.evform { background:var(--paper); border:1px solid var(--line-strong); border-radius:10px; padding:16px;
+          min-width:420px; box-shadow:0 10px 40px rgba(0,0,0,.3); display:flex; flex-direction:column; gap:8px; }
+.evhead { font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:8px; }
+.evrow { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--ink); }
+.evrow > span:first-child { width:64px; flex:none; color:var(--muted); }
+.evform input, .evform select { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--line);
+          border-radius:6px; background:var(--paper); color:var(--ink); }
+.evform input[type=text] { flex:1; }
+/* 曜日は複数選べる小さなトグル（チェックで青く塗る）。曜日名だけ見せてチェックボックス自体は隠す。 */
+.wdset { display:inline-flex; gap:3px; }
+.wdbox { position:relative; }
+.wdbox input { position:absolute; opacity:0; width:0; height:0; }
+.wdbox span { display:inline-block; width:22px; text-align:center; padding:3px 0; font-size:11px;
+              border:1px solid var(--line); border-radius:6px; color:var(--muted); cursor:pointer; }
+.wdbox input:checked + span { background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); }
+.wdbox input:focus-visible + span { outline:2px solid var(--bar-done); outline-offset:1px; }
+.evbtns { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+.evbtns button { font:inherit; font-size:12px; padding:4px 14px; border:1px solid var(--line);
+          border-radius:6px; background:var(--paper); color:var(--ink); cursor:pointer; }
+.evbtns button:first-child { background:var(--btn-on-bg); color:var(--btn-on-ink); border-color:var(--btn-on-bg); }
+/* 取っ手（▾）と、子の無い行の空き枠は同じ幅にして番号の左端をそろえる。 */
+.tw { display:inline-block; width:15px; text-align:left; }
+button.tw { border:0; background:none; color:var(--muted); font:inherit; cursor:pointer;
+            padding:0; line-height:1; }
+button.tw:focus-visible { outline:2px solid var(--bar-done); outline-offset:1px; }
+tr.hid { display:none; }
+/* レーン（注釈帯）。罫の階級で領域を分ける：帯**同士**は弱い線（--line）、領域の**境界**は最強の 2px
+   （--sum＝表とガントを分ける縦罫と同格）。左側は縦の格子を持たない（格子はデータセルの記号＝データでないと
+   一目で分かる）。行高 var(--lane-h)（データ行 約27px）の律動差も領域を分ける。 */
+/* 帯の全セルを --lane-h ちょうどにする（縦の余白も行の高さも持ち込まない）＝縦スクロールで貼り付いたとき、
+   段の送り（--laneidx × --lane-h）と実寸がずれて重ならない。**行の高さはセルの content 高さで決まり、
+   table の height はあくまで最小値**なので、line-height:1 で content を font 分（< --lane-h）に抑える
+   （そうしないと既定の行間で行が --lane-h より高くなり、貼り付いたとき段が潰れる）。 */
+tr.msrow > td { height:var(--lane-h); line-height:1; border-bottom:1px solid var(--line); }
+tr.msrow > td:not(.gantt) { background-color:var(--sec); padding:0 8px; }
+/* 注釈帯（レーン）→ 作業表の領域境界は、作業表の先頭＝まとまり見出し行の上罫で引く（.grp th の border-top）。 */
+/* パネル内は縦の格子を持たない（格子はデータの記号）。z-index は同じ行のガント（`thead tr.msrow > td`＝4）
+   より上（6）にしないと、横スクロールで滑ってくるカレンダー（ms-track・同 4・DOM で後）が空セルの上に
+   ◆○を描いてしまう（パネルへの漏れ）。詳細度の高い専用規則で 6 に上げる。 */
+thead tr.msrow td.ms-cell { z-index:6; }
+tr.msrow td.ms-cell { border-right:0; }
+/* 見出しは最後の非ガントセル（＝パネルの右端＝カレンダーの左隣）の右端から**左へぶら下げる**。right:0 は
+   パネルの右端そのものなので、右（カレンダー側）へは一切はみ出さない＝カレンダーに侵食しない。作業表まるごと
+   固定なので、横スクロールしてもこの位置はカレンダーの左隣に留まる（隠れない・被らない）。z-index は同じ行の
+   ガント（`thead tr.msrow > td`＝4）より上でないと、横スクロールで滑ってくるカレンダーに上書きされて消える
+   ＝詳細度の高い専用規則で 6 に上げる。 */
+/* position は一般規則の sticky を保つ（relative にすると固定が外れてカレンダーへ流れる）。sticky セルは
+   絶対配置の子の基準にもなるので、中の ms-name（right:0）はこのセルの右端＝パネル右端に貼り付く。 */
+thead tr.msrow td.ms-anchor { z-index:6; overflow:visible; padding:0; }
+td.ms-anchor .ms-name { position:absolute; right:0; top:50%; transform:translateY(-50%);
+              white-space:nowrap; text-align:right; font-size:10px; font-weight:600; color:var(--muted);
+              letter-spacing:.02em; background-color:var(--sec); padding-left:8px; }
+/* 記号（◆○）と今日線はガント列の中だけ（overflow:hidden で左へ漏れない）。 */
+td.ms-track { position:relative; overflow:hidden; padding:0; }
+td.ms-track .ms { top:50%; }
+footer { margin-top:14px; font-size:11px; color:var(--muted); }
+footer h2 { font-size:12px; color:var(--ink); margin:10px 0 4px; }
+/* 凡例は「記号」「行の状態」の 2 群。群見出し（lg-h）と縦の区切り（lg-div）で羅列に見せない。 */
+.legend { margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:6px 12px; flex-wrap:wrap;
+          align-items:center; }
+.legend .lg-h { font-weight:700; color:var(--ink); font-size:10px; letter-spacing:.04em; }
+.legend .lg-div { width:1px; height:14px; background:var(--line); margin:0 2px; }
+.legend i.sw { display:inline-block; width:16px; height:8px; vertical-align:middle; margin-right:4px; }
+.legend i.sw.dash { width:0; height:12px; border:0; border-left:2px dashed var(--today); margin-right:6px; }
+/* 行の状態の見本：左バー（進行中・確認待ち・保留）は inset 影、遅れは淡赤の面、完了は実際の面＋淡い文字で見せる。 */
+.legend .rowlegend i.lb { display:inline-block; width:14px; height:12px; vertical-align:middle;
+                          margin:0 3px 0 8px; border:1px solid var(--line); border-radius:2px; }
+.legend .rowlegend .donetext { color:var(--done-ink); background:var(--done-row); padding:0 6px;
+                          border-radius:2px; margin:0 3px 0 8px; }
+@media print {
+  /* 畳んだ行も必ず刷る（畳んだまま印刷して白紙のフェーズを渡す事故を、CSS の段階で起こらなくする）。 */
+  tr.hid { display:table-row !important; }
+  button.tw { visibility:hidden; }  /* 枠幅は残して番号の整列を保つ（▾ だけ消す） */
+  /* 紙は常に明るい版に固定する（暗い地のまま刷ると読めない・インクも無駄になる）。 */
+  :root {
+  --paper:#ffffff; --sec:#eef1f5; --hover:#f2f6fb; --sel:#e7f0fa; --canvas:#f7f9fc;
+  --line:#e3e6ea; --line-strong:#86919e; --guide:#c2c9d2; --off:#eef1f4;
+  --ink:#1f242b; --muted:#5b6470; --sum:#3f454d;
+  --plan:#3e80c4; --done:#a8c6e3; --prog:#163e69;
+  --late:#b12f1f; --late-ink:#963627; --today:#b12f1f;
+  --tag-bg:#f5edeb; --tag-ink:#963627; --done-row:#c9ced5; --done-ink:#949aa4; --late-row:#f5edeb;
+  --head:#d7dce4;
+  --bar:#7ba3cf; --bar-done:#2f6099;
+  --btn-on-bg:#163e69; --btn-on-ink:#ffffff;
+  }
+  th, td { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  @page { size:A3 landscape; margin:8mm; }
+  body { padding:0; font-size:10px; }
+  .scroll { overflow:visible; max-height:none; border:1px solid var(--line-strong); border-radius:0; }
+  table { min-width:0; }
+  td.gantt { min-width:0; }
+  /* 紙では貼り付けが効かない（かえって重なる）ので普通の列に戻す（JS が入れた left は position:static が無視する）。 */
+  thead th:not(.gantt), thead td:not(.gantt), tbody td:not(.gantt) { position:static; }
+  /* 操作のボタンは紙に出さない。 */
+  .ops { display:none; }
+  /* 単位を広げたまま印刷すると紙からはみ出して右が切れるので、紙では必ず全期間を収める。 */
+  .scroll th.gantt, .scroll td.gantt { width:auto !important; min-width:0 !important; }
+  table { width:100%; }
+}
+/* 単位ごとの列幅。JS が入れる --gw をそのまま使う（棒も格子も同じ表の中で伸び縮みする）。 */
+.scroll th.gantt, .scroll td.gantt { width:var(--gw,40%); min-width:var(--gw,280px); }
+table { min-width:0; }
+"""
+)
+
+
+def _legend() -> str:
+    """凡例。羅列にせず「記号」と「行の状態」の 2 群に分ける。細かい説明は title（ホバー）へ逃がす。"""
+    return (
+        '<div class="legend">'
+        '<span class="lg-h">記号</span>'
+        '<span><i class="sw" style="background:var(--bar)"></i>期間</span>'
+        '<span title="承認・検収など、その日に確定するもの">'
+        '<i class="sw" style="background:var(--bar-done);width:8px;height:8px;transform:rotate(45deg)"></i>'
+        "マイルストーン</span>"
+        '<span style="color:var(--muted)" title="会議・定例。開催日ごとの印で、完了は追わない">○ 会議・定例</span>'
+        '<span title="この日を基準に遅れを見る（縦の破線）"><i class="sw dash"></i>本日</span>'
+        '<span class="lg-div"></span>'
+        '<span class="lg-h">行の状態</span>'
+        '<span class="rowlegend">'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--prog)"></i>進行中'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--bar)"></i>確認待ち'
+        '<i class="lb" style="box-shadow:inset 3px 0 0 var(--ink)"></i>保留'
+        '<i class="lb" style="background:var(--late-row);box-shadow:inset 3px 0 0 var(--late)"></i>'
+        '<span style="color:var(--late-ink)">遅れ</span>'
+        '<span class="donetext">完了</span><span>未着手</span></span>'
+        "</div>"
+    )
+
+
+_EDIT_STYLE = """
+td.edit { cursor:text; }
+td.edit:hover { background:color-mix(in srgb, var(--bar-done) 14%, transparent); }
+td.edit:focus-visible { outline:2px solid var(--bar-done); outline-offset:-2px; }
+td.edit .blank { color:var(--muted); opacity:.45; }
+td.edit input, td.edit select { width:100%; font:inherit; color:var(--ink); background:var(--paper);
+                               border:1px solid var(--bar-done); border-radius:4px; padding:1px 3px; }
+#say { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); max-width:min(720px,92vw);
+       background:var(--ink); color:var(--paper); padding:8px 14px; border-radius:4px; font-size:12px;
+       line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,.28); display:none; z-index:9; }
+#say.bad { background:var(--late-ink); }
+#menu { position:absolute; display:none; z-index:20; min-width:180px; padding:4px 0;
+        background:var(--paper); border:1px solid var(--line); border-radius:4px;
+        box-shadow:0 8px 24px rgba(15,20,26,.16); }
+#menu button { display:block; width:100%; text-align:left; font:inherit; font-size:12px; color:var(--ink);
+               background:none; border:0; padding:5px 14px; cursor:pointer; }
+#menu button:hover { background:var(--sec); }
+#menu { min-width:240px; }
+#menu button { padding:6px 14px; }
+#menu .mhead { display:flex; gap:8px; align-items:center; justify-content:space-between;
+               padding:7px 14px 8px; border-bottom:1px solid var(--line); margin-bottom:3px; }
+#menu .mname { font-size:12px; max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#menu .lv { flex:none; background:var(--sec); color:var(--muted); font-size:10px; padding:1px 6px;
+            border-radius:2px; }
+#menu .mgroup { padding:6px 14px 2px; font-size:10px; color:var(--muted); }
+#menu .mrule { border-top:1px solid var(--line); margin:3px 0; }
+/* 説明・道しるべ（押せない・薄字）。導出列の無反応を避け、正本の在り処を毎回教える。 */
+#menu .mnote { padding:6px 14px; font-size:11px; color:var(--muted); white-space:normal; max-width:230px; }
+#menu button.danger { color:var(--late-ink); }
+"""
+
+# JS は**生の文字列**（r"""）で持つ。ふつうの文字列にすると Python が `\n` を本物の改行に変えてしまい、
+# JS の文字列リテラルが途中で切れて構文エラーになる（＝画面の機能が丸ごと死ぬ）。
+# 折りたたみ（閲覧・編集の両方に付く）。行を DOM から消さずに隠すだけにして、印刷では CSS が必ず戻す
+# ＝畳んだまま刷って白紙のフェーズを渡す事故が、そもそも起こらない形にする。
+_VIEW_SCRIPT = r"""
+(function(){
+  // 時間軸の単位（月・週・日）。1 日あたりの幅を変えるだけ＝棒も格子も同じ表の中で伸び縮みするので、
+  // 行と棒がずれない（表ごと横にスクロールする）。状態は必ずこの 3 つのどれかで、「自動」という状態は持たない
+  // （自動は初期値の決め方であって、利用者が選ぶ状態ではない）。
+  // 1 日あたりの幅（px）。月は狭く・日は広く＝粒度を落とすほどガントも短くなる。
+  var PX=__PX__;
+  var scroll=document.querySelector('.scroll');
+  function unit(kind){
+    if(!scroll) return;
+    var days=Number(scroll.dataset.days||0);
+    ['u-d','u-w','u-m'].forEach(function(c){ scroll.classList.remove(c); });
+    scroll.classList.add('u-'+kind);
+    // 単位ごとに幅を必ず入れる（月に切り替えたら短く、日で長く）。狭すぎて棒が読めないので下限を置く。
+    if(days>0){ scroll.style.setProperty('--gw', Math.max(Math.round(days*PX[kind]),200)+'px'); }
+    document.querySelectorAll('.zoom').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.zoom===kind)); });
+    try{ sessionStorage.setItem('wbs-unit', kind); }catch(e){}
+  }
+  document.querySelectorAll('.zoom').forEach(function(b){
+    b.addEventListener('click',function(){ unit(b.dataset.zoom); }); });
+  // 列の表示・非表示。まとまりの見出しは残った列の数だけ幅を持つので、消したら数え直す。
+  function recount(){
+    // 見出し 1 行目の「作業」グループは、固定の No.＋作業（grp-fix・常に 2）と、隠せる流動列（チーム・
+    // 担当・状態）の grp-flow に割れている。列を隠したら grp-flow の colspan を表示中の数に合わせ直す
+    // （合わせ直さないと 1 行目と 2 行目がずれる）。予定・実績は隠せないので触らない。
+    function vis(sel){ var n=0; document.querySelectorAll(sel).forEach(function(c){
+      if(getComputedStyle(c).display!=='none') n++; }); return n; }
+    // 列名の行は「グループ見出しの次の行」（thead は 時間軸→レーン→まとまり見出し→列名 の順で、
+    //   列名は last-child ではない）。
+    var flow=vis('thead tr.grp + tr th.team')+vis('thead tr.grp + tr th.who')+vis('thead tr.grp + tr th.st');
+    var f=document.querySelector('.grp-flow'); if(f) f.colSpan=Math.max(flow,1);
+    freezePanel();  // 列を隠すと幅が変わる＝固定パネルの left を入れ直す
+  }
+  // 左の作業表をまるごと固定する：各行でガント列の手前までのセルに、積み上げた幅を left として入れる。
+  // colspan セルも offsetWidth がそのぶん広いので、その次のセルの left が自然と正しくなる。作業名の可変幅も
+  // 実測なので効く。カレンダー（.gantt）の手前で止める＝カレンダーは固定しない（時間軸だけ横スクロール）。
+  function freezePanel(){
+    if(!scroll) return;
+    scroll.querySelectorAll('table tr').forEach(function(tr){
+      var x=0;
+      for(var i=0;i<tr.children.length;i++){
+        var c=tr.children[i];
+        if(c.classList.contains('gantt')) break;  // カレンダー列より左だけ固定
+        c.style.left=x+'px';
+        x+=c.offsetWidth;
+      }
+    });
+  }
+  window.addEventListener('resize', freezePanel);  // 作業名は可変幅なので、幅が変わったら入れ直す
+  document.querySelectorAll('.col').forEach(function(b){
+    b.addEventListener('click',function(){
+      var on=scroll.classList.toggle('hide-'+b.dataset.col);
+      b.setAttribute('aria-pressed', String(!on));
+      try{ sessionStorage.setItem('wbs-col-'+b.dataset.col, on?'off':'on'); }catch(e){}
+      recount(); });
+    var saved=null; try{ saved=sessionStorage.getItem('wbs-col-'+b.dataset.col); }catch(e){}
+    if(saved==='off') scroll.classList.add('hide-'+b.dataset.col);
+    b.setAttribute('aria-pressed', String(saved!=='off'));
+  });
+  // レーン（マイルストーン・定例など）の表示トグル。列トグルと同じ作法（クラス付け外し＋保存）。
+  // 隠したら残りのレーンの貼り付く段（--laneidx）と全体の高さ（--lanes-h）を数え直す。
+  function laneRows(){ return document.querySelectorAll('thead tr.msrow[data-lane]'); }
+  function relayoutLanes(){
+    var i=0;
+    laneRows().forEach(function(r){
+      if(r.classList.contains('lane-off')) return;
+      r.style.setProperty('--laneidx', i); i++;
+    });
+    var lh=parseInt(getComputedStyle(scroll).getPropertyValue('--lane-h'))||16;  // 1 本の高さ（唯一の出どころ）
+    scroll.style.setProperty('--lanes-h', (i*lh)+'px');
+  }
+  function setLane(label, off){
+    laneRows().forEach(function(r){ if(r.dataset.lane===label) r.classList.toggle('lane-off', off); });
+    relayoutLanes();
+  }
+  document.querySelectorAll('.lane').forEach(function(b){
+    var label=b.dataset.lane;
+    b.addEventListener('click',function(){
+      var off=b.getAttribute('aria-pressed')!=='false';  // 今 表示中なら、これから隠す
+      b.setAttribute('aria-pressed', String(!off));
+      setLane(label, off);
+      try{ sessionStorage.setItem('wbs-lane-'+label, off?'off':'on'); }catch(e){}
+    });
+    var saved=null; try{ saved=sessionStorage.getItem('wbs-lane-'+label); }catch(e){}
+    if(saved==='off') setLane(label, true);
+    b.setAttribute('aria-pressed', String(saved!=='off'));
+  });
+  relayoutLanes();
+  recount();
+  var saved=null; try{ saved=sessionStorage.getItem('wbs-unit'); }catch(e){}
+  unit(saved || (scroll ? scroll.dataset.unit : 'w'));
+  function toggles(){ return document.querySelectorAll('button.tw'); }  // 実ボタンだけ（末端の空 span.tw は除く）
+  function setAll(open){
+    toggles().forEach(function(b){ b.setAttribute('aria-expanded', open?'true':'false');
+                                   b.textContent = open?'▾':'▸'; });
+    document.querySelectorAll('tr[data-code]').forEach(function(tr){
+      if(tr.dataset.code.indexOf('.')<0) return;         // 第 1 階層は常に見せる
+      tr.classList.toggle('hid', !open);
+    });
+  }
+  var fold=document.getElementById('fold'), unfold=document.getElementById('unfold');
+  if(fold) fold.addEventListener('click', function(){ setAll(false); });
+  if(unfold) unfold.addEventListener('click', function(){ setAll(true); });
+  function hidden(code){
+    var shut=document.querySelectorAll('button.tw[aria-expanded="false"]');
+    for(var i=0;i<shut.length;i++){
+      var c=shut[i].dataset.code;
+      if(code!==c && code.indexOf(c+'.')===0) return true;
+    }
+    return false;
+  }
+  document.addEventListener('click',function(e){
+    var b=e.target.closest && e.target.closest('button.tw'); if(!b) return;
+    var open=b.getAttribute('aria-expanded')==='true';
+    b.setAttribute('aria-expanded', open?'false':'true');
+    b.textContent = open?'▸':'▾';
+    var code=b.dataset.code, rows=document.querySelectorAll('tr[data-code]');
+    for(var i=0;i<rows.length;i++){
+      var c=rows[i].dataset.code;
+      if(c===code || c.indexOf(code+'.')!==0) continue;
+      if(open) rows[i].classList.add('hid');
+      else if(!hidden(c)) rows[i].classList.remove('hid');
+    }
+  });
+  // 依存の可視化：行にかざすと、その行の先行（depends_on）と後続（自分を depends_on に持つ行）を淡く光らせる。
+  // 先行は data-deps（JSON）、後続はその逆写像を 1 回だけ作る。矢印は描かない（クリティカルパスは範囲外）。
+  var byRef={}, succ={};
+  document.querySelectorAll('tr[data-ref]').forEach(function(tr){
+    var ref=tr.dataset.ref; if(!ref) return;
+    byRef[ref]=tr;
+    var deps=[]; try{ deps=JSON.parse(tr.dataset.deps||'[]'); }catch(e){}
+    deps.forEach(function(d){ (succ[d]=succ[d]||[]).push(ref); });
+  });
+  function relatives(tr){
+    var out=[]; var deps=[]; try{ deps=JSON.parse(tr.dataset.deps||'[]'); }catch(e){}
+    deps.concat(succ[tr.dataset.ref]||[]).forEach(function(ref){ if(byRef[ref]) out.push(byRef[ref]); });
+    return out;
+  }
+  function mark(tr, on){ relatives(tr).forEach(function(r){ r.classList.toggle('dep-hi', on); }); }
+  document.querySelectorAll('tr[data-ref]').forEach(function(tr){
+    if(!tr.dataset.ref) return;
+    tr.addEventListener('mouseenter',function(){ mark(tr, true); });
+    tr.addEventListener('mouseleave',function(){ mark(tr, false); });
+  });
+})();
+"""
+
+# 保存に成功したら画面を作り直す（部分更新しない）。日数・ロールアップ・進捗・遅れは導出値なので、
+# 1 か所直すと他の行の値も動く。画面側で導出をやり直すと計算が 2 か所になるため、再読込で全部やり直す。
+_EDIT_SCRIPT = r"""
+(function(){
+  var token=document.currentScript.dataset.token, today=document.currentScript.dataset.today||'';
+  // 状態の選択肢＝[正本の値, 日本語の見出し] の組。画面には見出しだけを出す。
+  var STATUSES=JSON.parse(document.currentScript.dataset.statuses||'[]');
+  function statusLabel(v){
+    for(var i=0;i<STATUSES.length;i++){ if(STATUSES[i][0]===v) return STATUSES[i][1]; }
+    return v;
+  }
+  var say=document.getElementById('say'), busy=false;
+  function tell(msg,bad){ say.textContent=msg; say.className=bad?'bad':''; say.style.display='block';
+    if(!bad) setTimeout(function(){ say.style.display='none'; },1600); }
+  function send(td,value){
+    if(busy) return; busy=true;
+    fetch('edit',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:td.dataset.ref,field:td.dataset.field,value:value,base:td.dataset.base})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('保存した'); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'保存できなかった',true); } })
+      .catch(function(e){ busy=false; tell('保存できなかった: '+e,true); });
+  }
+  function open(td){
+    if(td.querySelector('input,select')) return;
+    var old=td.dataset.value, box;
+    if(td.dataset.field==='status'){
+      box=document.createElement('select');
+      STATUSES.forEach(function(s){
+        var o=document.createElement('option'); o.value=s[0]; o.textContent=s[1]; box.appendChild(o); });
+      box.value=old;
+    } else if(td.dataset.choices){
+      // 名簿から選ぶ欄。名簿に無い名前も入れられ、入れたら名簿にも足される。
+      var list=JSON.parse(td.dataset.choices);
+      if(old && list.indexOf(old)<0) list=[old].concat(list);
+      box=document.createElement('select');
+      var blank=document.createElement('option'); blank.value=''; blank.textContent='（なし）';
+      box.appendChild(blank);
+      list.forEach(function(v){
+        var o=document.createElement('option'); o.value=v; o.textContent=v; box.appendChild(o); });
+      var fresh=document.createElement('option'); fresh.value='\u0000new'; fresh.textContent='＋ 新しく入力…';
+      box.appendChild(fresh);
+      box.value=old;
+    } else {
+      box=document.createElement('input');
+      box.type=(td.dataset.field==='start'||td.dataset.field==='due')?'date':'text';
+      box.value=old;
+    }
+    td.textContent=''; td.appendChild(box); box.focus();
+    var done=false;
+    function commit(){
+      if(done) return;
+      if(box.value==='\u0000new') return;   // 新しく入力へ切り替える最中は保存しない
+      done=true;
+      if(box.value===old){ location.reload(); return; } send(td,box.value); }
+    function cancel(){ if(done) return; done=true; location.reload(); }
+    function swapToText(){
+      var text=document.createElement('input'); text.type='text'; text.value='';
+      td.textContent=''; td.appendChild(text); text.focus();
+      box=text;
+      text.addEventListener('blur',commit);
+      text.addEventListener('keydown',function(e){
+        if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
+    }
+    box.addEventListener('blur',commit);
+    box.addEventListener('change',function(){
+      if(box.tagName!=='SELECT') return;
+      if(box.value==='\u0000new'){ swapToText(); return; }
+      commit();
+    });
+    box.addEventListener('keydown',function(e){
+      if(e.key==='Enter'){ e.preventDefault(); commit(); } if(e.key==='Escape'){ cancel(); } });
+  }
+  function add(ref, where, milestone){
+    if(busy) return; busy=true;
+    fetch('add',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:ref, where:where, milestone:!!milestone})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('足した: '+r.body.id); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'足せなかった',true); } })
+      .catch(function(e){ busy=false; tell('足せなかった: '+e,true); });
+  }
+  function del(ref){
+    if(busy) return; busy=true;
+    fetch('remove',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:ref})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('消した: '+ref); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'消せなかった',true); } })
+      .catch(function(e){ busy=false; tell('消せなかった: '+e,true); });
+  }
+  function cascade(ref, field, value){
+    if(busy) return; busy=true;
+    fetch('cascade',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify({ref:ref, field:field, value:value})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('配下 '+r.body.changed+' 件を変えた'); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'変えられなかった',true); } })
+      .catch(function(e){ busy=false; tell('変えられなかった: '+e,true); });
+  }
+  function undo(){
+    if(busy) return; busy=true;
+    fetch('undo',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},body:'{}'})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell('戻した: '+r.body.undone); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'戻せなかった',true); } })
+      .catch(function(e){ busy=false; tell('戻せなかった: '+e,true); });
+  }
+  document.addEventListener('keydown',function(e){
+    if(!(e.ctrlKey||e.metaKey) || e.shiftKey || (e.key||'').toLowerCase()!=='z') return;
+    var a=document.activeElement;
+    if(a && (a.tagName==='INPUT'||a.tagName==='SELECT'||a.tagName==='TEXTAREA')) return; // 入力中は標準の undo に譲る
+    e.preventDefault(); undo();
+  });
+  var menu=document.getElementById('menu');
+  function hideMenu(){
+    if(menu) menu.style.display='none';
+    document.querySelectorAll('tr.is-sel').forEach(function(r){ r.classList.remove('is-sel'); });
+  }
+  function item(label,fn){
+    var b=document.createElement('button'); b.type='button'; b.textContent=label;
+    b.addEventListener('click',function(){ hideMenu(); fn(); });
+    return b;
+  }
+  function head(code,name,level){
+    var h=document.createElement('div'); h.className='mhead';
+    var t=document.createElement('span'); t.className='mname'; t.textContent=code+' '+name;
+    var b=document.createElement('span'); b.className='lv'; b.textContent='Lv'+level;
+    h.appendChild(t); h.appendChild(b); return h;
+  }
+  function group(text){
+    var g=document.createElement('div'); g.className='mgroup'; g.textContent=text; return g;
+  }
+  function rule(){ var r=document.createElement('div'); r.className='mrule'; return r; }
+  function note(text){ var d=document.createElement('div'); d.className='mnote'; d.textContent=text; return d; }
+  // 作業列以外のメニューの末尾に置く道しるべ（構造の操作は作業列に集約した、の案内）。
+  function signpost(){ return note('行の追加・削除は「作業」列で右クリック'); }
+  // 右クリックのメニューは「クリックでは出来ないこと」だけを出す（クリック＝編集・右クリック＝一発コマンド）。
+  // 一発コマンドは、その列の編集セルに対する send() をそのまま呼ぶ（競合検出の base もセルから引く）。
+  function structureMenu(tr,ref,code,name,lv,holder){
+    menu.appendChild(group('行を追加'));
+    menu.appendChild(item('上に追加（同じ Lv'+lv+'）',function(){ add(ref,'above'); }));
+    menu.appendChild(item('下に追加（同じ Lv'+lv+'）',function(){ add(ref,'below'); }));
+    if(holder) menu.appendChild(item('子として追加（1 つ下の Lv'+(lv+1)+'）',function(){ add(ref,'child'); }));
+    menu.appendChild(rule());
+    menu.appendChild(item('マイルストーンを下に追加（◆）',function(){ add(ref,'below',true); }));
+    menu.appendChild(rule());
+    var danger=item('この行を削除…',function(){
+      var msg='「'+code+' '+name+'」（'+ref+'）を削除します。';
+      if(tr.dataset.kids==='1') msg+='\n配下の行も一緒に削除されます。';
+      if(window.confirm(msg+'\nよろしいですか？')) del(ref); });
+    danger.className='danger';
+    menu.appendChild(danger);
+  }
+  function statusMenu(td){
+    menu.appendChild(group('状態を変更'));
+    var cur=td.dataset.value;
+    STATUSES.forEach(function(s){
+      if(s[0]===cur){ menu.appendChild(note('✓ '+s[1])); return; }
+      menu.appendChild(item(s[1],function(){ send(td,s[0]); }));
+    });
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  // 上位の行（子を持つ行）の状態は子から導く値なので、直接は持てない。代わりに**配下をまとめて**変える
+  // （書くのは末端の正本だけ＝親に値を持たせない・二重台帳を作らない。親の表示は導出で追随する）。
+  function cascadeMenu(tr,ref){
+    menu.appendChild(group('配下をまとめて変更'));
+    STATUSES.forEach(function(s){
+      menu.appendChild(item('配下をすべて「'+s[1]+'」にする',function(){ cascade(ref,'status',s[0]); }));
+    });
+    menu.appendChild(rule());
+    menu.appendChild(note('この行の状態は配下から導出（この行自体に値は持たない）'));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  function dateMenu(td){
+    menu.appendChild(group(td.dataset.col==='start'?'予定開始':'予定終了'));
+    menu.appendChild(item('今日（'+today+'）にする',function(){ send(td,today); }));
+    menu.appendChild(item('クリア（日付を消す）',function(){ send(td,''); }));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  function clearMenu(td){
+    var what=td.dataset.col==='team'?'チーム':'担当';
+    menu.appendChild(group(what));
+    menu.appendChild(item('クリア（'+what+'なしにする）',function(){ send(td,''); }));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  // 導出列は「何も出さない」にしない（無反応は故障に見える）。何から導かれるかを説明する。
+  var EXPLAIN={no:'並び順から自動で振られる（正本は work/ の木）',days:'予定開始・終了と暦から導出',
+    act_start:'状態の変化（実績）から導出',act_end:'状態の変化（実績）から導出',
+    progress:'配下の done の割合から導出',gantt:'予定・実績の日付から描画。日付は日付の列で直す'};
+  function explainMenu(col,editable){
+    var t=EXPLAIN[col]||(editable?'この列はクリックで直せる':'子の値から導出（親に直接の値は持たない）');
+    menu.appendChild(note(t));
+    menu.appendChild(rule()); menu.appendChild(signpost());
+  }
+  function showMenu(e){ hideMenu(); menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px';
+    menu.style.display='block'; }
+  function laneMenu(e, laneRow){
+    // レーンの帯を右クリック：この帯へ足す（マイルストーンは作業単位・出来事は events）。
+    var label=laneRow.dataset.lane;
+    menu.textContent=''; menu.appendChild(head(label, '', 0));
+    var evmark=e.target.closest && e.target.closest('[data-eid]');
+    if(label==='マイルストーン'){
+      menu.appendChild(item('マイルストーンを追加（最上位）',function(){ add(null,'top',true); }));
+      menu.appendChild(rule());
+      menu.appendChild(note('フェーズの下に足すなら、その行の「作業」列で右クリック'));
+      menu.appendChild(note('正本: work/（作業単位の milestone: true）'));
+    } else {
+      menu.appendChild(item('この帯に出来事を追加…',function(){ openEvent({lane:label}); }));
+      if(evmark){
+        var eid=evmark.dataset.eid, ename=evmark.dataset.ename, day=evmark.dataset.day;
+        menu.appendChild(rule());
+        menu.appendChild(item('「'+ename+'」を直す…',function(){ editEvent(eid); }));
+        menu.appendChild(item('この回（'+day+'）を開催しない',function(){ skipOccurrence(eid, day); }));
+        var del=item('「'+ename+'」を消す',function(){
+          if(window.confirm('「'+ename+'」を消します。よろしいですか？')) del2(eid); });
+        del.className='danger'; menu.appendChild(del);
+      }
+      menu.appendChild(rule());
+      menu.appendChild(note('正本: docs/wbs.yaml の events'));
+    }
+    showMenu(e);
+  }
+  document.addEventListener('contextmenu',function(e){
+    var laneRow=e.target.closest && e.target.closest('tr.msrow[data-lane]');
+    if(laneRow && menu){ e.preventDefault(); laneMenu(e, laneRow); return; }
+    var td=e.target.closest && e.target.closest('td');
+    var tr=e.target.closest && e.target.closest('tr[data-ref]');
+    if(!tr || !td || !menu || !tr.dataset.ref) return;
+    e.preventDefault();
+    menu.textContent='';
+    var ref=tr.dataset.ref, holder=tr.dataset.holder;
+    var code=tr.dataset.code, name=tr.dataset.name||'', lv=Number(tr.dataset.level);
+    var col=td.dataset.col, editable=td.classList.contains('edit');
+    menu.appendChild(head(code,name,lv));
+    if(col==='name'){ structureMenu(tr,ref,code,name,lv,holder); }
+    else if(col==='status' && editable){ statusMenu(td); }
+    else if(col==='status' && tr.dataset.kids==='1' && ref){ cascadeMenu(tr,ref); }
+    else if((col==='start'||col==='due') && editable){ dateMenu(td); }
+    else if((col==='team'||col==='assignees') && editable){ clearMenu(td); }
+    else { explainMenu(col,editable); }
+    hideMenu();
+    tr.classList.add('is-sel');   // どの行を触っているかを画面でも示す
+    menu.style.left=e.pageX+'px'; menu.style.top=e.pageY+'px'; menu.style.display='block';
+  });
+  // 出来事の書き込み（足す・直す・消す・この回を開催しない）。すべて POST /event・/remove に乗る。
+  function postEvent(payload, okmsg){
+    if(busy) return; busy=true;
+    fetch('event',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify(payload)})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell(okmsg); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'できなかった',true); } })
+      .catch(function(e){ busy=false; tell('できなかった: '+e,true); });
+  }
+  // マイルストーン（節目）の書き込み。出来事と対称だが書き戻し先は work/（完了を追う対象だから木に載せる）。
+  function postMilestone(payload, okmsg){
+    if(busy) return; busy=true;
+    fetch('milestone',{method:'POST',headers:{'Content-Type':'application/json','X-WBS-Token':token},
+      body:JSON.stringify(payload)})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,body:b}; }); })
+      .then(function(r){ if(r.ok){ tell(okmsg); location.reload(); }
+                         else { busy=false; tell(r.body.detail||'できなかった',true); } })
+      .catch(function(e){ busy=false; tell('できなかった: '+e,true); });
+  }
+  function openMilestone(due){
+    var back=document.getElementById('evback'); back.innerHTML='';
+    var f=document.createElement('div'); f.className='evform';
+    function row(label, node){ var r=document.createElement('label'); r.className='evrow';
+      var s=document.createElement('span'); s.textContent=label; r.appendChild(s); r.appendChild(node); return r; }
+    var h=document.createElement('div'); h.className='evhead';
+    h.textContent='マイルストーンを追加 ── 書き戻す先: work/（milestone: true の作業単位）';
+    f.appendChild(h);
+    var name=document.createElement('input'); name.type='text';
+    f.appendChild(row('名前', name));
+    var d=document.createElement('input'); d.type='date'; if(due) d.value=due;
+    f.appendChild(row('日付', d));
+    var btns=document.createElement('div'); btns.className='evbtns';
+    var ok=document.createElement('button'); ok.type='button'; ok.textContent='追加';
+    var no=document.createElement('button'); no.type='button'; no.textContent='やめる';
+    no.addEventListener('click',function(){ back.style.display='none'; });
+    ok.addEventListener('click',function(){
+      if(!name.value.trim()){ name.focus(); return; }
+      back.style.display='none';
+      postMilestone({name:name.value.trim(), due:d.value||due}, '節目を足した');
+    });
+    btns.appendChild(ok); btns.appendChild(no); f.appendChild(btns);
+    back.appendChild(f); back.style.display='flex';
+    name.focus();
+  }
+  function del2(eid){ del(eid); }  // /remove は EV- を出来事として消す
+  var EVENTS={};  // 直すとき用に、この画面の出来事を id → 値で持つ
+  try{ EVENTS=JSON.parse(document.currentScript.dataset.events||'{}'); }catch(e){}
+  function editEvent(eid){ openEvent(EVENTS[eid]||{id:eid}); }
+  function skipOccurrence(eid, day){
+    var ev=EVENTS[eid]; if(!ev) return;
+    var ex=(ev.exdate||[]).concat([day]);
+    postEvent({id:eid, name:ev.name, lane:ev.lane, dtstart:ev.dtstart||null, rrule:ev.rrule||'',
+      rdate:ev.rdate||[], exdate:ex}, 'この回を外した');
+  }
+  // 出来事の登録フォーム（追加・修正で同じ）。繰り返しは画面の操作（種類・曜日・初回/最終）だけで決める。
+  // RRULE の文字列は画面に出さない（専門用語なので誰でも使えない）＝裏で組み立てて送るだけ。
+  var WD=[['月','MO'],['火','TU'],['水','WE'],['木','TH'],['金','FR'],['土','SA'],['日','SU']];
+  var LANES=[];  try{ LANES=JSON.parse(document.currentScript.dataset.lanes||'[]'); }catch(e){}
+  function ymd(d){ return d? d.replace(/-/g,''):''; }
+  function openEvent(ev){
+    ev=ev||{};
+    var back=document.getElementById('evback');
+    back.innerHTML='';
+    var f=document.createElement('div'); f.className='evform';
+    function row(label, node){ var r=document.createElement('label'); r.className='evrow';
+      var s=document.createElement('span'); s.textContent=label; r.appendChild(s); r.appendChild(node); return r; }
+    function inp(v){ var e=document.createElement('input'); e.type='text'; e.value=v||''; return e; }
+    function dt(v){ var e=document.createElement('input'); e.type='date'; if(v)e.value=v; return e; }
+    var h=document.createElement('div'); h.className='evhead';
+    h.textContent=(ev.id?'出来事を直す':'出来事を追加')+' ── 書き戻す先: docs/wbs.yaml の events';
+    f.appendChild(h);
+    var name=inp(ev.name); f.appendChild(row('名前', name));
+    var lane=document.createElement('select');
+    (LANES.indexOf(ev.lane)<0 && ev.lane? [ev.lane]:[]).concat(LANES).forEach(function(l){
+      var o=document.createElement('option'); o.value=l; o.textContent=l; lane.appendChild(o); });
+    var nl=document.createElement('option'); nl.value='__newlane__'; nl.textContent='＋ 新しく入力…';
+    lane.appendChild(nl);
+    if(ev.lane) lane.value=ev.lane;
+    lane.addEventListener('change',function(){
+      if(lane.value!=='__newlane__') return;
+      var v=window.prompt('レーンの名前');
+      if(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; lane.insertBefore(o,nl);
+        lane.value=v; }
+      else lane.selectedIndex=0;
+    });
+    f.appendChild(row('帯', lane));
+    // 繰り返しの種類
+    var kind=document.createElement('select');
+    [['weekly','毎週'],['biweekly','隔週'],['monthly','毎月第N'],['once','単発の日だけ']].forEach(function(k){
+      var o=document.createElement('option'); o.value=k[0]; o.textContent=k[1]; kind.appendChild(o); });
+    f.appendChild(row('繰り返し', kind));
+    // 曜日は複数選べる（定例が週 2 回など）。チェックした曜日を BYDAY にカンマで並べる。
+    var wdset=document.createElement('span'); wdset.className='wdset';
+    var wdBoxes=WD.map(function(d){
+      var lab=document.createElement('label'); lab.className='wdbox';
+      var cb=document.createElement('input'); cb.type='checkbox'; cb.value=d[1];
+      var sp=document.createElement('span'); sp.textContent=d[0];
+      lab.appendChild(cb); lab.appendChild(sp); wdset.appendChild(lab);
+      cb.addEventListener('change',build); return cb;
+    });
+    function selectedDays(){ return wdBoxes.filter(function(c){return c.checked;}).map(function(c){return c.value;}); }
+    // 既存の規則から曜日を復元（BYDAY の頭の第N・符号は落とす）。無ければ初回の曜日、それも無ければ月曜。
+    var pre=[]; var bm=ev.rrule&&/BYDAY=([^;]+)/i.exec(ev.rrule);
+    if(bm) pre=bm[1].split(',').map(function(x){return x.replace(/^[+-]?\d+/,'').toUpperCase();});
+    wdBoxes.forEach(function(c){ if(pre.indexOf(c.value)>=0) c.checked=true; });
+    if(!selectedDays().length){
+      var wk=['SU','MO','TU','WE','TH','FR','SA'][ev.dtstart? new Date(ev.dtstart+'T00:00:00').getDay():1];
+      (wdBoxes.filter(function(c){return c.value===wk;})[0]||wdBoxes[0]).checked=true;
+    }
+    var nth=document.createElement('select');
+    [1,2,3,4].forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent='第'+n;
+      nth.appendChild(o); });
+    // 既存の出来事を直すときは、隠した数式の代わりに画面の操作へ復元する（種類・第N・最終日）。曜日は上で復元済み。
+    var rr=(ev.rrule||'').toUpperCase();
+    if(rr){ kind.value = /INTERVAL=2/.test(rr) ? 'biweekly' : (/FREQ=MONTHLY/.test(rr) ? 'monthly' : 'weekly'); }
+    else if((ev.rdate||[]).length){ kind.value='once'; }
+    var nthm=/BYDAY=([+-]?\d)/.exec(rr); if(nthm){ nth.value=String(Math.abs(parseInt(nthm[1],10))); }
+    var untilm=/UNTIL=(\d{4})(\d{2})(\d{2})/.exec(rr);
+    var start=dt(ev.dtstart);
+    var end=dt(untilm ? untilm[1]+'-'+untilm[2]+'-'+untilm[3] : '');
+    var once=inp((ev.rdate||[]).join(', ')); once.placeholder='例: 2026-09-30, 2026-10-15';
+    var whenRule=document.createElement('div'); whenRule.className='evrow';
+    var whenLab=document.createElement('span'); whenLab.textContent='いつ'; whenRule.appendChild(whenLab);
+    whenRule.appendChild(nth); whenRule.appendChild(wdset);
+    whenRule.appendChild(document.createTextNode(' 初回')); whenRule.appendChild(start);
+    whenRule.appendChild(document.createTextNode(' 最終（任意）')); whenRule.appendChild(end);
+    var whenOnce=row('開催日（カンマ区切り）', once);
+    f.appendChild(whenRule); f.appendChild(whenOnce);
+    var rule={value:ev.rrule||''};  // 数式は画面に出さない（操作で組み立てて送るだけの控え）
+    function build(){
+      var k=kind.value;
+      nth.style.display = k==='monthly'?'':'none';
+      whenOnce.style.display = k==='once'?'':'none';
+      whenRule.style.display = k==='once'?'none':'';
+      if(k==='once'){ rule.value=''; return; }
+      var u=end.value?(';UNTIL='+ymd(end.value)):'';
+      var days=selectedDays(); if(!days.length) days=['MO'];
+      if(k==='weekly') rule.value='FREQ=WEEKLY;BYDAY='+days.join(',')+u;
+      else if(k==='biweekly') rule.value='FREQ=WEEKLY;INTERVAL=2;BYDAY='+days.join(',')+u;
+      else if(k==='monthly') rule.value='FREQ=MONTHLY;BYDAY='+days.map(function(x){return nth.value+x;}).join(',')+u;
+    }
+    kind.addEventListener('change',build);
+    nth.addEventListener('change',build); end.addEventListener('change',build);
+    build();
+    var btns=document.createElement('div'); btns.className='evbtns';
+    var ok=document.createElement('button'); ok.type='button'; ok.textContent=ev.id?'直す':'追加';
+    var no=document.createElement('button'); no.type='button'; no.textContent='やめる';
+    no.addEventListener('click',function(){ back.style.display='none'; });
+    ok.addEventListener('click',function(){
+      var payload={id:ev.id||'', name:name.value, lane:lane.value, dtstart:null, rrule:'', rdate:[],
+        exdate:ev.exdate||[]};
+      if(kind.value==='once'){ payload.rdate=once.value.split(',').map(function(s){return s.trim();}).filter(Boolean); }
+      else { payload.dtstart=start.value||null; payload.rrule=rule.value; }
+      back.style.display='none';
+      postEvent(payload, ev.id?'直した':'足した');
+    });
+    btns.appendChild(ok); btns.appendChild(no); f.appendChild(btns);
+    back.appendChild(f); back.style.display='flex';
+    name.focus();
+  }
+  var addbtn=document.getElementById('addevent');
+  if(addbtn) addbtn.addEventListener('click',function(){ openEvent({}); });
+  document.addEventListener('click',hideMenu);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideMenu(); });
+  // クリックの意味は「そこに住む値」で決まる：編集セル＝値を直す、出来事の印＝その出来事を直す、
+  // レーンの空き＝その日・そのレーンで登録（値の集合への追記）。
+  function dayAt(track, e){
+    var sc=document.querySelector('.scroll');
+    var first=sc && sc.dataset.first, days=Number(sc && sc.dataset.days);
+    if(!first || !days) return null;
+    var r=track.getBoundingClientRect();
+    var i=Math.floor((e.clientX - r.left) / r.width * days);
+    i=Math.max(0, Math.min(days-1, i));
+    // UTC でそろえて計算する（'T00:00:00'＋toISOString はローカル→UTC 変換で日付が 1 日ずれる。
+    // JST など UTC+ ではクリックした日の前日が入ってしまうので、パースも加算も出力も UTC で統一）。
+    var d=new Date(first+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+i);
+    return d.toISOString().slice(0,10);
+  }
+  document.addEventListener('click',function(e){
+    var mark=e.target.closest && e.target.closest('.ev, .ev-run');
+    if(mark && mark.dataset.eid){ editEvent(mark.dataset.eid); return; }
+    var laneRow=e.target.closest && e.target.closest('tr.msrow[data-lane]');
+    var track=e.target.closest && e.target.closest('td.ms-track');
+    if(laneRow && track){
+      // クリックした帯の種類で既定を決める：マイルストーン帯＝節目の登録、それ以外＝その帯の出来事の登録。
+      var day=dayAt(track, e);
+      if(laneRow.dataset.lane==='マイルストーン') openMilestone(day);
+      else openEvent({lane:laneRow.dataset.lane, dtstart:day});
+      return;
+    }
+    var td=e.target.closest && e.target.closest('td.edit'); if(td) open(td); });
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Enter') return;
+    var td=document.activeElement;
+    if(td&&td.classList&&td.classList.contains('edit')){ e.preventDefault(); open(td); } });
+})();
+"""
+
+
+# 完全な文書として出す（断片で渡さない）。文字コードの宣言が無いと、受け手のブラウザの設定次第で
+# 日本語が化ける（提出先の環境は制御できない）。doctype が無いと後方互換モードで描画され、印刷時の
+# 文字寸法の指定が表に効かず A3 に収まる前提が崩れる。題は印刷のヘッダにも出る。
+_DOCUMENT = (
+    '<!doctype html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    "<title>{title}</title>\n</head>\n<body>\n{body}\n</body>\n</html>\n"
+)
+
+
+def render_html(
+    wbs: Wbs,
+    *,
+    provenance: str = "",
+    draft: bool = False,
+    editable: bool = False,
+    token: str = "",
+    baseline: dict[str, tuple[date | None, date | None]] | None = None,
+) -> str:
+    """WBS 一式を完全な HTML 文書 1 つに描く。閲覧用と編集用で同じ描き方を使う。
+
+    `provenance` は生成物の由来（どのコミット・いつ・どの木から出たか）を 1 行で表した文字列。
+    `draft` を立てると下書きと分かる表示にする（未コミットの変更を含む生成物を、そうと分かる形でだけ許す）。
+    `editable` を立てると、直せる欄に書き戻し先の目印と入力の仕掛けが付く（編集サーバから配るときだけ）。
+    ファイルに書き出す生成物は常に `editable=False`＝保存の口が無いので、渡した先で編集はできない。
+    """
+    data_span = wbs.span
+    # ベースラインの日付が現行の期間の外に出ることがある（合意時より前倒し・後ろ倒し）。描画窓は現行と
+    # ベースラインの日付の**合併**から作る＝窓外で `_pct` が 0–100% を外れない（座標式は 1 実装のまま）。
+    if baseline:
+        base_dates = [d for pair in baseline.values() for d in pair if d is not None]
+        if base_dates:
+            lo = min([*base_dates, data_span[0]]) if data_span else min(base_dates)
+            hi = max([*base_dates, data_span[1]]) if data_span else max(base_dates)
+            data_span = (lo, hi)
+    span = drawing_window(data_span) if data_span else None
+    # 下敷きはズームごとの CSS ルール 1 本ずつ（行ごとに図形を複製しない）。
+    grids = zoom_backgrounds(span, wbs.overlay.calendar.to_calendar()) if span else {}
+    grid_css = "".join(
+        f".scroll.u-{zoom} td.gantt, .scroll.u-{zoom} th.gantt {{ background-image:{image}; }}"
+        for zoom, image in grids.items()
+        if image
+    )
+    # 基準日の線は全行で同じ位置なので、位置は 1 か所（.scroll の変数）に置き、各行は印を 1 つ持つだけ。
+    in_span = span is not None and span[0] <= wbs.today <= span[1]
+    today_x = f"{_pct(wbs.today, span) + _day_pct(span) / 2:.4f}%" if in_span and span else ""
+    today_mark = '<i class="tl"></i>' if in_span else ""
+    # work グループは固定列(No.+作業)と流動列(チーム+担当+状態)にまたがる。1 つの colspan セルは固定と
+    # 流動をまたげない（横スクロールで固定列に食い込む）ので、見出しも 2 セルに割り、左だけ固定する。
+    work_n = sum(1 for _, _, g in COLUMNS if g == "work")
+    groups = f'<th class="grp-fix" colspan="2">作業</th><th class="grp-flow" colspan="{work_n - 2}"></th>' + "".join(
+        f'<th class="grp-{key} gs" data-group="{key}" colspan="{sum(1 for _, _, g in COLUMNS if g == key)}">'
+        f"{_esc(label)}</th>"
+        for key, label in COLUMN_GROUPS
+        if key != "work"
+    )
+    # 最上段は時間軸だけ（ものさし）。左は各列に合わせた空セル（列を隠すと一緒に隠れて幅がそろう）。
+    ruler_pad = "".join(f'<th class="{css}"></th>' for _, css, _ in COLUMNS)
+    axis = _axis_html(span, today_mark) if span else ""
+    ruler = f'<tr class="ruler">{ruler_pad}<th class="gantt ruler-cell">{axis}</th></tr>'
+    # グループ見出し＋列名のガント列は空（格子は背景・棒はデータ行）。2 段ぶちぬき。
+    body_gantt = '<th class="gantt gantt-body" rowspan="2"></th>'
+    head = "".join(f'<th class="{css}">{_esc(label)}</th>' for label, css, _ in COLUMNS)
+    days = ((span[1] - span[0]).days + 1) if span else 0
+    # 初期の単位は期間の長さで決める（短い案件は週・長い案件は月）。以後は利用者が選んだ単位が状態。
+    unit = "m" if days > 120 else "w"
+    rosters = {"teams": list(wbs.overlay.teams), "members": list(wbs.overlay.members)}
+    parents = _holders(wbs.rows, "")
+    lanes_html, lane_labels = _lanes(wbs, span, today_mark, editable=editable)
+    body = "".join(
+        _row_html(
+            row,
+            span,
+            wbs.today,
+            today_mark,
+            editable=editable,
+            rosters=rosters,
+            parent=parents.get(row.code, ""),
+            baseline=baseline,
+        )
+        for row in wbs.walk()
+    )
+    title = wbs.overlay.project or "WBS"
+    period = f"　期間 {data_span[0].isoformat()} 〜 {data_span[1].isoformat()}" if data_span else ""
+    banner = '<div class="meta" style="color:var(--late-ink)">下書き（未コミットの変更を含む）</div>' if draft else ""
+    # 「表示」の 1 群にまとめる（押されている＝見えている。列かレーンかは利用者の関心事でない）。
+    lane_toggles = "".join(
+        f'<button class="lane" data-lane="{_esc(label)}" type="button">{_esc(label)}</button>' for label in lane_labels
+    )
+    # 3 群を「見出し＋区切り」で分ける：階層（行の開閉＝一度きりの操作）／表示（列・帯の入り切り＝状態の切替）／
+    # 時間軸（右）。階層の操作は行頭の三角（▾▸）と同じ字を付け、何を開閉するのかを一目で分かるようにする。
+    left = [
+        '<span class="grp-lbl">階層</span>',
+        '<button id="unfold" class="act" type="button">▾ 全部ひらく</button>',
+        '<button id="fold" class="act" type="button">▸ 全部たたむ</button>',
+        '<span class="divider"></span>',
+        '<span class="grp-lbl">表示</span>',
+        '<button class="col" data-col="team" type="button">チーム</button>',
+        '<button class="col" data-col="who" type="button">担当</button>',
+        lane_toggles,  # 帯（マイルストーン・定例など）も「表示」の入り切り＝同じ群
+        # 出来事・マイルストーンの登録は「レーンの空きをクリック」に一本化した（操作バーにボタンは置かない）。
+    ]
+    right = [
+        '<span class="grp-lbl">時間軸</span>',
+        '<span class="seg">'
+        '<button class="zoom" data-zoom="m" type="button">月</button>'
+        '<button class="zoom" data-zoom="w" type="button">週</button>'
+        '<button class="zoom" data-zoom="d" type="button">日</button></span>',
+    ]
+    ops = [f'<div class="left">{"".join(left)}</div>', f'<div class="right">{"".join(right)}</div>']
+    edit_bits = ""
+    if editable:
+        # 操作の説明文は画面に出さない（自明にする）。編集できるセルは hover で手がかりを出す（_EDIT_STYLE）。
+        # 状態の選択肢は「値と日本語の見出し」を組で渡す（画面には日本語だけを出し、送るのは正本の値）。
+        choices = _esc(json.dumps([[s.value, label] for s, label in STATUS_LABEL.items()], ensure_ascii=False))
+        # 出来事を直すとき用に、この画面の出来事を id → 値で渡す。レーン名の選択肢も。
+        events_data = _esc(
+            json.dumps(
+                {
+                    e.id: {
+                        "id": e.id,
+                        "name": e.name,
+                        "lane": e.lane,
+                        "dtstart": e.dtstart.isoformat() if e.dtstart else None,
+                        "rrule": e.rrule or "",
+                        "rdate": [d.isoformat() for d in e.rdate],
+                        "exdate": [d.isoformat() for d in e.exdate],
+                    }
+                    for e in wbs.overlay.events
+                },
+                ensure_ascii=False,
+            )
+        )
+        lanes_data = _esc(json.dumps(lane_labels, ensure_ascii=False))
+        edit_bits = (
+            f'<div id="say"></div><div id="menu"></div><div id="evback"></div>'
+            f'<script data-token="{_esc(token)}" data-today="{wbs.today.isoformat()}"'
+            f' data-statuses="{choices}" data-events="{events_data}" data-lanes="{lanes_data}">'
+            f"{_EDIT_SCRIPT}</script>"
+        )
+    # スクロール枠の CSS 変数（レーンの段数と基準日の位置）を 1 つの style にまとめる。
+    scroll_vars = f"--lane-h:{_LANE_H}px;--lanes-h:{len(lane_labels) * _LANE_H}px" + (
+        f";--today-x:{today_x}" if today_x else ""
+    )
+    inner = (
+        f"<style>{_STYLE}{_EDIT_STYLE if editable else ''}{grid_css}</style>"
+        f"<header><h1>{_esc(title)}</h1>"
+        f'<div class="meta">本日 {wbs.today.isoformat()}{period}　{_esc(provenance)}</div>{banner}'
+        f'<div class="ops">{"".join(ops)}</div>{_legend()}</header>'
+        f'<div class="scroll u-{unit}" data-days="{days}" data-unit="{unit}"'
+        f'{f' data-first="{span[0].isoformat()}"' if span else ""} style="{scroll_vars}">'
+        f"<table><thead>{ruler}{lanes_html}"
+        f'<tr class="grp">{groups}{body_gantt}</tr><tr>{head}</tr></thead>'
+        f"<tbody>{body}</tbody></table></div>"
+        f"<footer></footer><script>{_view_script()}</script>{edit_bits}"
+    )
+    return _DOCUMENT.format(title=_esc(title), body=inner)

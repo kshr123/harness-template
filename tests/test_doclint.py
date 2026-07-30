@@ -57,6 +57,20 @@ def test_extensionless_reference_whose_parent_dir_exists_is_ok(tmp_path: Path) -
     assert _errors(tmp_path) == []
 
 
+def test_case_area_path_reference_is_not_flagged_when_absent(tmp_path: Path) -> None:
+    # docs/wbs.yaml は init-project が白紙化する案件領域ファイル＝fresh clone に無くて当然。durable な docs が
+    # それを指しても壊れリンクではない（doclint は CASE_AREA_ROOTS 配下のパスの不在を咎めない）。
+    assert not (tmp_path / "docs" / "wbs.yaml").exists()
+    _doc(tmp_path, "AGENTS.md", "案件固有の上書きは docs/wbs.yaml に置く。")
+    assert _errors(tmp_path) == []
+
+
+def test_non_case_area_missing_path_is_still_an_error(tmp_path: Path) -> None:
+    # 免除が広すぎないことの確認：案件領域外の不在パスは従来どおり error（案件領域だけを除外する）。
+    _doc(tmp_path, "AGENTS.md", "詳細は docs/nonexistent-guide.md を参照。")
+    assert any("docs/nonexistent-guide.md" in m for m in _errors(tmp_path))
+
+
 def test_extensionless_reference_whose_parent_dir_is_absent_is_error(tmp_path: Path) -> None:
     # 親ディレクトリごと撤去された仕組みへの参照（例 docs/decisions/DEC-0006）は error のまま。
     _doc(tmp_path, "AGENTS.md", "根拠は docs/decisions/DEC-0006 を参照。")

@@ -144,7 +144,7 @@ def _scope_dirs(root: Path) -> list[tuple[str, Path]]:
 
 def _stale_role_problem(doc_rel: str, module: str, directory: Path, root: Path) -> pm.Problem:
     """役割一覧に、実在しないモジュールの行が残っている指摘（逆向き）。どの docs のどの名前が空振りかを名指す。"""
-    location = (directory / module).relative_to(root)
+    location = (directory / module).relative_to(root).as_posix()  # リポ相対は常に `/`（Windows で `\` にしない）
     return pm.Problem(
         "error",
         f"{doc_rel}: 役割一覧が `{module}` を挙げているが {location} が実在しない。モジュールを消したら"
