@@ -511,10 +511,12 @@ def _row_html(
         f"{_milestone(row, span)}{today_mark}</td>",
     ]
     holder = _esc(row.ref) if can_add else ""
+    # 先行（depends_on）は JSON 配列で持つ（ID に空白が入っても壊れない）。後続は JS が逆写像で作る。
+    deps = _esc(json.dumps(row.depends_on, ensure_ascii=False))
     return (
         f'<tr class="{" ".join(classes)}" data-code="{_esc(row.code)}" data-ref="{_esc(row.ref or "")}"'
         f' data-name="{_esc(row.name)}" data-level="{depth + 1}" data-kids="{1 if row.children else 0}"'
-        f' data-holder="{holder}" data-parent="{_esc(parent)}">{"".join(cells)}</tr>'
+        f' data-deps="{deps}" data-holder="{holder}" data-parent="{_esc(parent)}">{"".join(cells)}</tr>'
     )
 
 
@@ -813,6 +815,9 @@ td.name .nmwrap .ind { flex:0 0 14px; border-left:1px solid var(--guide); }
 td.name .nmwrap .nm { flex:1 1 auto; padding:5px 8px; align-self:center; white-space:normal; }
 tbody tr:hover > td:not(.gantt) { background-color:var(--hover); }
 tr.is-sel > td:not(.gantt) { background-color:var(--sel); }
+/* 依存の可視化：かざした行の先行/後続を淡く光らせる（既存の選択色。新色なし・ガント列には当てない）。 */
+tr.dep-hi > td:not(.gantt) { background-color:var(--sel); }
+tr.dep-hi > td:first-child { box-shadow:inset 3px 0 0 var(--bar); }
 /* **行の地色は決してガント列に当てない**（すべて :not(.gantt)）。当てると左の塗りがガントへ食い込み格子が濁る。
    状態→視覚の強さ＝**見た人が取るべき行動の量**に対応させる（顕著性の予算は「基準面＝白からの逸脱」）。
    **彩度のある面は遅れ専用**（注意を上げる逸脱）／**完了は無彩色の沈む面**（注意を下げる逸脱）＝方向が逆なので
@@ -1214,6 +1219,26 @@ _VIEW_SCRIPT = r"""
       if(open) rows[i].classList.add('hid');
       else if(!hidden(c)) rows[i].classList.remove('hid');
     }
+  });
+  // 依存の可視化：行にかざすと、その行の先行（depends_on）と後続（自分を depends_on に持つ行）を淡く光らせる。
+  // 先行は data-deps（JSON）、後続はその逆写像を 1 回だけ作る。矢印は描かない（クリティカルパスは範囲外）。
+  var byRef={}, succ={};
+  document.querySelectorAll('tr[data-ref]').forEach(function(tr){
+    var ref=tr.dataset.ref; if(!ref) return;
+    byRef[ref]=tr;
+    var deps=[]; try{ deps=JSON.parse(tr.dataset.deps||'[]'); }catch(e){}
+    deps.forEach(function(d){ (succ[d]=succ[d]||[]).push(ref); });
+  });
+  function relatives(tr){
+    var out=[]; var deps=[]; try{ deps=JSON.parse(tr.dataset.deps||'[]'); }catch(e){}
+    deps.concat(succ[tr.dataset.ref]||[]).forEach(function(ref){ if(byRef[ref]) out.push(byRef[ref]); });
+    return out;
+  }
+  function mark(tr, on){ relatives(tr).forEach(function(r){ r.classList.toggle('dep-hi', on); }); }
+  document.querySelectorAll('tr[data-ref]').forEach(function(tr){
+    if(!tr.dataset.ref) return;
+    tr.addEventListener('mouseenter',function(){ mark(tr, true); });
+    tr.addEventListener('mouseleave',function(){ mark(tr, false); });
   });
 })();
 """

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from pathlib import Path
@@ -83,6 +84,31 @@ def test_baseline_overlay_draws_the_agreed_bar_at_its_own_dates(tmp_path: Path) 
     assert cur_x == pytest.approx(_at(date(2026, 8, 10)), abs=0.01)  # 現状は据え置きの位置
     assert base_x == pytest.approx(_at(date(2026, 8, 3)), abs=0.01)  # ベースラインは合意時点の位置
     assert base_w == pytest.approx(5 * PER_DAY, abs=0.01)  # 08-03〜08-07＝5 日（終了日含む）
+
+
+def test_each_row_carries_its_dependencies_as_json(tmp_path: Path) -> None:
+    """依存の可視化の材料：各行が先行（depends_on）を JSON 配列で持つ（後続は JS が逆写像で作る）。
+
+    JSON にするのは ID に空白が入っても壊れないため。値が depends_on と一致することをテストデータから確かめる。
+    """
+    _tree(
+        tmp_path,
+        {"id": "T-9001", "kind": "task", "status": "todo", "start": "2026-08-03", "due": "2026-08-07"},
+        {
+            "id": "T-9002",
+            "kind": "task",
+            "status": "todo",
+            "start": "2026-08-10",
+            "due": "2026-08-12",
+            "depends_on": ["T-9001"],
+        },
+    )
+    html = _render(tmp_path, date(2026, 8, 5))
+    dep = re.search(r'data-ref="T-9002"[^>]*data-deps="([^"]*)"', _row_markup(html, "T-9002"))
+    assert dep is not None
+    assert json.loads(dep.group(1).replace("&quot;", '"')) == ["T-9001"]  # 先行が JSON 配列で載る
+    dep0 = re.search(r'data-ref="T-9001"[^>]*data-deps="([^"]*)"', _row_markup(html, "T-9001"))
+    assert dep0 is not None and json.loads(dep0.group(1).replace("&quot;", '"')) == []  # 先行なしは空配列
 
 
 def test_no_baseline_means_no_agreed_bar(tmp_path: Path) -> None:
