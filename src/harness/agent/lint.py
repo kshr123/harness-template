@@ -27,7 +27,7 @@ def run_checks(root: Path) -> list[pm.Problem]:
 
     problems: list[pm.Problem] = []
     for path in sorted(base.rglob("*.yaml")):
-        rel = path.relative_to(root)
+        rel = path.relative_to(root).as_posix()  # リポ相対は常に `/`（Windows で `\` にしない）
         try:
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
         except yaml.YAMLError as exc:

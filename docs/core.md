@@ -49,7 +49,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `code_doc_lint.run_checks` | 公開モジュールと正本ドキュメントの役割一覧が食い違っていないか双方向で検査する（順：触れ忘れ／逆：残骸）。 |
 | `profile_doc_lint.run_checks` | 各プロファイルに正本 docs/<名>.md があり、doc 索引 docs/README.md から辿れるか検査する。欠落＝error。 |
 | `boundary_lint.run_checks` | 中核（src/harness/*.py）がプロファイル（ds・serve・agent…）を import していないか検査する。 |
-| `conventions.run_checks` | テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。 |
+| `conventions.run_checks` | テスト規約・ソース規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落・ |
 | `retraction_lint.run_checks` | 撤回済みの決まりごとの名前が、資産（src・docs・skills・templates）に残骸として残っていないか検査する。 |
 | `doc_sync.run_checks` | 中核の正本ドキュメントの自動生成節が最新か検査する。古い・マーカー異常＝error。 |
 

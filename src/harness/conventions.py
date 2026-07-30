@@ -1,6 +1,6 @@
-"""テスト規約の機械検査（conventions lint）。
+"""テスト規約・ソース規約の機械検査（conventions lint）。
 
-AGENTS のテスト規約のうち「レビュー観点」止まりだった規約を静的検査に昇格する（core・stdlib の ast のみ）。
+AGENTS のテスト規約・ソース規約のうち「レビュー観点」止まりだった規約を静的検査に昇格する（core・stdlib の ast のみ）。
 
 1. **グローバル種の禁止**：`np.random.seed`・`numpy.random.seed`・`random.seed` の**呼び出し**を
    `src/`・`tests/`・`work/**/code/**/*.py`（code 配下は再帰的に）から ast で検出して error（ファイル・行を含む）。
@@ -17,6 +17,11 @@ AGENTS のテスト規約のうち「レビュー観点」止まりだった規�
 4. **`subprocess` の文字列モードに `encoding` 必須**：`text=True`／`universal_newlines=True` を渡すのに
    `encoding=` が無い呼び出しを error。省略時はロケールの符号化方式（Windows の日本語環境では cp932）で
    復号され、UTF-8 の出力を読むと `UnicodeDecodeError` になる。ハーネスの CLI は日本語を出すため必ず踏む。
+5. **リポ相対パスの文字列化は `.as_posix()` 必須**：`str(x.relative_to(y))` と f-string の `{x.relative_to(y)}` を
+   error にする（`.as_posix()` を挟めば一致しない）。省略すると Windows で `\\` 区切りになり、生成物（STATUS.md 等）や
+   編集セッションの指紋キーが OS で食い違う。中心の 2 形を確実に捕まえる（別名に束ねてから文字列化する形＝
+   `rel = p.relative_to(r)` … `f"{rel}"` はデータフロー解析が要るので見逃す＝束ねる箇所で `.as_posix()` を呼ぶ規約は
+   レビュー観点）。
 
 マーカー版 skip/xfail の ISS 参照は tests/conftest.py の収集フック＋harness.testing.skips_without_iss が担う。
 slow マーカー（`@pytest.mark.slow`／モジュール直書きの `pytestmark = pytest.mark.slow` どちらも）も同じ関数・
@@ -163,8 +168,31 @@ def _subprocess_text_without_encoding_lines(tree: ast.AST) -> list[int]:
     return sorted(lines)
 
 
+def _relative_to_stringified_lines(tree: ast.AST) -> list[int]:
+    """リポ相対パスを `.as_posix()` を挟まず文字列化している箇所の行番号（Windows で `\\` になる）。
+
+    捕まえる中心形は 2 つ：`str(x.relative_to(y))` と f-string の `{x.relative_to(y)}`。どちらも `.as_posix()` を
+    挟めば一致しない（`str(x.relative_to(y).as_posix())`／`{...as_posix()}` は外側が別の呼び出しになる）。
+    `.parts` など別属性で使う形、Path のまま使う形は文字列化でないので対象外。別名に束ねてから文字列化する形
+    （`rel = p.relative_to(r)` … `f"{rel}"`）はデータフロー解析が要るので見逃す（束ねる箇所での `.as_posix()` は規約）。
+    """
+
+    def _is_relative_to_call(node: ast.expr | None) -> bool:
+        return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "relative_to"
+
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str":
+            if any(_is_relative_to_call(a) for a in node.args):
+                lines.append(node.lineno)
+        elif isinstance(node, ast.FormattedValue) and _is_relative_to_call(node.value):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
 def run_checks(root: Path) -> list[pm.Problem]:
-    """テスト規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落＝error。"""
+    """テスト規約・ソース規約の静的検査。グローバル種・--test 欠落・ISS 無し命令形 skip・encoding 欠落・
+    リポ相対パスの `.as_posix()` 無し文字列化＝error。"""
     problems: list[pm.Problem] = []
     for path, is_work_code in _target_files(root):
         rel = path.relative_to(root).as_posix()
@@ -194,6 +222,14 @@ def run_checks(root: Path) -> list[pm.Problem]:
                     "error",
                     f'{rel}:{lineno}: subprocess の text=True には encoding="utf-8" が必須'
                     "（省略するとロケール既定＝Windows では cp932 で復号し、UTF-8 の出力で UnicodeDecodeError）",
+                )
+            )
+        for lineno in _relative_to_stringified_lines(tree):
+            problems.append(
+                pm.Problem(
+                    "error",
+                    f"{rel}:{lineno}: リポ相対パスの文字列化は `.as_posix()` を使う"
+                    "（省略すると Windows で `\\` になり、生成物・指紋キーが OS で食い違う）",
                 )
             )
         if is_work_code and _uses_argparse(tree) and not _has_test_flag(tree):

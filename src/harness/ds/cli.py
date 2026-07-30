@@ -277,7 +277,7 @@ def _file_drift_issue(root: Path, *, baseline: str, log: str, psi_rows: list[dic
     path = directory / f"{iid}.md"
     front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
     path.write_text(f"---\n{front}---\n# {iid} {content.title}\n\n{content.body}", encoding="utf-8")
-    typer.echo(f"起票: {iid}（{path.relative_to(root)}）")
+    typer.echo(f"起票: {iid}（{path.relative_to(root).as_posix()}）")
 
 
 @data_app.command("score")
@@ -422,7 +422,7 @@ def _file_score_issue(root: Path, *, model: str, log: str, actuals: str, compari
     path = directory / f"{iid}.md"
     front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
     path.write_text(f"---\n{front}---\n# {iid} {content.title}\n\n{content.body}", encoding="utf-8")
-    typer.echo(f"起票: {iid}（{path.relative_to(root)}）")
+    typer.echo(f"起票: {iid}（{path.relative_to(root).as_posix()}）")
 
 
 def _feature_columns(df: Any, columns: str | None) -> list[str]:  # noqa: ANN401  polars.DataFrame
