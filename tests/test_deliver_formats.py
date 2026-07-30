@@ -126,6 +126,41 @@ def test_the_spreadsheet_says_it_is_a_copy(tmp_path: Path) -> None:
     assert "取り込まれません" in str(sheet.cell(row=3, column=1).value)
 
 
+def test_the_spreadsheet_does_not_write_live_formulas_from_user_text(tmp_path: Path) -> None:
+    """作業名・チーム・担当が数式記号（=+-@）で始まっても、生きた数式にせず文字として書く（数式注入対策）。
+
+    写しはクライアントに渡す読み取り専用ファイル。openpyxl は先頭 `=` の文字列を数式セル（data_type 'f'）
+    として保存してしまうので、そのままだと先方の Excel で任意の式が走る。文字（'s'）で書けていることを見る。
+    """
+    alpha = tmp_path / "work" / "EP-90-alpha"
+    _write(alpha / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(
+        alpha / "T-9001-a.md",
+        {
+            "id": "T-9001",
+            "kind": "task",
+            "status": "todo",
+            "title": '=HYPERLINK("http://evil.example","x")',
+            "team": "=1+1",
+            "start": "2026-08-03",
+            "due": "2026-08-07",
+        },
+    )
+    out = tmp_path / "WBS.xlsx"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["export", "--root", str(tmp_path), "--out", str(out), "--format", "xlsx", "--today", TODAY.isoformat()],
+    )
+    assert result.exit_code == 0, result.output
+    sheet = load_workbook(out).active
+    assert sheet is not None
+    # 作業名（2 列目）・チーム（3 列目）が数式（'f'）でなく文字（'s'）で書かれている。
+    name_cell = next(c for r in sheet.iter_rows() for c in r if isinstance(c.value, str) and "HYPERLINK" in c.value)
+    assert name_cell.data_type == "s", "作業名が生きた数式として書かれている（数式注入）"
+    team_cell = next(c for r in sheet.iter_rows() for c in r if c.value == "=1+1")
+    assert team_cell.data_type == "s", "チームが生きた数式として書かれている（数式注入）"
+
+
 def test_the_spreadsheet_folds_by_depth(tmp_path: Path) -> None:
     """階層は表計算側の折りたたみ（アウトライン）で表す＝先方が畳んで読める。"""
     _scaffold(tmp_path)

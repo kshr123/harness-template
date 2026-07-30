@@ -90,6 +90,38 @@ def test_output_reads_nothing_from_outside(tmp_path: Path) -> None:
     assert _EXTERNAL.search(_html(tmp_path)) is None
 
 
+def test_user_text_is_html_escaped_everywhere(tmp_path: Path) -> None:
+    """利用者由来の文字列（作業名・出来事名・レーン名）は HTML として無害化して埋める（注入を止める）。
+
+    提出 HTML への HTML 注入を止める唯一の関数（`_esc`）が効いていることを固定する。閲覧用・編集用の
+    どちらでも、危険な生タグ・属性抜け出しが出力に**生のまま**現れないことを見る（エスケープ済みは現れてよい）。
+    """
+    from harness.deliver.overlay import Event
+
+    inject_title = "</td><script>alert(1)</script>"
+    attr_break = '" onmouseover="alert(2)'
+    root = tmp_path / "work" / "EP-90-x"
+    _write(root / "item.md", {"id": "EP-90", "kind": "epic", "status": "todo", "plan": "detailed"})
+    _write(
+        root / "T-9001-a.md",
+        {
+            "id": "T-9001",
+            "kind": "task",
+            "status": "todo",
+            "title": inject_title,
+            "team": attr_break,
+            "start": "2026-08-03",
+            "due": "2026-08-07",
+        },
+    )
+    overlay = Overlay(events=[Event(id="EV-1", name=inject_title, lane=attr_break, rdate=[date(2026, 8, 5)])])
+    built = wbs_mod.build(tmp_path, today=TODAY, overlay=overlay)
+    for html in (render.render_html(built), render.render_html(built, editable=True, token="t")):
+        assert "<script>alert(1)</script>" not in html  # 生の script タグが出力に現れない
+        assert 'onmouseover="alert(2)"' not in html  # 属性から抜け出す形が現れない
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html  # エスケープ済みの形は現れてよい（＝無害化されている）
+
+
 def test_late_row_is_marked_and_finished_one_is_not(tmp_path: Path) -> None:
     """遅れの印は予定終了を過ぎた未完の行だけに付く。"""
     _scaffold(tmp_path)

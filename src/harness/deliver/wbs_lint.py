@@ -73,18 +73,24 @@ def _overlapping_sections(over: Overlay, nodes: list[pm.Node]) -> list[pm.Proble
     ID の完全一致だけを見ると、「節 A がエピックを、節 B がその中のタスクを指す」形を見逃す（実際に
     起こりやすい：エピックごと載せた後、目玉のタスクだけ別のフェーズにも出す）。この形では同じ作業が
     2 行として出て、進捗の末端も二重に数えられる。**指した範囲どうしの重なり**で見る。
+    手動行（`entry.row`）も同じ罠がある（1 つの行を 2 つの節が指すと 2 行になり二重に数える）。行は木を
+    持たないので、その ID の完全一致だけを見ればよい（作業単位は配下も範囲に含めて重なりを見る）。
     """
     problems: list[pm.Problem] = []
     claimed: dict[str, str] = {}  # 出る行の ID → それを出している節の名前
     reported: set[tuple[str, str]] = set()  # 報告済みの節の組（配下の分まで並べない）
     for section in over.sections:
         for entry in section.entries:
-            if entry.work is None:
+            if entry.work is not None:
+                node = _find(nodes, entry.work)
+                if node is None:
+                    continue  # 参照切れは build 側が error にする
+                item_ids = sorted(_descendants(node))  # 作業単位は配下ごと出るので配下も数える
+            elif entry.row is not None:
+                item_ids = [entry.row]  # 手動行は木を持たない＝その ID 1 つ（完全一致だけで二重掲載になる）
+            else:
                 continue
-            node = _find(nodes, entry.work)
-            if node is None:
-                continue  # 参照切れは build 側が error にする
-            for item_id in sorted(_descendants(node)):
+            for item_id in item_ids:
                 owner = claimed.get(item_id)
                 if owner is None:
                     claimed[item_id] = section.name
@@ -97,8 +103,8 @@ def _overlapping_sections(over: Overlay, nodes: list[pm.Node]) -> list[pm.Proble
                 problems.append(
                     pm.Problem(
                         "error",
-                        f"作業単位 '{item_id}' が節 '{owner}' と節 '{section.name}' の両方に出る"
-                        f"（同じ作業が 2 行になり、進捗が二重に数えられる・wbs_lint）",
+                        f"項目 '{item_id}' が節 '{owner}' と節 '{section.name}' の両方に出る"
+                        f"（同じ項目が 2 行になり、進捗が二重に数えられる・wbs_lint）",
                     )
                 )
     return problems

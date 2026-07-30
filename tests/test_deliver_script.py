@@ -86,6 +86,22 @@ def test_no_string_literal_is_cut_by_a_real_newline(tmp_path: Path) -> None:
         assert not _unterminated_string_lines(source)
 
 
+def test_lane_click_computes_the_day_in_utc(tmp_path: Path) -> None:
+    """レーンの空きクリックで日付を出す `dayAt` は UTC でそろえる（JST など UTC+ で 1 日ずれない）。
+
+    `new Date('YYYY-MM-DDT00:00:00')`（オフセット無し＝ローカル）＋`toISOString()`（UTC）だと、UTC+ の
+    時間帯では日付が 1 日戻り、クリックした日の前日が正本に書かれる（実際に起きた）。パースも加算も出力も
+    UTC で統一していることを構造で固定する（node の DOM 無しで振る舞いテストが難しいので、退行の形を止める）。
+    """
+    html = _page(tmp_path, editable=True)
+    edit = next(s for s in _scripts(html) if "function dayAt(" in s)
+    body = edit.split("function dayAt(", 1)[1].split("}", 1)[0]
+    # コメントを除いた実コードだけを見る（説明文には退行形の字面が出てよい）。
+    code = "\n".join(ln.split("//", 1)[0] for ln in body.splitlines())
+    assert "new Date(first+'T00:00:00Z')" in code and "setUTCDate" in code  # UTC でパース・加算
+    assert "new Date(first+'T00:00:00')" not in code and "d.setDate(" not in code  # ローカル解釈の退行形を禁じる
+
+
 def test_the_event_form_never_shows_the_rrule_expression(tmp_path: Path) -> None:
     """出来事フォームは画面の操作（種類・曜日・初回/最終）だけで完結し、RRULE の文字列（専門用語）を出さない。
 

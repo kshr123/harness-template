@@ -1611,7 +1611,9 @@ _EDIT_SCRIPT = r"""
     var r=track.getBoundingClientRect();
     var i=Math.floor((e.clientX - r.left) / r.width * days);
     i=Math.max(0, Math.min(days-1, i));
-    var d=new Date(first+'T00:00:00'); d.setDate(d.getDate()+i);
+    // UTC でそろえて計算する（'T00:00:00'＋toISOString はローカル→UTC 変換で日付が 1 日ずれる。
+    // JST など UTC+ ではクリックした日の前日が入ってしまうので、パースも加算も出力も UTC で統一）。
+    var d=new Date(first+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+i);
     return d.toISOString().slice(0,10);
   }
   document.addEventListener('click',function(e){

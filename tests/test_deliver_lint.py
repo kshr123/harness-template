@@ -116,6 +116,22 @@ def test_same_work_unit_in_two_sections_fails(tmp_path: Path) -> None:
     assert "両方に出る" in messages[0]
 
 
+def test_same_manual_row_in_two_sections_fails(tmp_path: Path) -> None:
+    """同じ手動行を 2 つの節が指すと 2 行になり進捗が二重に数えられるので失敗する（作業単位と対称）。"""
+    _scaffold(tmp_path)
+    overlay = Overlay.model_validate(
+        {
+            "sections": [
+                {"name": "設計", "entries": [{"work": "EP-90"}, {"row": "W-001"}]},
+                {"name": "構築", "entries": [{"work": "EP-91"}, {"row": "W-001"}]},
+            ],
+            "rows": [{"id": "W-001", "name": "承認", "status": "todo"}],
+        }
+    )
+    messages = _errors(tmp_path, overlay)
+    assert any("W-001" in m and "両方に出る" in m for m in messages)
+
+
 def test_manual_row_that_no_section_shows_fails(tmp_path: Path) -> None:
     """定義したのにどの節も参照していない手動行は失敗（書いたのに出ない行を作らない）。"""
     _scaffold(tmp_path)

@@ -27,6 +27,18 @@ _FILL = {"plan": "5B87B8", "done": "4F9D72", "late": "C8635A", "ms": "1B1F24"}
 
 _NOTICE = "この表は生成した写しです。正本は work/ の作業単位で、この表への記入は取り込まれません。"
 
+# 先頭がこれらの文字の文字列は、Excel が数式として評価しうる（数式注入＝先方の Excel で任意の式が走る）。
+# 写しは読み取り専用なので、そういう文字列は「生きた数式」にせず**文字**として書く（data_type を 's' に固定）。
+_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _put(sheet: Worksheet, index: int, column: int, value: Any) -> Any:
+    """1 セル書く。利用者由来の文字列が数式記号で始まるときは、数式でなく文字として書く（数式注入対策）。"""
+    cell = sheet.cell(row=index, column=column, value=value)
+    if isinstance(value, str) and value.startswith(_FORMULA_LEADERS):
+        cell.data_type = "s"  # 生きた数式（data_type 'f'）にしない＝クライアントの Excel で式を走らせない
+    return cell
+
 
 def _weeks(span: tuple[date, date]) -> list[date]:
     """期間を覆う週（月曜）の並び。列 1 つが 1 週間。"""
@@ -67,7 +79,7 @@ def _write_row(sheet: Worksheet, index: int, row: WbsRow, weeks: list[date], fil
         f"{row.done_leaves}/{row.total_leaves}" if row.total_leaves else "",
     ]
     for column, value in enumerate(values, start=1):
-        sheet.cell(row=index, column=column, value=value)
+        _put(sheet, index, column, value)  # 数式記号で始まる作業名・チーム・担当を無害化して書く
     # 表計算側の折りたたみ（アウトライン）。第 1 階層は 0 なので、そのまま深さを使う。
     sheet.row_dimensions[index].outlineLevel = depth
     kind = _kind_of(row)
@@ -96,7 +108,7 @@ def write_xlsx(wbs: Wbs, path: Path, *, provenance: str = "", draft: bool = Fals
         sheet = book.create_sheet()
     sheet.title = "WBS"
 
-    sheet.cell(row=1, column=1, value=wbs.overlay.project or "WBS").font = Font(bold=True, size=13)
+    _put(sheet, 1, 1, wbs.overlay.project or "WBS").font = Font(bold=True, size=13)  # 案件名も利用者由来＝無害化
     sheet.cell(row=2, column=1, value=f"基準日 {wbs.today.isoformat()}　{provenance}")
     sheet.cell(row=3, column=1, value=("【下書き】" if draft else "") + _NOTICE).font = Font(color="A8352A")
 
