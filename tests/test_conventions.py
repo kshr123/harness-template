@@ -21,6 +21,18 @@ pytestmark = pytest.mark.unit
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _force_utf8_in_pytester_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pytester のサブプロセスを Windows でも utf-8 stdio に固定する。
+
+    収集フックの UsageError は日本語を含む。子プロセスの stdio が既定の cp932 だと、親テストがその出力を
+    utf-8 で読んで UnicodeDecodeError になる（この検査群の唯一の Windows 落ち）。PYTHONUTF8=1 は子プロセスに
+    継承され、stdio を utf-8 に強制する（収集フックの合否そのものには影響しない）。conftest の stream 再設定は
+    **この**プロセス向けで、pytester が起こす別プロセスには効かないため、環境変数で子に伝える。
+    """
+    monkeypatch.setenv("PYTHONUTF8", "1")
+
+
 def _write(root: Path, rel: str, text: str) -> None:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)

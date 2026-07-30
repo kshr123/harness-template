@@ -18,8 +18,9 @@ Windows の verify が 3 テストで落ちる（いずれも移植性バグ・d
 - `code_doc_lint` の逆向き検査が `directory/module` を `relative_to` の生 str で出す＝Windows で `\` 区切りになり、
   テストの `src/harness/...`（`/`）と一致しない → `as_posix()` に直す（リポ相対パスは常に `/` で言う）。
 - `test_conventions` の pytester サブプロセスが conftest の非 ASCII エラー文言を cp932 で出し、テストが utf-8 で
-  読んで UnicodeDecodeError → conftest の stdout/stderr を utf-8 に固定（cli.py と同じ作法。`_REAL_CONFTEST` は
-  実 conftest そのものなので、実行時とサブプロセスの両方が直る）。
+  読んで UnicodeDecodeError。conftest の stdout/stderr の utf-8 再設定（cli.py と同じ作法）は**このプロセス**向けで、
+  pytester が起こす**別プロセス**には効かなかった（CI で実測）。子プロセスへは `PYTHONUTF8=1` を環境変数で継承させて
+  utf-8 stdio を強制する（test_conventions の autouse フィクスチャ）。
 
 ## 受け入れ基準
 - [ ] code_doc_lint の逆向き指摘のパスが常に `/` 区切り（プラットフォーム非依存）。
