@@ -147,8 +147,13 @@ def _project(session: Session, into: Path) -> None:
         shutil.copy2(session.tree / rel, target)
 
 
-def apply(session: Session, *, today: date, confirm: str = "", now: datetime | None = None) -> list[str]:
-    """写しの変更を正本へまとめて書き、書いたファイルの並びを返す。
+def apply(
+    session: Session, *, today: date, confirm: str = "", now: datetime | None = None
+) -> tuple[list[str], Session]:
+    """写しの変更を正本へまとめて書き、(書いたファイルの並び, 取り込み後の新しいセッション) を返す。
+
+    取り込むと写しの土台は「いまの正本」に進む。呼び手（サーバ）は返ってきた新しいセッションを持ち直す
+    ＝そうしないと、自分の apply で動いた正本を「別の手が動かした」と誤検知して 2 度目の apply が 409 になる。
 
     3 つ全部を通ってから初めて書く（どれか 1 つでも欠けたら**1 バイトも書かない**）：
     1. 変える対象の正本が、写した時点から動いていないこと（別の手が触っていたら打ち切る）。
@@ -195,7 +200,7 @@ def apply(session: Session, *, today: date, confirm: str = "", now: datetime | N
             started=session.started,
         )
         fresh.save()
-        return changed
+        return changed, fresh
 
 
 def row_changes(before: object, after: object) -> list[str]:

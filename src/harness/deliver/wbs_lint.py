@@ -24,6 +24,15 @@ from harness.deliver import wbs as wbs_mod
 from harness.deliver.overlay import Overlay
 
 
+def _all_unit_ids(nodes: list[pm.Node]) -> set[str]:
+    """木の全作業単位の ID（配下まで再帰）。手動行の depends_on の参照先の実在照合に使う。"""
+    out: set[str] = set()
+    for node in nodes:
+        out.add(node.item.id)
+        out |= _all_unit_ids(node.children)
+    return out
+
+
 def _covered_ids(over: Overlay) -> set[str]:
     """節構成が直接指している作業単位の ID（配下は木をたどって覆われたとみなす）。"""
     return {e.work for s in over.sections for e in s.entries if e.work is not None}
@@ -164,26 +173,45 @@ def check(root: Path, *, today: date, overlay: Overlay | None = None) -> list[pm
             )
         )
 
+    # 手動行の depends_on の参照検査（pm は手動行を知らないので、ここで実在を確かめる＝参照切れを黙認しない）。
+    # 参照先は作業単位 ID か他の手動行 ID のどちらか。
+    known_ids = _all_unit_ids(nodes) | {r.id for r in over.rows}
+    for row in over.rows:
+        for dep in row.depends_on:
+            if dep not in known_ids:
+                problems.append(
+                    pm.Problem(
+                        "error",
+                        f"手動行 '{row.id}' の depends_on '{dep}' が見つからない（参照エラー・wbs_lint）",
+                    )
+                )
+
     problems.extend(_dependency_order(built))
     return problems
 
 
 def _dependency_order(built: wbs_mod.Wbs) -> list[pm.Problem]:
-    """先行する単位の終了予定より後続の開始予定が前にある矛盾を集める。"""
+    """先行する単位の終了予定より後続の開始予定が前にある矛盾を集める。
+
+    マイルストーン（点）は start を持たないが、その日（due）を実効開始として先行との順序を見る
+    （`start is None` で飛ばすと、先行の終了より前に置いた節目を見逃す）。
+    """
     by_id = {row.ref: row for row in built.walk() if row.ref is not None}
     problems: list[pm.Problem] = []
     for row in built.walk():
-        if row.start is None:
+        eff_start = row.due if row.milestone else row.start
+        if eff_start is None:
             continue
         for dep_id in row.depends_on:
             dep = by_id.get(dep_id)
             if dep is None or dep.due is None:
                 continue
-            if row.start < dep.due:
+            if eff_start < dep.due:
+                where = "期日" if row.milestone else "開始予定"
                 problems.append(
                     pm.Problem(
                         "error",
-                        f"'{row.ref}' は '{dep_id}' の後に来るのに、開始予定 {row.start} が "
+                        f"'{row.ref}' は '{dep_id}' の後に来るのに、{where} {eff_start} が "
                         f"'{dep_id}' の終了予定 {dep.due} より前にある（wbs_lint）",
                     )
                 )

@@ -13,7 +13,7 @@ git が無い・リポジトリでない環境では、コミットの欄を「�
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from harness import pm
@@ -63,11 +63,17 @@ def is_dirty(root: Path) -> bool:
     return bool(status)
 
 
+def _iso(day: date | None) -> str | None:
+    return day.isoformat() if day is not None else None
+
+
 def tree_fingerprint(wbs: Wbs) -> str:
     """この WBS を作った値そのものの指紋（同じ値からは必ず同じになる）。
 
     生成物どうしを突き合わせるときに、コミットが同じでも中身が違う／コミットが違っても中身は同じ、を
-    見分けられるようにする。並べる値は、表に出ている値そのもの（導出後）にする。
+    見分けられるようにする。並べる値は**表に出ている値の全部**（導出後）にする＝担当・工数・実績日・
+    マイルストーン・進捗・出来事のどれか 1 つでも変われば指紋が変わる（担当だけ差し替えた版が同じ指紋に
+    ならないようにする）。`late` は基準日から導く値なので入れない（生成日は別の欄で刻む）。
     """
     payload = {
         "rows": [
@@ -76,11 +82,29 @@ def tree_fingerprint(wbs: Wbs) -> str:
                 "ref": row.ref,
                 "name": row.name,
                 "status": row.status.value if row.status else None,
-                "start": row.start.isoformat() if row.start else None,
-                "due": row.due.isoformat() if row.due else None,
+                "start": _iso(row.start),
+                "due": _iso(row.due),
+                "team": row.team,
+                "assignees": list(row.assignees),
+                "workdays": row.workdays,
+                "actual_start": _iso(row.actual_start),
+                "actual_finish": _iso(row.actual_finish),
+                "milestone": row.milestone,
+                "done_leaves": row.done_leaves,
+                "total_leaves": row.total_leaves,
             }
             for row in wbs.walk()
-        ]
+        ],
+        # 出来事（定例など）はガント上部のレーンとして表に出るので、開催日の集合まで指紋に含める。
+        "events": [
+            {
+                "id": event.id,
+                "name": event.name,
+                "lane": event.lane,
+                "occurrences": [d.isoformat() for d in event.occurrences],
+            }
+            for event in wbs.overlay.events
+        ],
     }
     return input_fingerprint(payload)[:12]
 

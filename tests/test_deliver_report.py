@@ -278,3 +278,59 @@ def test_the_report_reads_nothing_from_outside(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     html = _report(tmp_path)
     assert re.search(r"https?://|<link\b|<script\b[^>]*\bsrc=|<img\b", html) is None
+
+
+def test_a_done_milestone_without_a_recorded_finish_is_not_stamped_with_its_due(tmp_path: Path) -> None:
+    """done だが実績終了（closed）の記録が無いマイルストーンは、予定日を「実績」と名乗らない（粉飾しない・D1）。
+
+    pm も wbs_lint も done に closed を要求しないため到達可能。記録が無いことを明記し、実績が無いのに遅延も
+    断定しない（fail-closed：不明を都合よく埋めない）。
+    """
+    ep = tmp_path / "work" / "EP-90-x"
+    _write(ep / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    # due は 3 か月前・closed 無し。旧実装だと「達成／実績 2026-06-01」と予定日を実績に化けさせていた。
+    _write(ep / "T-1-m.md", {"id": "T-0001", "kind": "task", "status": "done", "due": "2026-06-01", "milestone": True})
+    _write(
+        ep / "T-2-t.md", {"id": "T-0002", "kind": "task", "status": "todo", "start": "2026-09-01", "due": "2026-09-05"}
+    )
+    ms = _report(tmp_path).split("マイルストーンの状況")[1].split("</section>")[0]
+    assert "実績日の記録なし" in ms
+    assert "実績 2026-06-01" not in ms  # 予定日を実績として刻まない
+    assert "遅れて達成" not in ms  # 記録が無いのに遅延を断定しない
+
+
+def test_the_report_heading_names_the_resolved_commit_of_the_baseline(tmp_path: Path) -> None:
+    """--against の見出しに、合意した時点の**解決コミット**を併記する（ref だけだと後から動く・W1）。"""
+    _scaffold(tmp_path)
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-qm", "seed")
+    _commit(tmp_path, "初期")
+    out = tmp_path / "REPORT.html"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["report", "--root", str(tmp_path), "--against", "HEAD", "--out", str(out), "--today", TODAY.isoformat()],
+    )
+    assert result.exit_code == 0, result.output
+    html = out.read_text(encoding="utf-8")
+    assert "合意した時点: HEAD（" in html and "）" in html  # ref と解決コミットを（…）で併記
+
+
+def test_report_against_refuses_cleanly_when_the_overlay_is_broken(tmp_path: Path) -> None:
+    """壊れた overlay で report --against を渡しても、素の traceback でなく綺麗に拒否する（D2・関門の一本化）。"""
+    from pydantic import ValidationError
+
+    _scaffold(tmp_path)
+    _git(tmp_path, "init", "-q")
+    _commit(tmp_path, "初期")
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "wbs.yaml").write_text("calendar: {extra_holidays: 'not-a-list'}\n", encoding="utf-8")
+    _commit(tmp_path, "overlay を壊す")
+    out = tmp_path / "REPORT.html"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["report", "--root", str(tmp_path), "--against", "HEAD~1", "--out", str(out), "--today", TODAY.isoformat()],
+    )
+    assert result.exit_code == 1
+    assert "組み立てられない" in result.output
+    assert not out.exists()
+    assert not isinstance(result.exception, ValidationError)  # 未処理の traceback を出さない

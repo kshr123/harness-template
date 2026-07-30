@@ -85,6 +85,10 @@ def _export(
             baseline_map = dict(baseline.baseline_map(root, against, today=base))
         except baseline.BaselineError as exc:
             _fail(str(exc))
+        except ValueError as exc:  # 合意時点の overlay/frontmatter が壊れている等（素の traceback にしない）
+            _fail(f"合意した時点の WBS を組み立てられない: {exc}")
+        except OSError as exc:
+            _fail(f"合意した時点の WBS を組み立てられない: {exc}")
     if at is None:
         _export_from(
             root,
@@ -138,19 +142,28 @@ def _report(
     from harness.deliver import report as report_mod
 
     base = _base_date(today)
+    # 拒否の関門（組み立て失敗・検査・日程 0 件・未コミット）を先に通す＝--against でも唯一の関門（_prepare）を
+    # 経る。現行木の組み立て失敗はここで綺麗に拒否される（素の traceback を出さない）。
+    built, provenance, dirty = _prepare(root, root, today=base, draft=draft, commit=None)
     changes = None
+    against_label = None
     if against is not None:
+        against_label = stamp.label_for(root, against)  # ref だけでなく解決コミットを併記（後から動くのを防ぐ）
+        # 合意した時点の木の組み立ても、素の traceback にせず拒否に畳む（BaselineError 以外の組み立て失敗も）。
         try:
             changes = baseline.changes_since(root, against, today=base)
         except baseline.BaselineError as exc:
             _fail(str(exc))
-    built, provenance, dirty = _prepare(root, root, today=base, draft=draft, commit=None)
+        except ValueError as exc:  # 合意時点の overlay/frontmatter が壊れている等
+            _fail(f"合意した時点の WBS を組み立てられない: {exc}")
+        except OSError as exc:
+            _fail(f"合意した時点の WBS を組み立てられない: {exc}")
     html = report_mod.render_report(
         built,
         today=base,
         provenance=provenance,
         draft=dirty,
-        against=against,
+        against=against_label,
         changes=changes,
         horizon_days=horizon_days,
         trace=pm.requirement_trace(root),  # 要件トレース被覆（要件層が無ければ節ごと出ない）

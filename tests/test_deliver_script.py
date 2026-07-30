@@ -114,3 +114,17 @@ def test_the_event_form_never_shows_the_rrule_expression(tmp_path: Path) -> None
     assert "直接編集" not in html and "直接書いても" not in html  # 「直接書ける」導線も消す
     # 数式を見せる行は row('規則…', rule) で作っていた＝その呼び出しが無いこと（rule は控えの変数に降格）。
     assert "row('規則" not in html and 'row("規則' not in html
+
+
+def test_the_fold_controls_target_only_toggle_buttons(tmp_path: Path) -> None:
+    """折りたたみ／展開・個別クリックが対象にするのは親行の button.tw だけ（末端の空 span.tw に三角を書かない・E）。
+
+    素の `.tw` を対象にすると、子を持たない末端行の空 `<span class="tw">` にも `▸`/`▾` が書き込まれてしまう。
+    実際の runtime 挙動は test_deliver_browser の実測が確かめる。ここは選択子の逆戻りを常時（Chrome 無しでも）止める。
+    """
+    html = _page(tmp_path, editable=False)
+    assert '<span class="tw"></span>' in html  # 末端は三角を持たない空の span
+    assert "querySelectorAll('button.tw')" in html  # 一括トグルの対象は実ボタンに限る
+    assert "closest('button.tw')" in html  # 個別クリックも実ボタンに限る
+    assert "querySelectorAll('.tw')" not in html  # 素の .tw を巻き込まない
+    assert "closest('.tw')" not in html

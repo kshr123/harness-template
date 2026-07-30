@@ -354,9 +354,10 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None,
 
         自動ではコミットしない（コミットは作業単位 ID を要る人・エージェントの行為）。
         """
+        nonlocal edit  # 取り込みで土台が進むので、新しいセッションを持ち直す（2 度目の apply の誤検知を防ぐ）
         _check_token(x_wbs_token)
         try:
-            written = session_mod.apply(edit, today=today, confirm=payload.confirm)
+            written, edit = session_mod.apply(edit, today=today, confirm=payload.confirm)
         except EditRejected as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"written": written}
@@ -364,10 +365,11 @@ def create_app(root: Path, *, today: date, token: str, idle: Idle | None = None,
     @app.post("/discard")
     def _discard(x_wbs_token: str | None = Header(default=None)) -> dict[str, int]:
         """編集の場を捨てて、いまの正本から写し直す（正本は変わらない）。"""
+        nonlocal edit  # 写し直しで新しいセッションになるので持ち直す（古い土台を握り続けない）
         _check_token(x_wbs_token)
         with LOCK:
             dropped = len(edit.changed())
-            session_mod.discard(edit)
+            edit = session_mod.discard(edit)
             undo.clear()
         return {"dropped": dropped}
 

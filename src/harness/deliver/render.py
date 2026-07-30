@@ -1187,7 +1187,7 @@ _VIEW_SCRIPT = r"""
   recount();
   var saved=null; try{ saved=sessionStorage.getItem('wbs-unit'); }catch(e){}
   unit(saved || (scroll ? scroll.dataset.unit : 'w'));
-  function toggles(){ return document.querySelectorAll('.tw'); }
+  function toggles(){ return document.querySelectorAll('button.tw'); }  // 実ボタンだけ（末端の空 span.tw は除く）
   function setAll(open){
     toggles().forEach(function(b){ b.setAttribute('aria-expanded', open?'true':'false');
                                    b.textContent = open?'▾':'▸'; });
@@ -1200,7 +1200,7 @@ _VIEW_SCRIPT = r"""
   if(fold) fold.addEventListener('click', function(){ setAll(false); });
   if(unfold) unfold.addEventListener('click', function(){ setAll(true); });
   function hidden(code){
-    var shut=document.querySelectorAll('.tw[aria-expanded="false"]');
+    var shut=document.querySelectorAll('button.tw[aria-expanded="false"]');
     for(var i=0;i<shut.length;i++){
       var c=shut[i].dataset.code;
       if(code!==c && code.indexOf(c+'.')===0) return true;
@@ -1208,7 +1208,7 @@ _VIEW_SCRIPT = r"""
     return false;
   }
   document.addEventListener('click',function(e){
-    var b=e.target.closest && e.target.closest('.tw'); if(!b) return;
+    var b=e.target.closest && e.target.closest('button.tw'); if(!b) return;
     var open=b.getAttribute('aria-expanded')==='true';
     b.setAttribute('aria-expanded', open?'false':'true');
     b.textContent = open?'▸':'▾';

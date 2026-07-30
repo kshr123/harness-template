@@ -213,3 +213,47 @@ def test_a_badly_written_base_date_is_explained_not_dumped(tmp_path: Path) -> No
     assert result.exit_code == 1
     assert "YYYY-MM-DD" in result.output
     assert "Traceback" not in result.output
+
+
+def test_the_fingerprint_covers_every_value_shown_on_the_page(tmp_path: Path) -> None:
+    """表に出る値（チーム・担当・実績日・milestone）を 1 つだけ変えると指紋が変わる（B）。
+
+    旧指紋に既に入っていた値（status・日付）は動かさず、入っていなかった値だけを差し替えて穴を突く
+    （担当だけ変えた版が同じ指紋にならないことを確かめる）。
+    """
+    ep = tmp_path / "work" / "EP-90-alpha"
+    _write(ep / "item.md", {"id": "EP-90", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    base_meta = {
+        "id": "T-9001",
+        "kind": "task",
+        "status": "done",
+        "start": "2026-08-03",
+        "due": "2026-08-07",
+        "created": "2026-08-03",
+        "closed": "2026-08-06",
+    }
+
+    def fp(meta: dict[str, Any]) -> str:
+        _write(ep / "T-9001-a.md", meta)
+        return stamp.tree_fingerprint(_built(tmp_path))
+
+    base = fp(base_meta)
+    assert fp({**base_meta, "team": "データ"}) != base  # チーム
+    assert fp({**base_meta, "owner": "鈴木"}) != base  # 担当（owner→assignees）
+    assert fp({**base_meta, "closed": "2026-08-07"}) != base  # 実績終了日
+    assert fp({**base_meta, "milestone": True}) != base  # マイルストーンの別
+
+
+def test_the_fingerprint_covers_events(tmp_path: Path) -> None:
+    """出来事（定例など）はガント上部のレーンとして表に出るので、開催日が増えれば指紋が変わる（B）。"""
+    from harness.deliver.overlay import load_overlay
+
+    _scaffold(tmp_path)
+    base = stamp.tree_fingerprint(wbs_mod.build(tmp_path, today=TODAY))
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "wbs.yaml").write_text(
+        "events:\n  - id: EV-001\n    name: 定例\n    dtstart: 2026-08-03\n    rrule: FREQ=WEEKLY;COUNT=3\n",
+        encoding="utf-8",
+    )
+    after = stamp.tree_fingerprint(wbs_mod.build(tmp_path, today=TODAY, overlay=load_overlay(tmp_path)))
+    assert after != base

@@ -246,3 +246,59 @@ def test_the_spreadsheet_folds_by_depth(tmp_path: Path) -> None:
     assert sheet is not None
     assert sheet.row_dimensions[6].outlineLevel == 0  # 親（1）
     assert sheet.row_dimensions[7].outlineLevel == 1  # 子（1.1）
+
+
+def test_export_against_refuses_cleanly_when_the_baseline_tree_is_broken(tmp_path: Path) -> None:
+    """壊れた overlay の時点を --against に渡しても、素の traceback でなく綺麗に拒否する（D2・baseline 側も畳む）。"""
+    import subprocess
+
+    from pydantic import ValidationError
+
+    _scaffold(tmp_path)
+
+    def g(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args], capture_output=True, text=True, encoding="utf-8", check=False
+        )
+
+    g("init", "-q")
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "wbs.yaml").write_text("calendar: {extra_holidays: 'not-a-list'}\n", encoding="utf-8")
+    g("add", "-A")
+    g(
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "-qm",
+        "broken",
+        "--no-verify",
+    )
+    (tmp_path / "docs" / "wbs.yaml").write_text(
+        "project: OK\n", encoding="utf-8"
+    )  # 現行は直す＝壊れているのは baseline 側
+    g("add", "-A")
+    g(
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "-qm",
+        "fixed",
+        "--no-verify",
+    )
+    out = tmp_path / "WBS.html"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["export", "--root", str(tmp_path), "--against", "HEAD~1", "--out", str(out), "--today", TODAY.isoformat()],
+    )
+    assert result.exit_code == 1
+    assert "組み立てられない" in result.output
+    assert not out.exists()
+    assert not isinstance(result.exception, ValidationError)  # 未処理の traceback を出さない

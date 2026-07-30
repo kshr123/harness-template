@@ -188,3 +188,25 @@ def test_apply_and_discard_need_the_token(tmp_path: Path) -> None:
     client.post("/edit", json={"ref": "T-9001", "field": "status", "value": "in-progress"}, headers=AUTH)
     assert client.post("/apply", json={}).status_code == 403
     assert client.post("/discard").status_code == 403
+
+
+def test_a_second_apply_after_more_edits_succeeds(tmp_path: Path) -> None:
+    """取り込んだ後に続けて編集して 2 度目に取り込んでも、自分の apply を「別の手」と誤検知して 409 にならない（A）。
+
+    取り込みで土台は「いまの正本」へ進む。サーバが古い土台を握り続けると、1 度目の apply で動いた正本が
+    drift と見なされ 2 度目が 409 になる（「続けて編集できる」設計に反する）。
+    """
+    _scaffold(tmp_path)
+    client = _client(tmp_path)
+    client.post("/edit", json={"ref": "T-9001", "field": "status", "value": "in-progress"}, headers=AUTH)
+    first = client.get("/changes").json()
+    assert client.post("/apply", json={"confirm": first["confirm"]}, headers=AUTH).status_code == 200
+    # 続けて別の行を直し、もう一度取り込む。
+    client.post("/edit", json={"ref": "T-9002", "field": "status", "value": "in-progress"}, headers=AUTH)
+    second = client.get("/changes").json()
+    assert second["files"], "2 度目の変更が写しに出ていない"
+    applied = client.post("/apply", json={"confirm": second["confirm"]}, headers=AUTH)
+    assert applied.status_code == 200, applied.text
+    assert _status_of(tmp_path, "T-9002") == "in-progress"
+    # 取り込む変更が無くなった状態での apply は従来どおり拒否される（fail-closed は維持）。
+    assert client.post("/apply", json={}, headers=AUTH).status_code == 409

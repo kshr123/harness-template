@@ -229,3 +229,64 @@ def test_a_manual_row_without_any_section_fails(tmp_path: Path) -> None:
     assert len(messages) == 1
     assert "W-001" in messages[0]
     assert "sections" in messages[0]  # 直し方を添える
+
+
+def test_a_manual_row_depending_on_a_missing_id_fails(tmp_path: Path) -> None:
+    """手動行の depends_on が実在しない ID を指すと失敗する（pm は手動行を知らないのでここで塞ぐ・C）。"""
+    _scaffold(tmp_path)
+    overlay = Overlay.model_validate(
+        {
+            "sections": [
+                {"name": "設計", "entries": [{"work": "EP-90"}, {"row": "W-001"}]},
+                {"name": "構築", "entries": [{"work": "EP-91"}]},
+            ],
+            "rows": [{"id": "W-001", "name": "承認", "status": "todo", "depends_on": ["T-4040"]}],
+        }
+    )
+    messages = _errors(tmp_path, overlay)
+    assert len(messages) == 1
+    assert "W-001" in messages[0] and "T-4040" in messages[0]
+
+
+def test_a_manual_row_depending_on_an_existing_id_is_fine(tmp_path: Path) -> None:
+    """手動行が実在する作業単位・他の手動行を指すのは通る（参照先＝作業単位 ID ∪ 手動行 ID）。"""
+    _scaffold(tmp_path)
+    overlay = Overlay.model_validate(
+        {
+            "sections": [
+                {"name": "設計", "entries": [{"work": "EP-90"}, {"row": "W-001"}]},
+                {"name": "構築", "entries": [{"work": "EP-91"}]},
+            ],
+            "rows": [{"id": "W-001", "name": "承認", "status": "todo", "depends_on": ["T-9002"]}],
+        }
+    )
+    assert _errors(tmp_path, overlay) == []
+
+
+def test_a_milestone_dated_before_its_predecessor_ends_fails(tmp_path: Path) -> None:
+    """マイルストーン（点）も依存順序の検査に入れる＝実効開始（その日 due）で先行との前後を見る（D）。
+
+    `start is None` で飛ばす旧実装では、先行の終了より前に置いた節目が見逃されていた。
+    """
+    _scaffold(tmp_path)  # T-9001 の終了予定は 2026-08-07
+    overlay = Overlay.model_validate(
+        {
+            "sections": [
+                {"name": "設計", "entries": [{"work": "EP-90"}, {"row": "W-002"}]},
+                {"name": "構築", "entries": [{"work": "EP-91"}]},
+            ],
+            "rows": [
+                {
+                    "id": "W-002",
+                    "name": "検収",
+                    "status": "todo",
+                    "milestone": True,
+                    "due": "2026-08-05",
+                    "depends_on": ["T-9001"],
+                }
+            ],
+        }
+    )
+    messages = _errors(tmp_path, overlay)
+    assert len(messages) == 1
+    assert "W-002" in messages[0] and "期日" in messages[0]

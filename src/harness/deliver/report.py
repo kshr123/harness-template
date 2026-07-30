@@ -80,12 +80,16 @@ def _milestones_section(wbs: Wbs, today: date) -> str:
         name = f'<span class="ms">◆</span> {_esc(row.name)}'
         if row.status is Status.done:
             done_day = row.actual_finish
-            if done_day is not None and row.due is not None and done_day > row.due:
+            if done_day is None:
+                # done だが実績終了日の記録が無い＝予定日を「実績」と名乗ると粉飾になる。不明を明記する
+                # （fail-closed：不明を都合よく埋めない。記録が無ければ遅延の有無も判定しない）。
+                items.append(_item(name, '<span class="badge b-done">達成</span>', "実績日の記録なし"))
+            elif row.due is not None and done_day > row.due:
                 # 期日を過ぎてからの達成＝予定と実績の両方を出す（「達成」で塗り潰さない）。
                 when = f"予定 {_fmt(row.due)} → 実績 {_fmt(done_day)}"
                 items.append(_item(name, '<span class="badge b-late">遅れて達成</span>', when))
             else:
-                items.append(_item(name, '<span class="badge b-done">達成</span>', f"実績 {_fmt(done_day or row.due)}"))
+                items.append(_item(name, '<span class="badge b-done">達成</span>', f"実績 {_fmt(done_day)}"))
         elif row.late:
             days = (today - row.due).days if row.due is not None else 0
             items.append(
