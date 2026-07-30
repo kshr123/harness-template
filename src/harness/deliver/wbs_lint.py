@@ -178,7 +178,11 @@ def check(root: Path, *, today: date, overlay: Overlay | None = None) -> list[pm
     known_ids = _all_unit_ids(nodes) | {r.id for r in over.rows}
     for row in over.rows:
         for dep in row.depends_on:
-            if dep not in known_ids:
+            if dep == row.id:
+                problems.append(
+                    pm.Problem("error", f"手動行 '{row.id}' が自分自身に依存している（depends_on・wbs_lint）")
+                )
+            elif dep not in known_ids:
                 problems.append(
                     pm.Problem(
                         "error",

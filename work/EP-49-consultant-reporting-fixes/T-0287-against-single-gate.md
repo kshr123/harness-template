@@ -10,6 +10,7 @@ requirements: []
 depends_on: [T-0286]
 verified_by:
   - tests/test_deliver_report.py::test_report_against_refuses_cleanly_when_the_overlay_is_broken
+  - tests/test_deliver_report.py::test_report_against_refuses_cleanly_when_the_baseline_tree_is_broken
   - tests/test_deliver_formats.py::test_export_against_refuses_cleanly_when_the_baseline_tree_is_broken
 ---
 # T-0287 `--against` 経路を `_prepare` の関門に畳む（D2）

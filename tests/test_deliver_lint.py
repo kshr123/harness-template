@@ -290,3 +290,20 @@ def test_a_milestone_dated_before_its_predecessor_ends_fails(tmp_path: Path) -> 
     messages = _errors(tmp_path, overlay)
     assert len(messages) == 1
     assert "W-002" in messages[0] and "期日" in messages[0]
+
+
+def test_a_manual_row_depending_on_itself_fails(tmp_path: Path) -> None:
+    """手動行が自分自身に依存しているのは失敗する（長さ 1 の循環＝無意味・fail-closed）。"""
+    _scaffold(tmp_path)
+    overlay = Overlay.model_validate(
+        {
+            "sections": [
+                {"name": "設計", "entries": [{"work": "EP-90"}, {"row": "W-001"}]},
+                {"name": "構築", "entries": [{"work": "EP-91"}]},
+            ],
+            "rows": [{"id": "W-001", "name": "承認", "status": "todo", "depends_on": ["W-001"]}],
+        }
+    )
+    messages = _errors(tmp_path, overlay)
+    assert len(messages) == 1
+    assert "W-001" in messages[0] and "自分自身" in messages[0]

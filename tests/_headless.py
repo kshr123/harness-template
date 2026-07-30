@@ -54,6 +54,8 @@ def dump_dom(html: str, *, inject: str) -> str:
             timeout=60,
             check=False,
         )
+        # Chrome の実体は在る（chrome_path で確かめた）。ここで失敗するのは環境不在でなく実際の異常なので、
+        # skip でなく失敗にする（skip にすると「Chrome が落ちても緑」という fail-open の窓ができる）。
         if proc.returncode != 0:
-            pytest.skip("ISS-0018: headless Chrome が失敗したので実測を飛ばす（Chrome を入れた環境では回る）")
+            raise AssertionError(f"headless Chrome が異常終了した（rc={proc.returncode}）: {proc.stderr[:500]}")
         return proc.stdout

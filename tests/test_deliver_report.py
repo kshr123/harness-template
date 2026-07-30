@@ -334,3 +334,28 @@ def test_report_against_refuses_cleanly_when_the_overlay_is_broken(tmp_path: Pat
     assert "組み立てられない" in result.output
     assert not out.exists()
     assert not isinstance(result.exception, ValidationError)  # 未処理の traceback を出さない
+
+
+def test_report_against_refuses_cleanly_when_the_baseline_tree_is_broken(tmp_path: Path) -> None:
+    """合意した時点（baseline）側の overlay が壊れていても、報告は素の traceback でなく綺麗に拒否する（D2・report 側）。
+
+    現行木は正常・baseline だけ壊す＝_prepare は通り、changes_since が壊れた baseline を組み立てる経路を突く。
+    """
+    from pydantic import ValidationError
+
+    _scaffold(tmp_path)
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "wbs.yaml").write_text("calendar: {extra_holidays: 'not-a-list'}\n", encoding="utf-8")
+    _commit(tmp_path, "壊れた baseline")
+    (tmp_path / "docs" / "wbs.yaml").write_text("project: OK\n", encoding="utf-8")  # 現行は直す
+    _commit(tmp_path, "overlay を直す")
+    out = tmp_path / "REPORT.html"
+    result = CliRunner().invoke(
+        wbs_app,
+        ["report", "--root", str(tmp_path), "--against", "HEAD~1", "--out", str(out), "--today", TODAY.isoformat()],
+    )
+    assert result.exit_code == 1
+    assert "組み立てられない" in result.output
+    assert not out.exists()
+    assert not isinstance(result.exception, ValidationError)  # 未処理の traceback を出さない

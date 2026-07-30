@@ -11,6 +11,7 @@ depends_on: [EP-48]
 verified_by:
   - tests/test_deliver_lint.py::test_a_manual_row_depending_on_a_missing_id_fails
   - tests/test_deliver_lint.py::test_a_manual_row_depending_on_an_existing_id_is_fine
+  - tests/test_deliver_lint.py::test_a_manual_row_depending_on_itself_fails
   - tests/test_deliver_lint.py::test_a_milestone_dated_before_its_predecessor_ends_fails
 ---
 # T-0291 手動行 depends_on の参照検査＋マイルストーンの依存順序（C+D）
