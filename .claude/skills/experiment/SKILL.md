@@ -7,8 +7,29 @@ description: DS の実験（仮説検証・モデル比較・特徴量の効果�
 
 ## 手順
 1. 仮説を 1 つ決め、`work/…/E-xxxx-<短い説明>/` を作る（item.md は kind: experiment、SPEC.md に仮説と判定基準＝どの指標がいくつ動いたら採択）。
-2. 直近の実験フォルダ（無ければ `templates/experiment/`）を丸ごとコピーし、**config.yaml だけを書き換える**。config は `ExperimentSpec`（pydantic v2・extra=forbid・`harness.ds.experiment`）が型の正本で、train.py が起動時に検証する＝**未知キー（typo）・型違い・空の variants は起動時エラー**。`thresholds`（指標名→合否の閾値の辞書）は config キー。**決定境界の float は config キーでなく関数引数** `run_experiment(..., decision_threshold=...)`（既定 0.5）＝雛形は OOF から `select_threshold_max_f1` で選ぶので config に `decision_threshold` は書かない（書くと extra=forbid で起動時エラー）。`metrics`/`stratify_by`/`order_by`/`id_column` は optional な config キーで、雛形が run_experiment へそのまま流す（黙って無視されない）。変種は variants 節（features / encode）で持つ。入力は `data` 節（`{kind: synthetic}` か `{kind: table, table_id: <ID>}`）・目的変数は `target`・モデルは `model` 節（`{kind: logreg, ...params}`）で選ぶ。モデル比較の実験は variant 側に `model` を書く。**回帰の実験**は `task: regression`・`model: {kind: ridge}`・`thresholds: {rmse: ...}` にする（`run_experiment(task=)` が指標と予測の種類を切り替える。分類の閾値選択・保存の後処理は回帰では雛形をコピーして外す）。
-3. 特徴量・エンコーダ・モデルは `uv run data blocks` / `data encoders` / `data models`（実データは `data list`）の一覧から kind を選んで config に書く。一覧に無い特徴量は features スキルへ。特徴選択は `uv run data selectors`（config の select 節＝to_numpy と model の間の 1 段・run_cv の clone-per-fold で train のみ選択＝リークなし）、ハイパラ探索は `uv run data tuners`（model 節に tune: を足すと *SearchCV で包む＝nested CV）、`thresholds` に書ける指標名は `uv run data metrics`（向き（大/小）つき・本体は sklearn.metrics）の一覧から選ぶ。入力のデータ源（config の data 節に書ける kind）は `uv run data sources` の一覧から選ぶ。
+2. 直近の実験フォルダ（無ければ `templates/experiment/`）を丸ごとコピーし、**config.yaml だけを書き換える**。
+   config の型の正本は `ExperimentSpec`（pydantic v2・extra=forbid・`harness.ds.experiment`）で、train.py が起動時に
+   検証する＝**未知キー（typo）・型違い・空の variants は起動時エラー**。書ける節：
+   - **必須** … `data`（入力。`{kind: synthetic}` か `{kind: table, table_id: <ID>}`）・`target`（目的変数）・
+     `model`（`{kind: logreg, ...params}`）。
+   - **変種** … `variants`（features / encode で持つ）。モデル比較は variant 側に `model` を書く
+     （`variants: {a: {model: {kind: ridge}}, b: {model: {kind: hist_gb_reg}}}`）。変種はコードの分岐で持たない。
+   - **合否** … `thresholds`（指標名→合否の閾値の辞書）。
+   - **optional** … `metrics`/`stratify_by`/`order_by`/`id_column`（雛形が run_experiment へそのまま流す＝黙って
+     無視されない）。
+   - **回帰** … `task: regression`・`model: {kind: ridge}`・`thresholds: {rmse: ...}`（`run_experiment(task=)` が
+     指標と予測の種類を切り替える。分類の閾値選択・保存の後処理は回帰では雛形をコピーして外す）。
+   - **書かないもの** … 決定境界の float（`decision_threshold`）は config キーでなく**関数引数**
+     `run_experiment(..., decision_threshold=...)`（既定 0.5）。雛形は OOF から `select_threshold_max_f1` で
+     選ぶので config に書くと extra=forbid で起動時エラー。
+3. 特徴量・エンコーダ・モデル・指標・データ源は**一覧から kind を選んで config に書く**（一覧に無い特徴量は
+   features スキルへ）：
+   - `uv run data blocks` / `data encoders` / `data models`（実データは `data list`）… 特徴量・エンコーダ・モデル。
+   - `uv run data selectors` … 特徴選択（config の select 節＝to_numpy と model の間の 1 段・run_cv の
+     clone-per-fold で train のみ選択＝リークなし）。
+   - `uv run data tuners` … ハイパラ探索（model 節に `tune:` を足すと *SearchCV で包む＝nested CV）。
+   - `uv run data metrics` … `thresholds` に書ける指標名（向き（大/小）つき・本体は sklearn.metrics）。
+   - `uv run data sources` … 入力のデータ源（config の data 節に書ける kind）。
 4. code/train.py は**触らない**：config → `load_dataset` → `build_model` → `build_estimator` → `run_experiment` → store 保存 → results/ を一気通貫で回す雛形（e2e が毎回実行する正本）。入力・モデルも config で選ぶので手を入れる必要はない。
 5. `python code/train.py --variant <名> --test` でスモーク → e2e テスト 1 本（subprocess で train.py を叩く）を足し、item の verified_by に明記して verify に接続。
 6. 本規模を実行し、SPEC の判定基準どおり結論を results/summary.yaml に記録（負の結果も記録で done）。気づきは `docs/learnings.md` へ。
