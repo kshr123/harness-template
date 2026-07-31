@@ -1,10 +1,5 @@
 # agent — LLM エージェントの開発・評価・配信（契約と CLI）
 
-- **読者**：人（LLM エージェントを作る・評価する・運用する開発者／その契約を確かめるレビュアー）
-- **種別**：reference（手順・宣言のキー・ログの行形式の契約）
-- **分かること**：AgentSpec の書き方、評価→採用→配信→監視の CLI、各ログ・宣言の契約
-- **ここからやること**：`uv run agent providers`（使える部品）→ 宣言を書き `uv run agent run --test`。設計内部は `docs/agent-code.md`
-
 LLM エージェントを、コードでなく **1 つの宣言**（AgentSpec＝プロンプト＋モデル＋ツール＋方針の YAML）として
 作り、育て、配るためのプロファイル。宣言を golden set（期待する出力つきの評価例集）で採点し、基準を
 満たした版だけを champion（現在の採用版）に採用して配信・監視する。
@@ -268,7 +263,7 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 （トークン/ターンの分位）・ツール使用頻度**を YAML で出す。`ds/monitor`（`data monitor`）と同じ規律で作る：
 
 - **処理を止めない**：率は band（安定/要注意/大変化 の 3 段階の重大度。0.05/0.2 の目安）で
-  人が読む。exit code は常に 0（自動停止しない）。
+  ユーザーが読む。exit code は常に 0（自動停止しない）。
 - **壊れ行・契約違反行は警告して読み飛ばす**（件数は `n_skipped` に出る）。全体が読めなくなるより縮退を選ぶ。
 - **消費するキー（time/stop_reason/usage/turns/tools_used）だけ検証する**。
 - 分位はニアレストランク法（補間しない）。実装は stdlib のみ（numpy/polars/ds 非依存＝core の軽さと

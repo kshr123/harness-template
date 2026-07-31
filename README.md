@@ -1,10 +1,5 @@
 # harness-template（AIコーディング開発基盤）
 
-- **読者**：人（このリポジトリを初めて触る開発者・チーム）
-- **種別**：overview（全体像）
-- **分かること**：この基盤が何で・誰のためか・どこに何があるか
-- **ここからやること**：セットアップし、次の文書へ進む（人は [docs/README.md](docs/README.md)、エージェントは `AGENTS.md`）
-
 ## これは何か
 - AI コーディング（Claude Code / Codex）中心で開発を回すための、**複製して使うプロジェクトテンプレート（土台）**。
 - **1 リポジトリ＝1 案件**（顧客プロジェクト／開発テーマ）で丸ごと複製して使う（手順は [docs/template-copy.md](docs/template-copy.md)）。
@@ -37,7 +32,7 @@ uvx pre-commit run --all-files   # コミット直前の検査
 - `uv run wbs --help` … 顧客向け WBS・ガント（[docs/deliver.md](docs/deliver.md)）
 
 ## どこに何があるか
-- `docs/` … 人向けの文書。索引は [docs/README.md](docs/README.md)（読む順・ID 凡例・文書地図）
+- `docs/` … 文書。索引は [docs/README.md](docs/README.md)
 - `work/` … 作業単位（エピック・タスク・調査・実験）。**親はフォルダ**＝1 まとまりのもの（説明・SPEC・コード・結果）を同居させる
 - `issues/` … 課題（発見した問題・リスク・疑問）
 - `src/<pkg>/` … 再利用する共有コード ／ `tests/` … その単体テスト
