@@ -30,6 +30,10 @@ jobs:
       - name: 描画の振る舞い検査（実 Chrome・既定の verify では除外＝毎回起動しない・merge 前にここで必須実行）
         # ubuntu/windows ランナーは Chrome 同梱（tests/_headless._APP_PATHS）。幾何は verify 内の
         # test_deliver_geometry（unit）が Chrome 無しで毎回検証済み＝ここは JS/DOM の振る舞いだけを守る。
+        # HARNESS_REQUIRE_BROWSER=1＝Chrome 欠如を skip（緑）でなく fail（赤）にする（ランナーから Chrome が
+        # 消えても黙って空振りしない＝fail-closed。browser テストの唯一の必須実行点なので緑の空振りを許さない）。
+        env:
+          HARNESS_REQUIRE_BROWSER: "1"
         run: uv run pytest -q -m browser
 
   audit:

@@ -50,12 +50,18 @@ def _data_lint() -> None:
 def _data_list() -> None:
     """テーブル定義を scope→role でグループ表示する（生成ビュー）。"""
     from harness.ds import schema
+    from harness.pm import Problem
 
-    schemas = schema.load_schemas(_root())
+    problems: list[Problem] = []
+    schemas = schema.load_schemas(_root(), problems)
     for scope in sorted({s.scope for s in schemas}):
         typer.echo(f"[scope: {scope}]")
         for s in sorted((x for x in schemas if x.scope == scope), key=lambda x: (x.role or "", x.id)):
             typer.echo(f"  {s.layer.value}\t{s.role or '-'}\t{s.id}\t{s.description}")
+    # 不正で読み込めなかった定義は黙って落とさず、末尾に理由つきで出す（一覧から消えたことに気づけるように）。
+    for p in problems:
+        if p.level == "error":
+            typer.echo(f"[読み込めない] {p.message}")
 
 
 @data_app.command("blocks")

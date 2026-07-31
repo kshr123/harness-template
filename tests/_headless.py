@@ -8,6 +8,7 @@ JS 構文の検査は Chrome 無しでも常に回るので、fail-open には�
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -38,6 +39,13 @@ def chrome_path() -> str:
         found = shutil.which(name)
         if found:
             return found
+    # browser テストは既定の verify から除外したので、CI が唯一の必須実行点。CI では `HARNESS_REQUIRE_BROWSER=1`
+    # を立て、Chrome 欠如を skip（緑）でなく fail（赤）にする＝ランナーから Chrome が消えても黙って空振りしない
+    # （fail-closed）。ローカルは従来どおり skip（Chrome が無くても verify は回る）。
+    if os.environ.get("HARNESS_REQUIRE_BROWSER"):
+        pytest.fail(
+            "HARNESS_REQUIRE_BROWSER=1 だが Chrome が見つからない（CI に Chrome が積まれていない＝実測が空振り）"
+        )
     pytest.skip("ISS-0018: この環境に Chrome が無いので実測を飛ばす（Mac/Windows/Linux いずれも Chrome があれば回る）")
 
 
