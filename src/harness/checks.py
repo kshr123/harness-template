@@ -289,9 +289,33 @@ def _run_invariant_checks(root: Path) -> bool:
     return ok
 
 
-def run_check(root: Path, level: str = "full") -> int:
-    """検証を実行し、終了コードを返す（0=成功・非0=失敗）。"""
+def _run_one(root: Path, cmd: list[str]) -> bool:
+    """言語ツール 1 コマンドを走らせ、合否を返す。
 
+    - mypy には無効プロファイルの除外引数を実行時に足す（非 DS 案件で optional 依存の型スタブ欠落で落ちないよう。
+      checks.toml は `["mypy"]` のまま・除外は profiles から導く＝有効プロファイルの列挙と同じ入口）。
+    - pytest の exit 5（選んだ目印に該当するテストが 1 件も無い）は合格扱い（段階×目印の設計上その層が空でも失敗でない。
+      付け忘れは conftest の目印ガードが別途止める）。それ以外の非 0 は失敗。
+    """
+    if cmd[:1] == ["mypy"]:
+        cmd = cmd + _mypy_exclude_args(root)
+    # shlex.join：空白を含む引数（`-m "unit and not slow"`）を引用する＝表示をそのまま手で再実行できる。
+    print(f"  → {shlex.join(cmd)}")
+    result = subprocess.run(cmd, cwd=root)
+    if result.returncode != 0:
+        if result.returncode == 5 and cmd[:1] == ["pytest"]:
+            print("    （この目印に該当するテストは無し＝合格）")
+            return True
+        return False
+    return True
+
+
+def run_check(root: Path, level: str = "full", scope: str = "all") -> int:
+    """検証を実行し、終了コードを返す（0=成功・非0=失敗）。
+
+    `scope="all"`（既定）＝レベルに応じて全部走らせる（`verify` は full＝権威ある完了判定）。
+    `scope="diff"`＝git 差分に応じて絞る**参考実行**（done の証拠にしない。振り分けの詳細は `harness.scope`）。
+    """
     if level not in LEVELS:
         print(f"不明なレベル: {level}（{', '.join(LEVELS)} のいずれか）")
         return 2
@@ -300,26 +324,45 @@ def run_check(root: Path, level: str = "full") -> int:
     # pytest の中でなくここ（無条件に走る層）に置く＝門番が門の内側に住まない。
     _verify_checks_config(root)
 
+    if scope == "diff":
+        return _run_scoped(root)
+    if scope != "all":
+        print(f"不明なスコープ: {scope}（all | diff のいずれか）")
+        return 2
+
     print(f"[check level={level}]")
     ok = _run_invariant_checks(root)
-
     for cmd in _load_commands(root, level):
-        # 無効なプロファイルのソース・テストを mypy の対象から外す（非 DS 案件では optional 依存が無い＝
-        # そのままだと strict が「型スタブが無い」で落ちる）。checks.toml は `["mypy"]` のまま・除外は
-        # profiles から実行時に導く（有効なプロファイルの列挙と同じ入口）。当リポは全有効＝除外なし。
-        if cmd[:1] == ["mypy"]:
-            cmd = cmd + _mypy_exclude_args(root)
-        # shlex.join：空白を含む引数（`-m "unit and not slow"`）を引用する＝表示をそのまま手で再実行できる。
-        print(f"  → {shlex.join(cmd)}")
-        result = subprocess.run(cmd, cwd=root)
-        if result.returncode != 0:
-            # pytest は「選んだ目印に該当するテストが 1 件も無い」を終了コード 5 で表す。
-            # 段階×目印の設計上、その層のテストがまだ無いのは失敗ではない（付け忘れは conftest の
-            # 目印ガードが別途止める）。5 だけは成功として扱い、それ以外の非 0 は失敗にする。
-            if result.returncode == 5 and cmd[:1] == ["pytest"]:
-                print("    （この目印に該当するテストは無し＝合格）")
-                continue
+        if not _run_one(root, cmd):
             ok = False
-
     print("成功（すべて通過）" if ok else "失敗（未通過あり）")
+    return 0 if ok else 1
+
+
+def _run_scoped(root: Path) -> int:
+    """git 差分に応じて絞った参考実行。不変条件は毎回全部（安く・横断的なので絞らない）・言語ツールとテストだけ絞る。
+
+    これは advisory＝回さない経路がありうるので done の証拠にしない。分類できない変更・検査インフラ・中核の
+    変更は build_plan が全実行（verify と同じ full）に落とす（fail-closed の過近似）。
+    """
+    from harness import scope as scope_mod
+
+    plan = scope_mod.build_plan(root)
+    print("[check scope=diff]（参考実行＝完了判定ではない。done は uv run verify の全成功だけ）")
+    print(f"  ・ {plan.reason}")
+    ok = _run_invariant_checks(root)
+    if plan.full:
+        cmds = _load_commands(root, "full")
+    else:
+        cmds = []
+        if plan.run_ruff:
+            cmds += [["ruff", "format", "--check", "."], ["ruff", "check", "."]]
+        if plan.run_mypy:
+            cmds.append(["mypy"])
+        if plan.pytest_files:
+            cmds.append(["pytest", "-q", "-m", "not slow", *plan.pytest_files])
+    for cmd in cmds:
+        if not _run_one(root, cmd):
+            ok = False
+    print("参考実行：問題なし（done の判定は uv run verify）" if ok else "参考実行：未通過あり")
     return 0 if ok else 1
