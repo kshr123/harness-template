@@ -27,7 +27,7 @@ stdlib のみに依存。
   （XXXX・xxxx・0000 や `<...>`・`…`）にすること。
 
 ID 参照の実在検査（`ISS-<番号>` 等）:
-- 接頭辞ごとに置き場ディレクトリを持つ（`_ID_HOMES`。ISS だけは `.harness/config.toml` の
+- 接頭辞ごとに置き場ディレクトリを持つ（`lintkit.ids.ID_HOMES`。ISS だけは `.harness/config.toml` の
   `issues.backend` で決まるので実行時に解決する＝github: backend なら検査しない）。
 - 置き場ディレクトリ自体が存在しない接頭辞への参照は、実体の有無に関わらずすべて error にする
   （T-0165：`docs/decisions/` を撤去した後も `DEC-xxxx` 参照が 8 箇所残っていた＝仕組みを撤去したのに
@@ -49,6 +49,7 @@ from pathlib import Path
 
 from harness import issues, pm
 from harness.init_project import CASE_AREA_ROOTS
+from harness.lintkit import ids
 
 
 def _covers(entry: str, ref: str) -> bool:
@@ -98,21 +99,11 @@ _CMD_RE = re.compile(r"\buv run ([A-Za-z0-9][\w-]*)")
 _FALLBACK_COMMANDS = frozenset({"verify", "status", "task-lint", "data"})
 # この文字が直後に続く一致は、glob・プレースホルダの途中で切れた断片なので捨てる。
 _GLOBBY = "*{<…"
-# 型録表記（例 ISS-0000 の説明用連番）を含むパスはプレースホルダとみなして拾わない。
-_PLACEHOLDER_RE = re.compile(r"XXXX|0000", re.IGNORECASE)
+# 型録表記のプレースホルダ（`XXXX|0000`）・ID 文法（接頭辞-番号）・置き場表は lintkit.ids に集約。
 # 拡張子もスラッシュ終端も持たないパス候補は、全体が ASCII のパス構成文字だけのときに限り検査する。
 # _PATH_RE の `\w` は Unicode を含む（日本語の散文の一部がパスに見えてしまう）ため、拡張子や末尾スラッシュ
 # という「パスである強い手掛かり」を持たない候補は、非 ASCII を含む＝散文とみなして拾わない（T-0165）。
 _ASCII_PATH_RE = re.compile(r"[A-Za-z0-9._/-]+")
-
-# ID 接頭辞 → 置き場ディレクトリ（root からの相対パス）。ISS は config（issues.backend）で決まるので
-# ここには含めず、_id_homes() で実行時に解決する。
-_ID_HOMES: dict[str, str] = {
-    "REQ": "docs/requirements",
-    "DEC": "docs/decisions",
-}
-_ID_PREFIXES = ("ISS", *_ID_HOMES)
-_ID_REF_RE = re.compile(rf"\b({'|'.join(_ID_PREFIXES)})-(\d+)\b")
 
 
 def _target_files(root: Path) -> list[Path]:
@@ -162,7 +153,7 @@ def _known_commands(root: Path) -> set[str]:
 
 def _id_homes(root: Path) -> dict[str, Path | None]:
     """接頭辞ごとの置き場（絶対パス）。ISS は config 次第で None（github backend＝検査しない）。"""
-    homes: dict[str, Path | None] = {prefix: root / rel for prefix, rel in _ID_HOMES.items()}
+    homes: dict[str, Path | None] = {prefix: root / rel for prefix, rel in ids.ID_HOMES.items()}
     homes["ISS"] = issues.local_dir(root)
     return homes
 
@@ -186,7 +177,7 @@ def _all_path_matches(text: str) -> list[str]:
         # ハイフン 1 つを挟んで glob・プレースホルダが続く（`work/EP-<番号>`・`docs/x-*.md` 等）のも断片。
         if nxt == "-" and end + 1 < len(text) and text[end + 1] in _GLOBBY:
             continue
-        if _PLACEHOLDER_RE.search(ref):
+        if ids.PLACEHOLDER_RE.search(ref):
             continue  # 型録表記（XXXX・0000 連番）はパスとして判定しない
         out.append(ref)
     return out
@@ -217,7 +208,7 @@ def _id_ref_problems(rel: str, text: str, homes: dict[str, Path | None], root: P
     その接頭辞への参照はすべて error（仕組みを撤去したのに参照が残っている状態を検出する）。
     """
     problems: list[pm.Problem] = []
-    for prefix, num in sorted(set(_ID_REF_RE.findall(text))):
+    for prefix, num in sorted(set(ids.ID_REF_RE.findall(text))):
         ref = f"{prefix}-{num}"
         home = homes.get(prefix)
         if home is None:

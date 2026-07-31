@@ -122,7 +122,10 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 ## 検査を足すとき
 
 1. `src/harness/<名前>.py` に `run_checks(root: Path) -> list[pm.Problem]` を書く。**docstring の 1 行目が
-   上の表の要約になる**ので、何を見て何を error にするかを 1 文で書く。
+   上の表の要約になる**ので、何を見て何を error にするかを 1 文で書く。共通の土台は再発明せず
+   **`src/harness/lintkit/`** を使う：`ids`（ID・プレースホルダ・語境界の文法）・`exempt.validate_exemptions`
+   （理由必須・fail-closed の免除表）・`Corpus`（root・相対パス・ast 解析キャッシュ）。ここは 1 度だけテスト
+   されているので、新しい検査はこれらを組み合わせて固有の判定だけを書けばよい。
 2. `src/harness/checks.py` の `INVARIANT_CHECKS` に加える。
 3. `uv run doc-sync` で上の表を作り直し、生成結果ごとコミットする。
 
