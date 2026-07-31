@@ -1,5 +1,10 @@
 # stats プロファイル（ベイズ統計モデリング）
 
+- **読者**：人（データサイエンティスト・統計）
+- **種別**：reference（全体像と使いどころ）
+- **分かること**：モデル・サンプラー・診断・PPC のカタログと使いどころ
+- **ここからやること**：`uv run stats --help` で使い始める
+
 `harness.stats` は統計モデリング（ベイズ推論）を扱うプロファイル。ML（ds）の器に押し込まず、独立した
 プロファイルとして config に並記する（`profiles = ["harness.ds", …, "harness.stats"]`）。有効化には
 `uv sync --extra stats`（pymc・nutpie・arviz＋netCDF 保存の h5netcdf・h5py）が要る。
