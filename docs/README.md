@@ -60,6 +60,7 @@ ID は「接頭辞-番号」で種類を表す。
 | [ops.md](ops.md) | 人 | reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
 | [stats.md](stats.md) | 人 | reference | ベイズ統計モデリング（モデル・サンプラー・診断・PPC）の全体像 |
 | [deliver.md](deliver.md) | 人 | reference | クライアントに見せる WBS・ガント（作業単位の木からの生成ビュー） |
+| [deliver-code.md](deliver-code.md) | 人 | explanation | deliver のコードの役割・描画/編集の設計 |
 | [template-copy.md](template-copy.md) | 人 | how-to | この基盤を次の案件へ複製する手順 |
 | [learnings.md](learnings.md) | 人 | explanation | 作業で得た気づきの記録（ルールにする前の材料） |
 | [requirements/](requirements/) | 人 | reference | 案件の要件（REQ） |
