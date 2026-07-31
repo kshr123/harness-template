@@ -147,4 +147,5 @@ markers = [
     "integration: 複数の部品の結線（ファイル・設定をまたぐ）",
     "e2e: 実験の一巡のスモーク（--test 規模。ネットワーク・サーバ無し）",
     "slow: 実行が重いテスト（check/verify は全段階で除外＝門番に載せない。回すときは手動で `-m slow`）",
+    "browser: 実ブラウザ（headless Chrome）で描画の振る舞い（JS・DOM）を検査。既定の verify では除外＝Chrome を毎回起動しない。描画を触るタスクでは check --scope diff が走らせ、merge 前に CI で必須実行する",
 ]

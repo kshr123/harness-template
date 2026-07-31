@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import tomllib
 from pathlib import Path
 
@@ -70,8 +71,52 @@ def test_checks_toml_uses_only_registered_markers() -> None:
             if cmd[:1] == ["pytest"] and "-m" in cmd:
                 used |= markers_in_expr(cmd[cmd.index("-m") + 1])
     assert used <= registered, f"checks.toml が未登録マーカーを使用: {sorted(used - registered)}"
-    # 4 つの目印すべてが段階に接続されている（どれかが設定から抜け落ちていない）。
-    assert used == {"unit", "integration", "e2e", "slow"}
+    # 層の 3 目印（unit/integration/e2e）＋除外の 2 目印（slow・browser）が接続されている
+    # （どれかが設定から抜け落ちていない）。browser は standard の integration から除外＝Chrome を毎回起動しない。
+    assert used == {"unit", "integration", "e2e", "slow", "browser"}
+
+
+def test_retracted_checks_are_not_re_registered() -> None:
+    # EP-53 の撤回の後戻り防止（loops.py の tombstone と同じ作法）：
+    # retraction_lint（RETRACTED={} で常に空＝no-op）と pm.spec_lint（SPEC 見出しの有無だけの儀式）は
+    # INVARIANT_CHECKS から外した。誤って戻すとここで落ちる。
+    registered = " ".join(
+        f"{getattr(c, '__module__', '')}.{getattr(c, '__name__', '')}" for c in checks.INVARIANT_CHECKS
+    )
+    assert "spec_lint" not in registered, "pm.spec_lint は EP-53 で撤回済み（見出し有無だけの儀式）"
+    assert "retraction_lint" not in registered, "retraction_lint は EP-53 で撤回済み（常に空の no-op）"
+    assert importlib.util.find_spec("harness.retraction_lint") is None, "retraction_lint モジュールは削除済み"
+
+
+def test_merge_pytest_collapses_layers_into_one_union() -> None:
+    # full の 3 つの pytest を 1 本の論理和にまとめる＝走るテスト集合は 3 回実行に完全一致（門番が黙って減らない）。
+    cmds = [
+        ["ruff", "check", "."],
+        ["pytest", "-q", "-m", "unit and not slow"],
+        ["mypy"],
+        ["pytest", "-q", "-m", "integration and not slow and not browser"],
+        ["pytest", "-q", "-m", "e2e and not slow"],
+    ]
+    merged = checks._merge_pytest(cmds)
+    pytest_cmds = [c for c in merged if c[:1] == ["pytest"]]
+    assert len(pytest_cmds) == 1  # 3 つ → 1 つ
+    # 式は各層の論理和＝和集合（pytest の -m は式の or がテストの和集合）。
+    assert pytest_cmds[0] == [
+        "pytest",
+        "-q",
+        "-m",
+        "(unit and not slow) or (integration and not slow and not browser) or (e2e and not slow)",
+    ]
+    assert ["ruff", "check", "."] in merged and ["mypy"] in merged  # 他コマンドは残る
+
+
+def test_merge_pytest_leaves_single_or_nonstandard_pytest_untouched() -> None:
+    # pytest が 1 本ならそのまま。-k・パス付きなど同形でない pytest はまとめない（式の合成が自明でない＝安全側）。
+    one = [["pytest", "-q", "-m", "unit and not slow"]]
+    assert checks._merge_pytest(one) == one
+    nonstd = [["pytest", "-q", "-m", "unit", "-k", "foo"], ["pytest", "-q", "-m", "e2e and not slow"]]
+    # 同形（len==4）は 1 本だけなので合流は起きず、そのまま。
+    assert checks._merge_pytest(nonstd) == nonstd
 
 
 # ---- checks.toml の不変条件（起動時 precondition。T-0198 / EP-32） --------------------------------

@@ -42,7 +42,6 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | 検査 | 何を見るか |
 | --- | --- |
 | `pm.lint` | 作業単位の検査。ID の重複・depends_on の指す先が無い・計画の詳しさの不整合を見る。 |
-| `pm.spec_lint` | 作業単位に SPEC.md があれば、必要な見出しがそろっているか確認する。 |
 | `issues.run_checks` | 課題の整合検査。作業単位との紐付けが崩れていないかを見る（backend によらず同じ）。 |
 | `doclint.run_checks` | 正本ドキュメントの参照（ID・パス・`uv run` コマンド）の実在検査。死にリンク＝error、未知コマンド＝info。 |
 | `coverage_lint.run_checks` | CLI コマンドの導線カバレッジ検査。スキル/正本 docs から到達できないコマンド＝error。 |
@@ -51,7 +50,6 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `profile_doc_lint.run_checks` | 各プロファイルに正本 docs/<名>.md があり、doc 索引 docs/README.md から辿れるか検査する。欠落＝error。 |
 | `boundary_lint.run_checks` | 中核（src/harness/*.py）がプロファイル（ds・serve・agent…）を import していないか検査する。 |
 | `conventions.run_checks` | テスト規約・ソース規約の静的検査（種・--test・skip 理由・encoding・相対パスの as_posix 忘れ＝error）。 |
-| `retraction_lint.run_checks` | 撤回済みの決まりごとの名前が、資産（src・docs・skills・templates）に残骸として残っていないか検査する。 |
 | `doc_sync.run_checks` | 中核の正本ドキュメントの自動生成節が最新か検査する。古い・マーカー異常＝error。 |
 
 ### 言語ツール（`checks.toml`）
@@ -64,7 +62,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `fast` | `ruff check .` |
 | `fast` | `pytest -q -m 'unit and not slow'` |
 | `standard` | `mypy` |
-| `standard` | `pytest -q -m 'integration and not slow'` |
+| `standard` | `pytest -q -m 'integration and not slow and not browser'` |
 | `full` | `pytest -q -m 'e2e and not slow'` |
 <!-- doc-sync:end -->
 
@@ -100,7 +98,6 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `profile_doc_lint.py` | 各プロファイルの正本 `docs/<名>.md` があり、doc 索引 `docs/README.md` から辿れるか（プロファイル追加時の索引の陳腐化を止める） |
 | `coverage_lint.py` | CLI コマンドの使い方が、スキルか正本ドキュメントから辿れるか |
 | `boundary_lint.py` | 中核（`src/harness/*.py`）がプロファイル（ds・serve・agent・ops）を import していないか（ast・遅延 import も検出。`INVARIANT_CHECKS` に登録され verify に載る） |
-| `retraction_lint.py` | 撤回した決まりごとの名前（`RETRACTED`＝有限・確定済み）が資産に残骸として残っていないか（撤回一覧と `docs/learnings.md` 以外に語境界一致で残れば error。空一覧＝正常） |
 | `doc_sync.py` | この文書の自動生成節が `INVARIANT_CHECKS`・`checks.toml` の現状と一致しているか |
 | `conventions.py` | テスト規約・ソース規約（乱数の種・`--test` の有無・skip の理由・`subprocess` の `encoding`・リポ相対パスの `.as_posix()`）を静的に検査する |
 | `commit_lint.py` | コミットメッセージの冒頭に、`work/` に実在する作業単位の ID があるか |

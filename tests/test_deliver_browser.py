@@ -21,7 +21,11 @@ from harness.deliver import render
 from harness.deliver import wbs as wbs_mod
 from harness.deliver.overlay import Overlay
 
-pytestmark = pytest.mark.integration
+# browser マーカー＝実 Chrome を起動する 3 本。既定の `uv run verify` からは除外（checks.toml が
+# `not browser`）し、描画を触るタスクでは `check --scope diff` が deliver 変更として走らせ、merge 前に
+# CI（.github/workflows/ci.yaml の verify ジョブ）で必須実行する。幾何（座標）は Python で計算され
+# `tests/test_deliver_geometry.py`（unit）が毎回ブラウザ無しで検証済み＝ここが守るのは JS/DOM の振る舞いだけ。
+pytestmark = [pytest.mark.integration, pytest.mark.browser]
 
 TODAY = date(2026, 8, 20)
 

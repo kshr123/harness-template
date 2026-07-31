@@ -28,7 +28,6 @@ from harness import (
     pm,
     profile_doc_lint,
     profiles,
-    retraction_lint,
     testing,
 )
 from harness.profiles import InvariantCheck
@@ -42,7 +41,6 @@ LEVELS = ("fast", "standard", "full")
 # 実行時に集める（プロファイル境界。中核はプロファイルを import しない）。
 INVARIANT_CHECKS: list[InvariantCheck] = [
     pm.lint,
-    pm.spec_lint,
     issues.run_checks,
     doclint.run_checks,
     coverage_lint.run_checks,
@@ -51,7 +49,6 @@ INVARIANT_CHECKS: list[InvariantCheck] = [
     profile_doc_lint.run_checks,
     boundary_lint.run_checks,
     conventions.run_checks,
-    retraction_lint.run_checks,
     doc_sync.run_checks,
 ]
 
@@ -310,6 +307,31 @@ def _run_one(root: Path, cmd: list[str]) -> bool:
     return True
 
 
+def _merge_pytest(commands: list[list[str]]) -> list[list[str]]:
+    """同形の pytest コマンド（`["pytest","-q","-m",<式>]`）が複数あれば 1 回にまとめる。
+
+    full は fast+standard+full の 3 つの pytest を積む＝同じ 1453 件を 3 回収集して session を 3 回立てる。
+    式を `(式1) or (式2) or …` の**論理和**にして 1 回で回す＝pytest の `-m` は式の論理和がそのまま
+    テストの和集合なので、走るテスト集合は 3 回に**完全一致**する（門番が黙って減らない）。まとめた 1 本は
+    最初の pytest の位置に置き、ruff・mypy の順序は保つ。`-k`・パス付きなど同形でない pytest はまとめず
+    個別に残す（安全側＝式の合成が自明でないものは触らない）。
+    """
+    canonical = [c for c in commands if c[:3] == ["pytest", "-q", "-m"] and len(c) == 4]
+    if len(canonical) <= 1:
+        return commands
+    merged = ["pytest", "-q", "-m", " or ".join(f"({c[3]})" for c in canonical)]
+    out: list[list[str]] = []
+    placed = False
+    for c in commands:
+        if c[:3] == ["pytest", "-q", "-m"] and len(c) == 4:
+            if not placed:
+                out.append(merged)
+                placed = True
+        else:
+            out.append(c)
+    return out
+
+
 def run_check(root: Path, level: str = "full", scope: str = "all") -> int:
     """検証を実行し、終了コードを返す（0=成功・非0=失敗）。
 
@@ -332,7 +354,7 @@ def run_check(root: Path, level: str = "full", scope: str = "all") -> int:
 
     print(f"[check level={level}]")
     ok = _run_invariant_checks(root)
-    for cmd in _load_commands(root, level):
+    for cmd in _merge_pytest(_load_commands(root, level)):
         if not _run_one(root, cmd):
             ok = False
     print("成功（すべて通過）" if ok else "失敗（未通過あり）")

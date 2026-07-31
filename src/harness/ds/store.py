@@ -26,9 +26,14 @@ def _resolve(root: Path, s: sch.TableSchema) -> Path:
 
 
 def _schema_for(root: Path, table_id: str) -> sch.TableSchema:
-    for s in sch.load_schemas(root):
+    problems: list[Problem] = []
+    for s in sch.load_schemas(root, problems):
         if s.id == table_id:
             return s
+    # 見つからない理由が「不正で読み込めなかった」なら、その理由を添える（ファイルは在るのに黙って「無い」と言わない）。
+    errs = [p.message for p in problems if p.level == "error" and table_id in p.message]
+    if errs:
+        raise ValueError(f"テーブル定義 {table_id} が読み込めない: {'; '.join(errs)}")
     raise ValueError(f"テーブル定義 {table_id} が見つからない（docs/data か work/*/data に置く）")
 
 
