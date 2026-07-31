@@ -81,6 +81,16 @@ def _by_ref(built: wbs_mod.Wbs) -> dict[str, wbs_mod.WbsRow]:
     return {row.ref: row for row in built.walk() if row.ref is not None}
 
 
+def test_work_row_name_is_name_only_without_id_prefix(tmp_path: Path) -> None:
+    # WBS の行名は名前だけ（ID は別列）。status の "<ID> 名前" と違い ID を前置しない＝両表示の差を固定する
+    # （pm.display_name と pm.status_label の使い分けが逆になったらここで落ちる）。
+    _write(
+        tmp_path / "work" / "EP-93-x" / "item.md",
+        {"id": "EP-93", "kind": "epic", "status": "todo", "title": "設計フェーズ"},
+    )
+    assert _by_ref(_build(tmp_path))["EP-93"].name == "設計フェーズ"  # "EP-93 設計フェーズ" ではない
+
+
 def test_codes_follow_position_in_the_tree(tmp_path: Path) -> None:
     """WBS 番号は木の位置から導く（保存されていない）。work/ 直下は名前順。"""
     _scaffold(tmp_path)
