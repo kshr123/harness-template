@@ -305,8 +305,9 @@ def lint(root: Path) -> list[Problem]:
         seen[n.item.id] = n.path
 
     # タイトル必須（done でないエピック）：`title` は `uv run status` と**クライアント向け WBS の行名**になる。
-    # エピックは木の最上位＝section 見出しとして最も目立つので、平易な言葉を機械で要求する（コード識別子・
-    # 専門用語を避ける。書き方は AGENTS「作業単位」／docs/method.md §I）。タスク・実験の title は推奨（雛形と
+    # エピックは木の最上位＝section 見出しとして最も目立つので、title の**有無**を機械で要求する（平易さ自体は
+    # 散文なので機械化せず review が見る。書き方は AGENTS「作業単位」／docs/method.md §I）。
+    # タスク・実験の title は推奨（雛形と
     # review で担保＝散文の平易さは機械化しない）。既存の done は点在の歴史記録として grandfather し、今後着手する
     # エピック（todo/in-progress…）にだけ必須にする＝新規の「素の ID／専門用語だけの見出し」を止める（一括補完は不要）。
     for n in everything:

@@ -30,3 +30,8 @@ title: 作業単位に平易な表示名を必須化し、本文の書き方の�
 - 型・置き場：AGENTS「作業単位」に `title` 行＋「本文の書き方」（method §I へリンク）／`.harness/templates/epic.md`・
   `task.md` の雛形（既存 demand.md 等と同じ作法）＋ tasks スキルから参照／review スキルに作業単位の可読性の観点。
 - 移行：既存 done の本文は書き直さない。仕掛かりだった EP-53 を done＋平易 title に整えた（1 件のみ）。
+- 波及（レビュー指摘）：`pm.lint` は `wbs_lint` の「増えた指摘」ゲートにも入るので、`uv run wbs edit` の保存・
+  `uv run wbs lint` でも「title 無しの done でないエピック」を弾くようになる（fail-closed・望ましい。編集面の
+  行追加は元々 `title:` を書き込む＝`deliver/adder.py`）。
+- 積み残し（別タスク）：`uv run status` の表示は title 無しのタスクを素の ID で出す（`Item.display` は WBS の
+  `_display_name` と違い H1 に fallback しない）。status も H1 fallback に揃えるとタスクも読める（この差分の外）。
