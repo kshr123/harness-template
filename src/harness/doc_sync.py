@@ -41,6 +41,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit import Rule
+
+# INVARIANT_CHECKS の 1 要素：従来の検査関数（`fn(root)`）か Corpus ネイティブな `Rule`。
+_Check = Callable[[Path], list[pm.Problem]] | Rule
 
 # 生成先と、生成する節を囲むマーカー（この 2 行の間だけが自動生成の対象範囲）。
 DOC_REL = "docs/core.md"
@@ -52,14 +56,16 @@ HEADING_CHECKS = "### 不変条件の検査（`INVARIANT_CHECKS`）"
 HEADING_COMMANDS = "### 言語ツール（`checks.toml`）"
 
 
-def _name(check: Callable[[Path], list[pm.Problem]]) -> str:
-    """検査関数の表示名。一律 `<モジュール>.<関数>`（`pm.lint`・`doclint.run_checks`）。特例は作らない。"""
+def _name(check: _Check) -> str:
+    """検査の表示名。関数は `<モジュール>.<関数>`、Corpus ネイティブな Rule は宣言した安定 ID（`rule.name`）。"""
+    if isinstance(check, Rule):
+        return check.name
     return f"{check.__module__.removeprefix('harness.')}.{check.__name__}"
 
 
-def _summary(check: Callable[[Path], list[pm.Problem]]) -> str:
-    """検査関数の要約＝docstring の 1 行目。無い・空なら ValueError（説明の無い検査を表に載せない）。"""
-    doc = (check.__doc__ or "").strip()
+def _summary(check: _Check) -> str:
+    """検査の要約＝関数は docstring 1 行目、Rule は `rule.summary`。無い・空は ValueError（説明無しは載せない）。"""
+    doc = (check.summary if isinstance(check, Rule) else (check.__doc__ or "")).strip()
     if not doc:
         raise ValueError(
             f"検査 '{_name(check)}' に docstring が無い。1 行目が {DOC_REL} の要約になるので必ず書くこと（doc_sync）"
@@ -72,7 +78,7 @@ def _escape_cell(text: str) -> str:
     return text.replace("|", r"\|")
 
 
-def _invariant_checks() -> list[Callable[[Path], list[pm.Problem]]]:
+def _invariant_checks() -> list[_Check]:
     """中核の検査の一覧（実行時 import＝checks → doc_sync の循環を避ける）。"""
     from harness import checks
 

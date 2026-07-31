@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from harness import pm
-from harness.lintkit import Corpus, Exemptions, Rule, ids, run
+from harness.lintkit import Corpus, Rule, ids, run
 from harness.lintkit.exempt import validate_exemptions
 
 pytestmark = pytest.mark.unit
@@ -38,25 +38,15 @@ def test_word_bounded_matches_standalone_name_not_substring_or_path() -> None:
     assert not ids.word_bounded("pipeline.py").search("pipeline.pyi は別物")  # 直後が英数なら当たらない
 
 
-# ---- Exemptions（理由必須・fail-closed の免除表） -----------------------------------------------------
+# ---- validate_exemptions（理由必須・fail-closed の免除表検証） ---------------------------------------
 
 
-def test_exemptions_require_a_reason() -> None:
-    Exemptions("x", {"docs/a.md": "正当な理由"})  # 理由あり＝作れる
+def test_validate_exemptions_requires_a_reason() -> None:
+    assert validate_exemptions("owner", {"k": "理由"}) == {"k": "理由"}  # 理由あり＝そのまま返す
     with pytest.raises(ValueError, match="理由が空"):
-        Exemptions("x", {"docs/a.md": "   "})  # 空・空白だけは不可
-    # 既存検査が使う自由関数も同じメッセージ（各 lint の match="理由が空" が移行後も緑＝挙動不変）。
-    assert validate_exemptions("owner", {"k": "理由"}) == {"k": "理由"}
+        validate_exemptions("owner", {"docs/a.md": "   "})  # 空・空白だけは不可
     with pytest.raises(ValueError, match="理由が空"):
         validate_exemptions("owner", {("cli.py", "harness.ds"): "  "})  # tuple 鍵も可（boundary_lint 形）
-
-
-def test_exemptions_membership_and_filter() -> None:
-    ex = Exemptions("x", {"docs/a.md": "理由"})
-    assert "docs/a.md" in ex
-    assert "docs/b.md" not in ex
-    assert ex.reason("docs/a.md") == "理由"
-    assert ex.filter(["docs/a.md", "docs/b.md"]) == ["docs/b.md"]  # 免除は除き順序は保つ
 
 
 # ---- Corpus（root・相対パス・ast 解析キャッシュ） -----------------------------------------------------

@@ -36,6 +36,7 @@ import re
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit import Corpus, Rule
 
 # グローバル種の呼び出しとみなす属性チェーン（np/numpy/random 起点の ...seed だけ＝保守的）。
 _GLOBAL_SEED_CALLS = frozenset({"np.random.seed", "numpy.random.seed", "random.seed"})
@@ -190,16 +191,19 @@ def _relative_to_stringified_lines(tree: ast.AST) -> list[int]:
     return sorted(lines)
 
 
-def run_checks(root: Path) -> list[pm.Problem]:
-    """テスト規約・ソース規約の静的検査（種・--test・skip 理由・encoding・相対パスの as_posix 忘れ＝error）。"""
+def _scan(corpus: Corpus) -> list[pm.Problem]:
+    """テスト規約・ソース規約の静的検査（種・--test・skip 理由・encoding・相対パスの as_posix 忘れ＝error）。
+
+    Corpus ネイティブ：ファイルの相対パスと ast 解析は共有基盤（`corpus.rel`／`corpus.parse`＝1 ファイル 1 回・
+    構文エラーは None）を使う＝他の Corpus ネイティブ検査と解析結果を共有する。
+    """
     problems: list[pm.Problem] = []
-    for path, is_work_code in _target_files(root):
-        rel = path.relative_to(root).as_posix()
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError as exc:
+    for path, is_work_code in _target_files(corpus.root):
+        rel = corpus.rel(path)
+        tree = corpus.parse(path)
+        if tree is None:
             # 構文の壊れは ruff/pytest が別途止める。ここでは合否に効かせず知らせるだけ（偽陽性を出さない）。
-            problems.append(pm.Problem("info", f"{rel}: 構文解析できないため規約検査を飛ばした（{exc.msg}）"))
+            problems.append(pm.Problem("info", f"{rel}: 構文解析できないため規約検査を飛ばした"))
             continue
         for lineno in _global_seed_lines(tree):
             problems.append(
@@ -239,3 +243,13 @@ def run_checks(root: Path) -> list[pm.Problem]:
                 )
             )
     return problems
+
+
+def run_checks(root: Path) -> list[pm.Problem]:
+    """テスト規約・ソース規約の静的検査（種・--test・skip 理由・encoding・相対パスの as_posix 忘れ＝error）。"""
+    return _scan(Corpus(root))
+
+
+# INVARIANT_CHECKS に載せる Corpus ネイティブなルール（名前は core.md の従来行に合わせて安定させる）。
+_SUMMARY = (run_checks.__doc__ or "").strip().splitlines()[0]
+RULE = Rule("conventions.run_checks", _SUMMARY, _scan)

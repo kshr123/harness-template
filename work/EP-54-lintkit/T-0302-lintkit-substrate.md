@@ -11,7 +11,7 @@ requirements: []
 depends_on: []
 verified_by:
   - tests/test_lintkit.py::test_word_bounded_matches_standalone_name_not_substring_or_path
-  - tests/test_lintkit.py::test_exemptions_require_a_reason
+  - tests/test_lintkit.py::test_validate_exemptions_requires_a_reason
   - tests/test_lintkit.py::test_corpus_parse_caches_and_tolerates_syntax_error
   - tests/test_lintkit.py::test_rule_from_callable_preserves_behavior_and_derives_name_summary
 ---

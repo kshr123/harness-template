@@ -2,7 +2,7 @@
 1 か所に集め、テストも 1 度だけにする。新しい検査を足すときの限界費用を下げるのが狙い（機構あたりの意味）。
 
 - `Corpus`（corpus.py）… リポジトリを 1 度だけ読む土台（root・相対パス・ast 解析キャッシュ）。
-- `Exemptions`（exempt.py）… 理由必須・fail-closed の免除表。
+- `exempt.validate_exemptions`（exempt.py）… 理由必須・fail-closed の免除表の検証。
 - `ids`（ids.py）… ID・プレースホルダ・語境界の文法。
 - `Rule` … 名前つきの検査 1 つ（`scan(corpus) -> [Problem]`）。既存の `InvariantCheck`（`fn(root)`）は
   `Rule.from_callable` で包める＝プロファイル境界（`Profile.invariant_checks`）は変えずに移行できる。
@@ -16,9 +16,8 @@ from pathlib import Path
 
 from harness import pm
 from harness.lintkit.corpus import Corpus
-from harness.lintkit.exempt import Exemptions
 
-__all__ = ["Corpus", "Exemptions", "Rule", "run"]
+__all__ = ["Corpus", "Rule", "run"]
 
 
 @dataclass(frozen=True)
