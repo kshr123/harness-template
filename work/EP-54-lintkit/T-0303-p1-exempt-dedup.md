@@ -12,6 +12,8 @@ depends_on: []
 verified_by:
   - tests/test_lintkit.py::test_exemptions_require_a_reason
   - tests/test_doc_source_lint.py::test_blank_exempt_reason_raises
+  - tests/test_code_doc_lint.py::test_blank_exempt_reason_raises
+  - tests/test_coverage_lint.py::test_blank_exempt_reason_raises
   - tests/test_boundary_lint.py::test_blank_exempt_reason_raises
 ---
 # T-0303 P1：免除表の検証を lintkit へ集約（挙動不変）

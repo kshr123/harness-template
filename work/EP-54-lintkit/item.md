@@ -19,7 +19,8 @@ EP-53 に続く「verify の脱・accretion」の本丸。fable の全体設計�
 
 ## フェーズ（各 1 まとまり・verify 緑を保つ・旧テストを等価スイートとして残し、移行時にルールごとに変異で赤を証明・2 モジュールを 1 度に移さない）
 - T-0302 **P0**：`lintkit`（Corpus・Exemptions・ids・Rule/run）＋自前テスト。未結線。
-- P1：4 か所の `_EXEMPT`・語境界・`relative_to().as_posix()` を lintkit へ機械置換（旧テスト無改変＝挙動不変の証明）。
+- T-0303 **P1**：4 か所の免除検証（`_validated_exempt`）を lintkit へ機械置換（旧テスト無改変＝挙動不変の証明）。
+  語境界・`relative_to().as_posix()` の集約は P3（doclint＋doc_source＋code_doc をまとめて移すとき）に回す。
 - P2：`profile_doc_lint` を `code_doc_lint` へ統合（16→15。存在検査の重複を解消）。
 - P3：`doclint`＋`doc_source_lint` を共有 Corpus/ids の上へ（重複テストを collapse）。
 - P4：`conventions` を 5 個の小ルールへ。

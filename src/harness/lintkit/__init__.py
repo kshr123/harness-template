@@ -41,7 +41,7 @@ class Rule:
         doc = (fn.__doc__ or "").strip()
         return cls(
             name=name or fn.__name__,
-            summary=summary or (doc.splitlines()[0] if doc else ""),
+            summary=summary or (doc.splitlines()[0].strip() if doc else ""),  # doc_sync と同じく 1 行目を strip
             scan=lambda corpus: fn(corpus.root),
         )
 

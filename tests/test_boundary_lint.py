@@ -40,6 +40,24 @@ def test_core_absolute_import_of_profile_is_error(tmp_path: Path) -> None:
     assert any("badcore.py" in p.message and "ds" in p.message for p in errors)
 
 
+def test_core_subpackage_import_of_profile_is_error(tmp_path: Path) -> None:
+    # 中核サブパッケージ（profile.py を持たないディレクトリ）配下も対象＝lintkit/ のようなパッケージの越境も
+    # 捕まえる（B1：直下だけ見ると死角だった）。相対 import は所属パッケージ harness.sub を起点に解決する。
+    _profile(tmp_path, "ds")
+    sub = tmp_path / "src" / "harness" / "sub"
+    sub.mkdir(parents=True, exist_ok=True)
+    (sub / "corpus.py").write_text("from ..ds import models\n", encoding="utf-8")
+    errors = [p for p in boundary_lint.run_checks(tmp_path) if p.level == "error"]
+    assert any("sub/corpus.py" in p.message and "'ds'" in p.message for p in errors)
+
+
+def test_profile_dir_files_are_not_treated_as_core(tmp_path: Path) -> None:
+    # プロファイル配下（profile.py を持つディレクトリ）のファイルは中核でない＝自分の領域を import してよい。
+    _profile(tmp_path, "ds")
+    (tmp_path / "src" / "harness" / "ds" / "models.py").write_text("import harness.ds.cv\n", encoding="utf-8")
+    assert [p for p in boundary_lint.run_checks(tmp_path) if p.level == "error"] == []
+
+
 def test_core_from_import_of_profile_is_error(tmp_path: Path) -> None:
     # `from harness.serve import app` も error。
     _profile(tmp_path, "serve")
