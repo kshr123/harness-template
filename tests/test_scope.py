@@ -84,3 +84,9 @@ def test_non_profile_test_file_runs_just_that_file() -> None:
 def test_core_source_wins_over_docs() -> None:
     # 混在（散文＋中核）でも中核が勝って全実行。
     assert scope.route(REPO, ["docs/serve.md", "src/harness/pm.py"]).full
+
+
+def test_python_under_prose_dirs_is_not_prose() -> None:
+    # templates/** や work/**/code の .py は実行コード＝散文扱いにしない（ruff/型/テストの対象なので全実行に落とす）。
+    assert scope.route(REPO, ["templates/serve/app.py"]).full
+    assert scope.route(REPO, ["work/EP-1/code/train.py"]).full

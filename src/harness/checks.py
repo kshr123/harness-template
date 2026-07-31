@@ -314,7 +314,7 @@ def run_check(root: Path, level: str = "full", scope: str = "all") -> int:
     """検証を実行し、終了コードを返す（0=成功・非0=失敗）。
 
     `scope="all"`（既定）＝レベルに応じて全部走らせる（`verify` は full＝権威ある完了判定）。
-    `scope="diff"`＝git 差分に応じて絞る**参考実行**（done の証拠にしない。詳細は `harness.scope`・docs/method.md I）。
+    `scope="diff"`＝git 差分に応じて絞る**参考実行**（done の証拠にしない。振り分けの詳細は `harness.scope`）。
     """
     if level not in LEVELS:
         print(f"不明なレベル: {level}（{', '.join(LEVELS)} のいずれか）")

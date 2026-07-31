@@ -67,8 +67,10 @@ def changed_files(root: Path) -> list[str] | None:
         return None  # origin/main が無い・git でない＝安全側（全実行）に倒す
     out: set[str] = set()
     for args in (
-        ("diff", "--name-only", base[0].strip()),  # マージ基点からの差分（改名は両側が出る）
-        ("diff", "--name-only"),  # 未ステージ
+        # --no-renames：改名を「旧を削除＋新を追加」に開いて両側の path を出す。既定の改名検出だと新 path しか
+        # 出ず、旧 path が force-full 対象（例 checks.py の移動）でも見落として過小実行になる（それを塞ぐ）。
+        ("diff", "--name-only", "--no-renames", base[0].strip()),  # マージ基点からの差分
+        ("diff", "--name-only", "--no-renames"),  # 未ステージ
         ("ls-files", "--others", "--exclude-standard"),  # 未追跡
     ):
         lines = _git_lines(root, *args)
@@ -88,6 +90,9 @@ def _force_full(f: str) -> bool:
 
 
 def _is_prose(f: str) -> bool:
+    # .py は散文扱いにしない（templates/** や work/**/code の実行コードは ruff・型・テストの対象＝素通りさせない）。
+    if f.endswith(".py"):
+        return False
     return f.endswith(".md") or f.startswith(_PROSE_PREFIXES)
 
 
