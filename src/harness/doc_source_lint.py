@@ -49,6 +49,7 @@ import tokenize
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit.exempt import validate_exemptions
 
 # 禁じる参照：具体的な一時単位への参照。
 # work/ パス（プレースホルダ `work/<…>` は ID を持たないので当たらない）。
@@ -80,11 +81,8 @@ _EXEMPT: dict[str, str] = {
 
 
 def _validated_exempt() -> dict[str, str]:
-    """免除リストの理由が空でないことを確かめて返す。空の理由は設定ミス＝即失敗（黙って免除しない）。"""
-    for name, reason in _EXEMPT.items():
-        if not reason.strip():
-            raise ValueError(f"_EXEMPT[{name!r}] の理由が空。免除には人が読める理由が必須（doc_source_lint）")
-    return _EXEMPT
+    """免除リストの理由が空でないことを確かめて返す（検証は lintkit.exempt に集約）。"""
+    return validate_exemptions("doc_source_lint", _EXEMPT)
 
 
 def _durable_docs(root: Path, exempt: dict[str, str]) -> list[Path]:
