@@ -17,6 +17,7 @@
 | --- | --- |
 | `uv run verify` | 完了判定。`check --level full` と同じ。すべて成功して初めて done にできる |
 | `uv run check --level fast` | 編集中の速い検査（`standard`・`full` も指定できる。段階は累積） |
+| `uv run check --scope diff` | git 差分に応じて回すものを絞る**参考実行**（散文だけ→不変条件のみ・領域変更→その領域だけ）。**done の判定にはしない**（完了は `uv run verify` の全成功だけ） |
 | `uv run doc-sync` | 下の自動生成節を作り直す（検査を足した・docstring を直したあとに走らせる） |
 | `uv run gates` | 昇格の判定の一覧（config の `kind` に書ける名前と意味）。実体は `src/harness/gates.py` |
 
@@ -84,6 +85,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `config.py` | `.harness/config.toml` を読む（有効なプロファイル・データや課題の置き場） |
 | `profiles.py` | config が指すプロファイルの `PROFILE` 宣言を読み込み、検査に繋ぐ |
 | `checks.py` | 検証の入口。`INVARIANT_CHECKS` と `checks.toml` の言語ツールを束ねて走らせ、合否を返す |
+| `scope.py` | `check --scope diff` の振り分け。git 差分から回すもの（不変条件は毎回全部・言語ツールとテストは変更範囲だけ）を決める参考実行。分類できない・検査インフラ・中核の変更は全実行に落とす（fail-closed） |
 | `cli.py` | 中核 CLI（typer）の入口。`uv run <コマンド>` はここから呼ばれる |
 | `init_project.py` | 複製後の初期化（`uv run init-project`）。fork した案件の案件領域を白紙化し verify 緑の出発点に戻す（本体領域には触れない・未 fork では拒否） |
 | `gates.py` | 昇格の判定（`value_threshold`・`change_threshold`）。champion を差し替えてよいかを決める |

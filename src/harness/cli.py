@@ -82,8 +82,14 @@ def check_main() -> None:
 
     def _run(
         level: Annotated[str, typer.Option(help="fast | standard | full")] = "full",
+        scope: Annotated[
+            str,
+            typer.Option(
+                help="all（全部）| diff（git 差分に応じて絞る参考実行＝--level は無視。done の判定は verify）"
+            ),
+        ] = "all",
     ) -> None:
-        raise typer.Exit(checks.run_check(_root(), level))
+        raise typer.Exit(checks.run_check(_root(), level, scope))
 
     typer.run(_run)
 

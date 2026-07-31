@@ -9,6 +9,7 @@ description: 変更の完了を判定する際に自動参照。共通の検証�
 - `uv run verify` … まとめて検証（不変条件の検査＋ruff・mypy・pytest）。**個々の検査の一覧と要約は
   `docs/core.md`**（コードから生成しているので常に最新）。
 - 段階を選ぶ：`uv run check --level fast|standard|full`
+- 編集中の速い参考実行：`uv run check --scope diff`（git 差分に応じて絞る＝散文だけなら不変条件のみ・領域変更ならその領域だけ）。**完了の証拠にはしない**——done は必ず `uv run verify` の全成功で確定する。
 
 ## 手順
 1. `uv run verify` を実行し、失敗したら理由を読む。
