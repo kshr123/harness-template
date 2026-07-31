@@ -1,8 +1,14 @@
 # AGENTS.md — エージェント向けの決まりごと（正本）
 
+- **読者**：エージェント（毎セッション読み込む）／人（規則を引くとき）
+- **種別**：reference（従うべき決まりごとの一覧・多くは機械検査つき）
+- **分かること**：この基盤で作業するときに従う規則・作業単位の形・コマンド・禁止事項
+- **ここからやること**：担当の作業単位と本ファイルだけを読み、規則に従って実装し `uv run verify` を全成功させる
+
 この文書は、このリポジトリ（AIコーディング中心の開発基盤）で働く AI エージェントと人が従う決まりごとの
 正本（唯一の正とする置き場。同じ内容を 2 か所に書かず、他の場所はここへのリンクだけを置く）。
 Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を取り込む）経由でこれを読む。
+考え方・設計の理由は `docs/method.md`、全体像は `README.md`／`docs/README.md`。
 
 ## 目的（ここから下のすべてが、この目的の手段である）
 この基盤は、**AI 開発案件を回すのに必要なものを、案件に関わる 3 つの役割ぶん一式そろえた、複製して使う
@@ -79,11 +85,23 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
 - **複製後も残る資産は一時的な単位（`work/…` の作業単位・`issues/…` の課題・`docs/learnings.md` の気づき ID）を設計の根拠に参照しない**。README・AGENTS・`docs/*.md` だけでなく `src/harness/**`・`tests/**`・`templates/**`・`.claude/skills/**` も複製後に残るのに対し、`work/`・`issues/`・`docs/learnings.md` は複製すると消える／置き換わる（`docs/learnings.md` は `uv run init-project` で白紙化される案件領域）。根拠は本文の説明として書く（「`ISS-…` の対処」「`L-…` の教訓」でなく、その課題・気づきが何だったかを 1 文で書く。恒久に残したい先例は本体領域の docs＝`method.md` 等に書き写して正本を移す）。複製手順の説明だけは `docs/template-copy.md` に。検査点：doc_source_lint が `work/EP-…`・`ISS-…`・`L-###`（気づき ID）の参照を verify で失敗にする（`.py` はコメント／docstring だけを見る＝テストの合成データ文字列は対象外。`L-###` は定義元の `docs/learnings.md` 自身は対象外）。
 
 ## 作業単位（item）
-- 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。
-  - `id`（例 `EP-01` / `T-0007` / `E-0003`。一意・再利用しない）／`kind`（epic | task | experiment）／`status`／`plan`（epic・実験）／`requirements`（REQ-…）／`depends_on`（先行する単位の ID）。
-  - 任意：`owner`（担当 1 名）・`team`（担当チーム）。顧客向けの WBS では `docs/wbs.yaml` の名簿（`members`・`teams`）から選ぶ。
-  - 任意：`priority`（`high | normal | low`。**人が置く判断**を `uv run status --next` の並べ替えに運ぶ＝機械は決めず順位を執行するだけ。未指定は normal と同じ＝並びは既定の ID 順のまま。列挙なのでタイポは検証で失敗する）。
-  - 任意（顧客向けの WBS・ガントの材料）：`start`／`due`（予定開始・予定終了の日付）・`effort_days`（見積り工数＝人日）・`milestone`（`true` で節目）。すべて任意（無指定は正常）。**%完了・実績日付は持たない**＝進捗は木から、実績は `created`/`closed` から導出する（二重台帳を作らない）。検査：`start > due`・`milestone` なのに `due` 無しは失敗（task-lint）。
+- 各単位は `item.md`（フォルダの単位）または `<ID>-<短い説明>.md`（軽い単位）の frontmatter で表す。フィールド：
+
+  | フィールド | 要否 | 意味 |
+  | --- | --- | --- |
+  | `id` | 必須 | 一意・再利用しない（例 `EP-01` / `T-0007` / `E-0003`） |
+  | `kind` | 必須 | `epic` \| `task` \| `experiment` |
+  | `status` | 必須 | 進捗（`todo`〜`done`） |
+  | `plan` | epic・実験 | `outline`（未分解）\| `detailed`（分解済み） |
+  | `requirements` | 任意 | `REQ-…` の配列 |
+  | `depends_on` | 任意 | 先行する単位の ID |
+  | `owner` / `team` | 任意 | 担当 1 名／担当チーム（WBS は `docs/wbs.yaml` の名簿から選ぶ） |
+  | `priority` | 任意 | `high` \| `normal` \| `low`。人が置く判断を `status --next` の並べ替えに運ぶ（未指定＝normal・タイポは検証で失敗） |
+  | `start` / `due` | 任意 | 予定開始／終了の日付（WBS・ガントの材料） |
+  | `effort_days` | 任意 | 見積り工数（人日） |
+  | `milestone` | 任意 | `true` で節目 |
+
+  **%完了・実績日付は持たない**＝進捗は木から、実績は `created`/`closed` から導出する（二重台帳を作らない）。検査：`start > due`・`milestone` なのに `due` 無しは task-lint で失敗。
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。
 - **着手の提案は `uv run status --next`**：仕掛かり中（in-progress の末端＝再開の候補）→ いま着手できる（todo・依存充足）→ 依存待ち → 分解の候補、の順で出す。並びは `priority`→ID。門番ではない（時間経過で赤にはしない＝可視化のみ）。
 - **トレースの鎖（コンサル向け・任意）**：要求 `docs/demands/DEM-*`（クライアントの言葉・MoSCoW）→ 要件 `docs/requirements/REQ-*`（`satisfies: [DEM-…]` で上流参照・`kind` は functional/non-functional）→ 作業 `work/`（`requirements: [REQ-…]`）→ 検証（`verified_by`）。要求層を持たない案件は `satisfies` を書かなければ何も要求されない。検査：REQ の `satisfies` が実在 DEM を指すこと（task-lint。要件→作業の参照検査と対称）。雛形は `.harness/templates/demand.md`・`requirement.md`。
