@@ -78,7 +78,7 @@ class Item(BaseModel):
     id: str  # 例 EP-01 / T-0007 / E-0003。一意・再利用しない。
     kind: Kind
     status: Status
-    title: str | None = None  # 表示名。無ければ id を使う。
+    title: str | None = None  # 表示名。無ければ本文の見出し→id（導出は pm.display_name＝status と WBS で共有）。
     plan: PlanMaturity = PlanMaturity.outline  # epic / experiment の計画の詳しさ
     requirements: list[str] = Field(default_factory=list)  # 満たす要件 ID（REQ-xxx）
     depends_on: list[str] = Field(default_factory=list)  # 先行する単位の ID
@@ -102,10 +102,6 @@ class Item(BaseModel):
     due: date | None = None  # 予定終了（Finish／GitHub の due date）
     effort_days: float | None = Field(default=None, gt=0)  # 見積り工数（人日／Work）。正の値のみ（負・NaN は失敗）
     milestone: bool = False  # マイルストーン（期間ゼロの点の出来事。Milestone）
-
-    @property
-    def display(self) -> str:
-        return f"{self.id} {self.title}" if self.title else self.id
 
     @property
     def priority_rank(self) -> int:

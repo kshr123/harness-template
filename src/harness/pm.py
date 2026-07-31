@@ -119,6 +119,42 @@ def _all_nodes(nodes: list[Node]) -> list[Node]:
     return out
 
 
+# 本文の見出し「# <ID> タイトル」から ID を除く形（title を frontmatter に書いていない単位の表示名に使う）。
+_HEADING_ID = re.compile(r"^#\s*(?:EP|T|E|INV|W)-\d+\s*[:：]?\s*(.*)$")
+
+
+def display_name(node: Node) -> str:
+    """作業単位の表示名（`uv run status` とクライアント向け WBS が共有する唯一の導出）。
+
+    frontmatter の `title` があればそれ、無ければ本文の見出し `# <ID> タイトル` から ID を除いた形、
+    それも無ければ ID。status と WBS で fallback を 2 か所に分けない＝素の ID がユーザーに出るのを防ぐ。
+    （title の平易さ自体はレビュー観点。ここは「何を表示名にするか」の導出だけを 1 か所に持つ。）
+    """
+    if node.item.title:
+        return node.item.title
+    path = node.path / MARKER if node.path.is_dir() else node.path
+    try:
+        content = frontmatter.load(path).content
+    except OSError:
+        return node.item.id
+    for line in content.splitlines():
+        if line.lstrip().startswith("#"):
+            match = _HEADING_ID.match(line.strip())
+            title = match.group(1).strip() if match else line.lstrip("#").strip()
+            return title or node.item.id
+    return node.item.id
+
+
+def status_label(node: Node) -> str:
+    """`uv run status` の表示ラベル＝`<ID> <名前>`（名前は `display_name`）。名前が ID しか無いときは ID だけ。
+
+    WBS は ID を別の列に持つので名前だけ（`display_name`）を出すが、進捗一覧は行に ID を併記して単位を
+    参照できるようにする＝**名前の導出は共通（`display_name`）で、ID を前置するかだけが表示の違い**。
+    """
+    name = display_name(node)
+    return name if name == node.item.id else f"{node.item.id} {name}"
+
+
 @dataclass(frozen=True)
 class RequirementTrace:
     """要件(REQ)↔作業のトレース。lint（参照検査）と提出物の被覆ビューが**同じ導出**を見るための 1 か所。"""
@@ -474,9 +510,9 @@ def render_status(root: Path, extra_pending: list[str] | None = None) -> str:
     pending: list[str] = []
     for n in _all_nodes(top):
         if n.item.status is Status.blocked:
-            pending.append(f"- {n.item.display}：止まっている（blocked）")
+            pending.append(f"- {status_label(n)}：止まっている（blocked）")
         elif n.item.status is Status.in_review:
-            pending.append(f"- {n.item.display}：承認待ち（in-review）")
+            pending.append(f"- {status_label(n)}：承認待ち（in-review）")
     work = root / WORK_DIR
     if work.is_dir():
         for md in sorted(work.rglob("*.md")):
@@ -546,7 +582,7 @@ def next_actionable(root: Path) -> tuple[list[Node], list[Node], list[tuple[Node
 def _next_line(node: Node) -> str:
     """`status --next` の 1 行。優先度を置いた単位だけ印を添える（無指定は既定＝印なし）。"""
     mark = f"［優先度: {node.item.priority.value}］" if node.item.priority else ""
-    return f"- {node.item.display}{mark}"
+    return f"- {status_label(node)}{mark}"
 
 
 def render_next(root: Path) -> str:
@@ -584,6 +620,7 @@ def _render_node(node: Node, lines: list[str], depth: int) -> None:
     plan = node.item.plan.value if node.item.kind in (Kind.epic, Kind.experiment) else "—"
     reqs = ", ".join(node.item.requirements) if node.item.requirements else "—"
     indent = "　" * depth
-    lines.append(f"| {indent}{node.item.display} | {node.item.kind.value} | {plan} | {progress} | {blocked} | {reqs} |")
+    name = status_label(node)
+    lines.append(f"| {indent}{name} | {node.item.kind.value} | {plan} | {progress} | {blocked} | {reqs} |")
     for child in node.children:
         _render_node(child, lines, depth + 1)

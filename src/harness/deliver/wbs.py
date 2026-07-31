@@ -21,12 +21,9 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-
-import frontmatter
 
 from harness import pm
 from harness.deliver.calendar import WorkCalendar
@@ -123,29 +120,9 @@ def _max_date(values: list[date | None]) -> date | None:
     return max(present) if present else None
 
 
-# 本文の見出し「# <ID> タイトル」から ID を除く形（title を frontmatter に書いていない単位の名前に使う）。
-_HEADING_ID = re.compile(r"^#\s*(?:EP|T|E|INV|W)-\d+\s*[:：]?\s*(.*)$")
-
-
 def _display_name(node: pm.Node) -> str:
-    """行に出す名前。frontmatter の title があればそれ、無ければ本文の見出しから、それも無ければ ID。
-
-    この基盤の作業単位は title を frontmatter に書かず本文の `# <ID> タイトル` に書くことが多く、
-    そのままだと名前が ID になってクライアントに出せない。見出しから ID を外して拾う。
-    """
-    if node.item.title:
-        return node.item.title
-    path = node.path / pm.MARKER if node.path.is_dir() else node.path
-    try:
-        content = frontmatter.load(path).content
-    except OSError:
-        return node.item.id
-    for line in content.splitlines():
-        if line.lstrip().startswith("#"):
-            match = _HEADING_ID.match(line.strip())
-            title = match.group(1).strip() if match else line.lstrip("#").strip()
-            return title or node.item.id
-    return node.item.id
+    """行に出す名前。導出は `pm.display_name`（status と WBS で共有＝fallback を 2 か所に分けない）。"""
+    return pm.display_name(node)
 
 
 def _from_work(node: pm.Node, code: str, calendar: WorkCalendar, today: date) -> WbsRow:
