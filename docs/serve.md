@@ -1,16 +1,10 @@
 # serve — 学習済みモデルの配信（FastAPI）と予測ログの契約
 
-- **読者**：人（エンジニア）
-- **種別**：reference（配信と予測ログの契約）
-- **分かること**：champion を予測 API として配信する仕組みと、予測ログの契約
-- **ここからやること**：`uv run serve --help` で配信を使い始める
-
 学習済みモデルの現在の採用版（champion）を FastAPI の予測 API として配信し、
 すべての予測を由来つき（その予測がどの版のモデル・どの入力から出たかを後から辿れる情報つき）の
 JSONL（1 行に 1 件の JSON を並べたテキスト形式。prediction log＝予測ログ）へ記録する
 プロファイル。配れるのは registry（保存済みの版の登録簿）で
 採用（評価の合否判定を通って champion になること）済みの版だけ。
-モデルを配信する人と、予測 API の契約（エンドポイント・ログの行形式）を確かめたい人が読む Reference。
 
 実装は `src/harness/serve/`（どのファイルが何を担い・どう組まれ・今後どう広がるかは `docs/serve-code.md`）。
 予測ログは MLOps の prediction log パターンの翻案。作業手順の案内は `.claude/skills/serve/SKILL.md`。
