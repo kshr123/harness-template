@@ -30,14 +30,16 @@ def _scaffold(root: Path) -> None:
     (root / "tests").mkdir(parents=True, exist_ok=True)
     (root / "tests" / "test_a.py").write_text("def test_a():\n    assert True\n", encoding="utf-8")
     ep1 = root / "work" / "EP-01-foundation"
-    _write(ep1 / "item.md", {"id": "EP-01", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    _write(
+        ep1 / "item.md", {"id": "EP-01", "kind": "epic", "status": "in-progress", "plan": "detailed", "title": "基盤"}
+    )
     t1: dict[str, object] = {"id": "T-0001", "kind": "task", "status": "done"}
     t1["verified_by"] = ["tests/test_a.py::test_a"]
     _write(ep1 / "T-0001-a.md", t1)
     t2: dict[str, object] = {"id": "T-0002", "kind": "task", "status": "todo", "depends_on": ["T-0001"]}
     _write(ep1 / "T-0002-b.md", t2)
     ep2 = root / "work" / "EP-02-dev"
-    _write(ep2 / "item.md", {"id": "EP-02", "kind": "epic", "status": "todo", "plan": "outline"})
+    _write(ep2 / "item.md", {"id": "EP-02", "kind": "epic", "status": "todo", "plan": "outline", "title": "開発ループ"})
 
 
 def test_outline_epic_without_children_is_ok(tmp_path: Path) -> None:
@@ -468,12 +470,34 @@ def test_make_project_builds_lintable_project(make_project: Callable[..., Any]) 
     # conftest の工場が、検査を通る一時プロジェクトを組み立てられること（フィクスチャの結線確認）。
     proj = make_project()
     proj.add_file("tests/test_x.py", "def test_x():\n    assert True\n")
-    proj.add_item("work/EP-09/item.md", {"id": "EP-09", "kind": "epic", "status": "in-progress", "plan": "detailed"})
+    proj.add_item(
+        "work/EP-09/item.md",
+        {"id": "EP-09", "kind": "epic", "status": "in-progress", "plan": "detailed", "title": "サンプル"},
+    )
     proj.add_item(
         "work/EP-09/T-0100-a.md",
         {"id": "T-0100", "kind": "task", "status": "done", "verified_by": ["tests/test_x.py::test_x"]},
     )
     assert not [p for p in pm.lint(proj.root) if p.level == "error"]
+
+
+def test_epic_title_required_when_not_done(tmp_path: Path) -> None:
+    # done でないエピックは title 必須（status・クライアント向け WBS の行名になるため）。
+    ep: dict[str, object] = {"id": "EP-10", "kind": "epic", "status": "todo", "plan": "outline"}
+    _write(tmp_path / "work" / "EP-10/item.md", ep)
+    assert any("EP-10" in p.message and "title が無い" in p.message for p in pm.lint(tmp_path))
+
+
+def test_epic_title_present_passes_and_done_and_tasks_are_grandfathered(tmp_path: Path) -> None:
+    # title 付き→通る／done エピックは title 無しでも見逃す（grandfather）／タスクは対象外（推奨止まり）。
+    _write(
+        tmp_path / "work" / "EP-11/item.md",
+        {"id": "EP-11", "kind": "epic", "status": "todo", "plan": "outline", "title": "新機能"},
+    )
+    _write(tmp_path / "work" / "EP-12/item.md", {"id": "EP-12", "kind": "epic", "status": "done", "plan": "detailed"})
+    _write(tmp_path / "work" / "EP-11/T-0200-x.md", {"id": "T-0200", "kind": "task", "status": "todo"})
+    msgs = [p.message for p in pm.lint(tmp_path)]
+    assert not any("title が無い" in m for m in msgs)  # 付与済み・done・タスクは無指摘
 
 
 def test_investigation_done_requires_conclusion(tmp_path: Path) -> None:

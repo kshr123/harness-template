@@ -87,6 +87,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   | `id` | 必須 | 一意・再利用しない（例 `EP-01` / `T-0007` / `E-0003`） |
   | `kind` | 必須 | `epic` \| `task` \| `experiment` |
   | `status` | 必須 | 進捗（`todo`〜`done`） |
+  | `title` | 必須（done でないエピック）／推奨（タスク・実験） | 表示名。`uv run status` と**クライアント向け WBS の行名**になる。平易な言葉で（コード識別子・専門用語は書かない）。H1 見出しも `# <ID> <title>` と同じにする。検査：done でないエピックで空なら task-lint で失敗（タスク・実験は雛形と review で担保） |
   | `plan` | epic・実験 | `outline`（未分解）\| `detailed`（分解済み） |
   | `requirements` | 任意 | `REQ-…` の配列 |
   | `depends_on` | 任意 | 先行する単位の ID |
@@ -97,6 +98,7 @@ Claude Code / Codex 共通で、Claude Code は `CLAUDE.md`（`@AGENTS.md` を�
   | `milestone` | 任意 | `true` で節目 |
 
   **%完了・実績日付は持たない**＝進捗は木から、実績は `created`/`closed` から導出する（二重台帳を作らない）。検査：`start > due`・`milestone` なのに `due` 無しは task-lint で失敗。
+- **本文の書き方（読者は担当エージェントとオーナー・コンサル／DS／エンジニア）**：`title` と冒頭 1〜2 文だけで、非エンジニアにも**何を・なぜ**が伝わるようにする（コード識別子・内部用語をここに出さない）。順は **平易な導入 → 含む作業／受け入れ基準 → 含めない（任意）→ 技術メモ（任意）**。実装に要る精密さ（コード識別子・内部概念・`T-…`/`ISS-…` の参照）は「技術メモ」に置く。参照を書くときは「`ISS-… の対処`」でなく、その課題が何だったかを 1 文添える。文体の正本は `docs/method.md` §I（造語禁止・最重要を先に・構造で書く）。機械では title の有無だけを見る（平易さ・参照の説明は review スキルが確かめる＝散文は機械化しない）。
 - 種類の目安：**タスク**＝1 つの変更（1 PR で完結）／**実験**＝1 つの仮説（変種は設定ファイルで持つ）／**エピック**＝複数セッションにまたがる束。
 - **着手の提案は `uv run status --next`**：仕掛かり中（in-progress の末端＝再開の候補）→ いま着手できる（todo・依存充足）→ 依存待ち → 分解の候補、の順で出す。並びは `priority`→ID。門番ではない（時間経過で赤にはしない＝可視化のみ）。
 - **トレースの鎖（コンサル向け・任意）**：要求 `docs/demands/DEM-*`（クライアントの言葉・MoSCoW）→ 要件 `docs/requirements/REQ-*`（`satisfies: [DEM-…]` で上流参照・`kind` は functional/non-functional）→ 作業 `work/`（`requirements: [REQ-…]`）→ 検証（`verified_by`）。要求層を持たない案件は `satisfies` を書かなければ何も要求されない。検査：REQ の `satisfies` が実在 DEM を指すこと（task-lint。要件→作業の参照検査と対称）。雛形は `.harness/templates/demand.md`・`requirement.md`。
