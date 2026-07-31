@@ -13,10 +13,18 @@ from pathlib import Path
 
 import pytest
 
-from harness import conventions
+from harness import checks, conventions
 from harness.testing import SKIP_MARKERS, check_collected_items, skips_without_iss
 
 pytestmark = pytest.mark.unit
+
+
+def test_rule_is_wired_into_invariant_checks() -> None:
+    # conventions は Corpus ネイティブな Rule として INVARIANT_CHECKS に載る。Rule 化で「登録はされているが
+    # scan が別物にすり替わっても緑」を防ぐ＝登録と実体（_scan）の一致を固定する（他 lint の結線テストと対称）。
+    assert conventions.RULE in checks.INVARIANT_CHECKS
+    assert conventions.RULE.scan is conventions._scan
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
