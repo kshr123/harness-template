@@ -37,14 +37,12 @@ import re
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit import ids
 from harness.lintkit.exempt import validate_exemptions
 
-# 素の名前の直前に来てはいけない文字。英数・`_` に加えて、パスの構成文字（`/`・`.`・`-`）も禁じる。
-# `_` だけを禁じた版は `schedule_lint.py` に埋もれる `lint.py` は弾けたが、`src/harness/ds/models.py`
-# （**別モジュール**へのパス）に含まれる `models.py` は直前が `/` なので通ってしまい、同名の中核モジュールの
-# 検査が黙って無効化されていた。パスでの言及は「自分自身の置き場」に一致するときだけ数える（_location_forms）。
-_NAME_BOUNDARY = r"(?<![0-9A-Za-z_./-])"
-_NAME_END = r"(?![0-9A-Za-z])"  # `pipeline.py` が `pipeline.pyi` に一致しない
+# 素の名前を独立した語として一致させる語境界は `lintkit.ids.word_bounded`（直前に英数・`_`・パス構成文字
+# `/.-` を禁じ、直後に英数を禁じる）。`src/harness/ds/models.py` に含まれる `models.py` は直前が `/` なので
+# 当たらない＝別モジュールへのパスでの言及は数えない。自分自身の置き場のパス表記だけ `_location_forms` で別に数える。
 
 
 def _location_forms(location: str) -> list[str]:
@@ -64,9 +62,9 @@ def _mentioned(module: str, location: str, docs_text: str) -> bool:
     指すパス（`src/harness/models.py`・`harness/models.py`）が現れる。他モジュールへのパスに名前が
     含まれているだけの一致は数えない。
     """
-    if re.search(_NAME_BOUNDARY + re.escape(module) + _NAME_END, docs_text):
+    if ids.word_bounded(module).search(docs_text):
         return True
-    return any(re.search(_NAME_BOUNDARY + re.escape(form) + _NAME_END, docs_text) for form in _location_forms(location))
+    return any(ids.word_bounded(form).search(docs_text) for form in _location_forms(location))
 
 
 # 免除（リポジトリ相対のパス `src/harness/[<プロファイル>/]<モジュール>.py` → なぜドキュメントで触れなくて

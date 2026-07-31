@@ -25,6 +25,7 @@ from harness import (
     doc_sync,
     doclint,
     issues,
+    lintkit,
     pm,
     profile_doc_lint,
     profiles,
@@ -39,7 +40,9 @@ LEVELS = ("fast", "standard", "full")
 # 中核の不変条件の検査（どの段階でも走る・順不同で全件集める）。
 # プロファイルの検査（例：DS のテーブル定義 data_lint）は .harness/config.toml の profiles から
 # 実行時に集める（プロファイル境界。中核はプロファイルを import しない）。
-INVARIANT_CHECKS: list[InvariantCheck] = [
+# 各要素は従来の `InvariantCheck`（`fn(root)`）か、Corpus ネイティブな `lintkit.Rule` のどちらでもよい
+# （runner が Rule.from_callable で統一する）。conventions は Corpus を共有する Rule に移行済み。
+INVARIANT_CHECKS: list[InvariantCheck | lintkit.Rule] = [
     pm.lint,
     issues.run_checks,
     doclint.run_checks,
@@ -48,7 +51,7 @@ INVARIANT_CHECKS: list[InvariantCheck] = [
     code_doc_lint.run_checks,
     profile_doc_lint.run_checks,
     boundary_lint.run_checks,
-    conventions.run_checks,
+    conventions.RULE,
     doc_sync.run_checks,
 ]
 
@@ -271,10 +274,11 @@ def _run_invariant_checks(root: Path) -> bool:
     """
 
     ok = True
-    problems: list[pm.Problem] = []
     all_checks = INVARIANT_CHECKS + [c for p in profiles.load_profiles(root) for c in p.invariant_checks]
-    for check in all_checks:
-        problems += check(root)
+    # 既存の検査（`fn(root)`）は Rule.from_callable で包み、Corpus ネイティブな検査（`Rule`）はそのまま渡す＝
+    # lintkit.run が Corpus を 1 度だけ作って全ルールへ渡す（ast 解析などの土台を共有できる）。挙動は不変。
+    rules = [c if isinstance(c, lintkit.Rule) else lintkit.Rule.from_callable(c) for c in all_checks]
+    problems = lintkit.run(rules, root)
     for p in problems:
         mark = "✗" if p.level == "error" else "・"
         print(f"  {mark} {p.message}")
@@ -282,7 +286,7 @@ def _run_invariant_checks(root: Path) -> bool:
             ok = False
     if ok:
         # 件数は実測（config で有効にしたプロファイルの検査も数に入る）。内訳の手書き列挙は置かない。
-        print(f"  ○ 不変条件の検査 {len(all_checks)} 件すべて通過（内訳は docs/core.md）")
+        print(f"  ○ 不変条件の検査 {len(rules)} 件すべて通過（内訳は docs/core.md）")
     return ok
 
 

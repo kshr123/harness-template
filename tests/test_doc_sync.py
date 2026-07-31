@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from harness import checks, doc_sync, pm
+from harness.lintkit import Rule
 
 pytestmark = pytest.mark.unit
 
@@ -67,18 +68,19 @@ def test_check_table_has_exactly_one_row_per_invariant_check(tmp_path: Path) -> 
 
 
 def test_check_table_names_each_invariant_check_as_module_dot_function(tmp_path: Path) -> None:
-    # 名前は一律 `<モジュール>.<関数>`。特例（run_checks の短縮）は作らない。
+    # 名前は一律 `<モジュール>.<関数>`（Corpus ネイティブな Rule も `rule.name` を同じ形にそろえる）。特例は作らない。
     text = doc_sync.render(tmp_path)
     for fn in checks.INVARIANT_CHECKS:
-        expected = f"{fn.__module__.removeprefix('harness.')}.{fn.__name__}"
+        expected = fn.name if isinstance(fn, Rule) else f"{fn.__module__.removeprefix('harness.')}.{fn.__name__}"
         assert f"`{expected}`" in text
 
 
 def test_check_table_uses_docstring_first_line_as_summary(tmp_path: Path) -> None:
-    # 要約の出所は docstring 1 行目だけ（文言を二重に持たない＝食い違いが起きない）。
+    # 要約の出所は docstring 1 行目（Corpus ネイティブな Rule は `rule.summary`）だけ＝文言を二重に持たない。
     text = doc_sync.render(tmp_path)
     for fn in checks.INVARIANT_CHECKS:
-        first_line = (fn.__doc__ or "").strip().splitlines()[0]
+        source = fn.summary if isinstance(fn, Rule) else (fn.__doc__ or "")
+        first_line = source.strip().splitlines()[0]
         assert doc_sync._escape_cell(first_line) in text
 
 

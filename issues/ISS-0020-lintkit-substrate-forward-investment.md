@@ -1,11 +1,16 @@
 ---
 id: ISS-0020
 kind: risk
-state: open
+state: resolved
 created: 2026-07-31
+closed: 2026-07-31
 found_in: T-0302
+promoted_to: T-0306
 title: lintkit の未使用部品（Corpus/Rule/run/Exemptions クラス/word_bounded）は P4 で使うか撤回するかを決める前向き投資
 ---
+> 解決（2026-07-31・T-0306）：「使う」で決着。word_bounded は code_doc_lint が、Corpus/Rule/run は checks.py の
+> runner（`lintkit.run`）と Corpus ネイティブになった conventions が実際に使う。唯一 consumer の付かなかった
+> Exemptions クラスだけは撤回（`validate_exemptions` は 4 lint が使うので残す）。lintkit に死蔵コードは無い。
 lintkit（EP-54）の一部は既に実運用で使われている（`ids` は doclint・doc_source_lint が、
 `exempt.validate_exemptions` は 4 つの lint が使う＝単一の出所）。一方で **`Corpus`・`Rule`・`run`・
 `Exemptions` クラス・`ids.word_bounded`（と `NAME_BEFORE/NAME_AFTER`）はまだテストからしか使われていない**

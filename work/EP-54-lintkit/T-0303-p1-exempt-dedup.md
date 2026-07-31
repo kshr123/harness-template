@@ -10,7 +10,7 @@ effort_days: 1
 requirements: []
 depends_on: []
 verified_by:
-  - tests/test_lintkit.py::test_exemptions_require_a_reason
+  - tests/test_lintkit.py::test_validate_exemptions_requires_a_reason
   - tests/test_doc_source_lint.py::test_blank_exempt_reason_raises
   - tests/test_code_doc_lint.py::test_blank_exempt_reason_raises
   - tests/test_coverage_lint.py::test_blank_exempt_reason_raises

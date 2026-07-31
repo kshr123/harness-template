@@ -80,9 +80,10 @@ def test_retracted_checks_are_not_re_registered() -> None:
     # EP-53 の撤回の後戻り防止（loops.py の tombstone と同じ作法）：
     # retraction_lint（RETRACTED={} で常に空＝no-op）と pm.spec_lint（SPEC 見出しの有無だけの儀式）は
     # INVARIANT_CHECKS から外した。誤って戻すとここで落ちる。
-    registered = " ".join(
-        f"{getattr(c, '__module__', '')}.{getattr(c, '__name__', '')}" for c in checks.INVARIANT_CHECKS
-    )
+    # 名前は doc_sync._name（Rule も callable も同じ規則で名付ける＝Rule 化された検査も見落とさない）で集める。
+    from harness import doc_sync
+
+    registered = " ".join(doc_sync._name(c) for c in checks.INVARIANT_CHECKS)
     assert "spec_lint" not in registered, "pm.spec_lint は EP-53 で撤回済み（見出し有無だけの儀式）"
     assert "retraction_lint" not in registered, "retraction_lint は EP-53 で撤回済み（常に空の no-op）"
     assert importlib.util.find_spec("harness.retraction_lint") is None, "retraction_lint モジュールは削除済み"
