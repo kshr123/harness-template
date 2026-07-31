@@ -1,12 +1,13 @@
 ---
 id: EP-53
 kind: epic
-status: in-progress
+status: done
 plan: detailed
 requirements: []
 depends_on: []
+title: 検証コマンドの整理（重複した検査の統合と、効いていない検査の廃止）
 ---
-# EP-53 verify の脱・accretion（機構を統合・効かない検査を撤回する）
+# EP-53 検証コマンドの整理（重複した検査の統合と、効いていない検査の廃止）
 
 「`uv run verify` が何でも全部やる」という指摘への対処。fable の全体棚卸しで分かったのは：**verify は遅くない**
 （全体 57 秒の 93% は pytest・18 個の不変検査は合計 2.3 秒＝4%）。本当の accretion は**機構の数と保守面**＝
