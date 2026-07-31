@@ -28,6 +28,7 @@ import ast
 from pathlib import Path
 
 from harness import pm, profiles
+from harness.lintkit.exempt import validate_exemptions
 
 # 免除リスト：(中核モジュールのファイル名, import 先の完全修飾モジュール) → なぜ許すかの理由（空は不可）。
 # 例：("cli.py", "harness.ds")。現状は空（中核 → プロファイルの越境は 0 件）。
@@ -35,11 +36,8 @@ _EXEMPT: dict[tuple[str, str], str] = {}
 
 
 def _validated_exempt() -> dict[tuple[str, str], str]:
-    """免除リストの理由が空でないことを確かめて返す。空の理由は設定ミス＝即失敗（黙って免除しない）。"""
-    for key, reason in _EXEMPT.items():
-        if not reason.strip():
-            raise ValueError(f"_EXEMPT[{key!r}] の理由が空。免除には人が読める理由が必須（boundary_lint）")
-    return _EXEMPT
+    """免除リストの理由が空でないことを確かめて返す（検証は lintkit.exempt に集約）。"""
+    return validate_exemptions("boundary_lint", _EXEMPT)
 
 
 def _core_modules(root: Path) -> list[Path]:

@@ -9,6 +9,7 @@ import pytest
 
 from harness import pm
 from harness.lintkit import Corpus, Exemptions, Rule, ids, run
+from harness.lintkit.exempt import validate_exemptions
 
 pytestmark = pytest.mark.unit
 
@@ -42,8 +43,12 @@ def test_word_bounded_matches_standalone_name_not_substring_or_path() -> None:
 
 def test_exemptions_require_a_reason() -> None:
     Exemptions("x", {"docs/a.md": "正当な理由"})  # 理由あり＝作れる
-    with pytest.raises(ValueError, match="理由が無い"):
+    with pytest.raises(ValueError, match="理由が空"):
         Exemptions("x", {"docs/a.md": "   "})  # 空・空白だけは不可
+    # 既存検査が使う自由関数も同じメッセージ（各 lint の match="理由が空" が移行後も緑＝挙動不変）。
+    assert validate_exemptions("owner", {"k": "理由"}) == {"k": "理由"}
+    with pytest.raises(ValueError, match="理由が空"):
+        validate_exemptions("owner", {("cli.py", "harness.ds"): "  "})  # tuple 鍵も可（boundary_lint 形）
 
 
 def test_exemptions_membership_and_filter() -> None:

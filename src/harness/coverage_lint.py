@@ -34,6 +34,7 @@ import tomllib
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit.exempt import validate_exemptions
 
 # 免除リスト：真に導線不要な内部コマンドだけ（トークン → なぜ導線が不要かの理由。空は不可）。
 _EXEMPT: dict[str, str] = {
@@ -52,11 +53,8 @@ _CORPUS_FIXED = ("AGENTS.md", "README.md")
 
 
 def _validated_exempt() -> dict[str, str]:
-    """免除リストの理由が空でないことを確かめて返す。空の理由は設定ミス＝即失敗（黙って免除しない）。"""
-    for token, reason in _EXEMPT.items():
-        if not reason.strip():
-            raise ValueError(f"_EXEMPT[{token!r}] の理由が空。免除には人が読める理由が必須（coverage_lint）")
-    return _EXEMPT
+    """免除リストの理由が空でないことを確かめて返す（検証は lintkit.exempt に集約）。"""
+    return validate_exemptions("coverage_lint", _EXEMPT)
 
 
 def _cli_files(root: Path) -> list[Path]:

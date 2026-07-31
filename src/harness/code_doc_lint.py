@@ -37,6 +37,7 @@ import re
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit.exempt import validate_exemptions
 
 # 素の名前の直前に来てはいけない文字。英数・`_` に加えて、パスの構成文字（`/`・`.`・`-`）も禁じる。
 # `_` だけを禁じた版は `schedule_lint.py` に埋もれる `lint.py` は弾けたが、`src/harness/ds/models.py`
@@ -75,11 +76,8 @@ _EXEMPT: dict[str, str] = {}
 
 
 def _validated_exempt() -> dict[str, str]:
-    """免除リストの理由が空でないことを確かめて返す。空の理由は設定ミス＝即失敗（黙って免除しない）。"""
-    for key, reason in _EXEMPT.items():
-        if not reason.strip():
-            raise ValueError(f"_EXEMPT[{key!r}] の理由が空。免除には人が読める理由が必須（code_doc_lint）")
-    return _EXEMPT
+    """免除リストの理由が空でないことを確かめて返す（検証は lintkit.exempt に集約）。"""
+    return validate_exemptions("code_doc_lint", _EXEMPT)
 
 
 def _profile_dirs(root: Path) -> list[Path]:
