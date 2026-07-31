@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from harness import pm
-from harness.lintkit import Corpus, Rule, ids, run
+from harness.lintkit import Corpus, Rule, ids, run, workflows
 from harness.lintkit.exempt import validate_exemptions
 
 pytestmark = pytest.mark.unit
@@ -47,6 +47,26 @@ def test_validate_exemptions_requires_a_reason() -> None:
         validate_exemptions("owner", {"docs/a.md": "   "})  # 空・空白だけは不可
     with pytest.raises(ValueError, match="理由が空"):
         validate_exemptions("owner", {("cli.py", "harness.ds"): "  "})  # tuple 鍵も可（boundary_lint 形）
+
+
+# ---- workflows（GitHub Actions の on: True-trap を吸収） ----------------------------------------------
+
+
+def test_workflows_on_block_handles_yaml_true_trap() -> None:
+    # pyyaml は `on:` を bool True に読む＝True 鍵からも読めること。文字列 "on" 鍵も両対応。
+    assert workflows.on_block({True: {"schedule": []}}) == {"schedule": []}
+    assert workflows.on_block({"on": {"push": None}}) == {"push": None}
+    assert workflows.on_block("not a dict") is None
+
+
+def test_workflows_trigger_names_across_shapes() -> None:
+    assert workflows.trigger_names({True: {"schedule": [], "workflow_dispatch": None}}) == {
+        "schedule",
+        "workflow_dispatch",
+    }
+    assert workflows.trigger_names({"on": ["push", "pull_request"]}) == {"push", "pull_request"}
+    assert workflows.trigger_names({"on": "push"}) == {"push"}
+    assert workflows.trigger_names({"jobs": {}}) == set()  # on: 無し
 
 
 # ---- Corpus（root・相対パス・ast 解析キャッシュ） -----------------------------------------------------

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from harness import pm
+from harness.lintkit import workflows
 
 # 必須ファイル（templates/schedule/ からの相対）。1 つでも欠けると雛形として使えない。
 _REQUIRED = ("monitor.yml", "README.md")
@@ -54,9 +55,8 @@ def run_checks(root: Path) -> list[pm.Problem]:
             doc = None
 
     if isinstance(doc, dict):
-        # 落とし穴：pyyaml は YAML 1.1 の implicit resolver で `on:` を bool True に読む。
-        # 文字列 "on" とキー True の両方を受ける（外すと全 workflow が trigger 無し誤検知になる）。
-        on_block = doc.get("on", doc.get(True))
+        # `on:` の True-trap 込みの読み方は lintkit.workflows に集約（ci_lint と同じ 1 か所）。
+        on_block = workflows.on_block(doc)
         _check_trigger(problems, on_block)
         _check_permissions(problems, doc)
         _check_concurrency(problems, doc)

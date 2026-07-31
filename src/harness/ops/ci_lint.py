@@ -45,6 +45,7 @@ from typing import Any
 
 from harness import pm
 from harness.config import load_config
+from harness.lintkit import workflows
 
 
 @dataclass(frozen=True)
@@ -344,17 +345,8 @@ def _run_commands(doc: Any) -> list[str]:
 
 
 def _trigger_names(doc: Any) -> set[str]:
-    """on: のトリガ名の集合。pyyaml は `on` キーを YAML 1.1 の真偽値 True に読むので両方の鍵を見る。"""
-    if not isinstance(doc, dict):
-        return set()
-    on = doc.get("on", doc.get(True))
-    if isinstance(on, dict):
-        return {str(k) for k in on}
-    if isinstance(on, list):
-        return {str(v) for v in on}
-    if isinstance(on, str):
-        return {on}
-    return set()
+    """on: のトリガ名の集合（True-trap 込みの読み方は lintkit.workflows に集約）。"""
+    return workflows.trigger_names(doc)
 
 
 def _python_versions(doc: Any) -> list[str]:
