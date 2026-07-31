@@ -42,8 +42,8 @@ uvx pre-commit run --all-files   # コミット直前の検査
 - `STATUS.md` … 全単位の進捗（自動生成・コミットしない）
 
 ## 次に読む
-- **人**：[docs/README.md](docs/README.md) … 文書の索引・読む順・ID の凡例・文書地図
-- **エージェント**：`AGENTS.md`（規則・作業単位の schema・コマンド索引）
+- [docs/README.md](docs/README.md) … 文書の索引と ID の凡例
+- `AGENTS.md` … 規則・作業単位の schema・コマンド索引（エージェントが毎セッション参照する正本）
 
 ## 覚える用語（3 つだけ）
 - **案件** … 1 つの顧客プロジェクト／開発テーマ。1 リポジトリ＝1 案件で複製して使う。

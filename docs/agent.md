@@ -263,7 +263,7 @@ uv run agent serve --work E-0101 --name helper --version 20260706T090000000000Z 
 （トークン/ターンの分位）・ツール使用頻度**を YAML で出す。`ds/monitor`（`data monitor`）と同じ規律で作る：
 
 - **処理を止めない**：率は band（安定/要注意/大変化 の 3 段階の重大度。0.05/0.2 の目安）で
-  ユーザーが読む。exit code は常に 0（自動停止しない）。
+  人が読む。exit code は常に 0（自動停止しない）。
 - **壊れ行・契約違反行は警告して読み飛ばす**（件数は `n_skipped` に出る）。全体が読めなくなるより縮退を選ぶ。
 - **消費するキー（time/stop_reason/usage/turns/tools_used）だけ検証する**。
 - 分位はニアレストランク法（補間しない）。実装は stdlib のみ（numpy/polars/ds 非依存＝core の軽さと
