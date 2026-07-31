@@ -41,7 +41,9 @@ ID は「接頭辞-番号」で種類を表す。
 | `PM` | Project Management（プロジェクト管理。`src/harness/pm.py` の pm はこれ） |
 
 ## 文書地図（読者＋Diátaxis 分類）
-分類は [Diátaxis](https://diataxis.fr) の 4 つ：**overview**（全体像）／**how-to**（目的を達成する手順）／**reference**（事実・契約の一覧）／**explanation**（背景・なぜ）。
+分類は [Diátaxis](https://diataxis.fr) の 4 分類を基にする（原典は tutorial／how-to／reference／explanation。
+tutorial に当たる文書がまだ無いため **overview**〔全体像〕に置き換えている）：**overview**（全体像）／
+**how-to**（目的を達成する手順）／**reference**（事実・契約の一覧）／**explanation**（背景・なぜ）。
 
 | 文書 | 読者 | 分類 | 何が分かるか |
 | --- | --- | --- | --- |
@@ -62,7 +64,7 @@ ID は「接頭辞-番号」で種類を表す。
 | [deliver.md](deliver.md) | 人 | reference | クライアントに見せる WBS・ガント（作業単位の木からの生成ビュー） |
 | [deliver-code.md](deliver-code.md) | 人 | explanation | deliver のコードの役割・描画/編集の設計 |
 | [template-copy.md](template-copy.md) | 人 | how-to | この基盤を次の案件へ複製する手順 |
-| [learnings.md](learnings.md) | 人 | explanation | 作業で得た気づきの記録（ルールにする前の材料） |
+| [learnings.md](learnings.md) | 人・エージェント | explanation | 作業で得た気づきの記録（ルールにする前の材料） |
 | [requirements/](requirements/) | 人 | reference | 案件の要件（REQ） |
 | [data/](data/) | 人 | reference | テーブル定義の正本（YAML） |
 | `../.claude/skills/` | エージェント | how-to | セッション中の作業手順（実験・レビュー・検証など） |

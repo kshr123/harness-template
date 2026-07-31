@@ -134,7 +134,8 @@
 
 読者は 3 つの専門職（コンサル・データサイエンティスト・エンジニア）とエージェント。**新規追加・更新も含め、今後の文書はすべてこの標準に従う**（一過性の掃除でなく維持する）。散文で読みにくくなった文書を直すときの基準でもある。
 
-- **1 文書＝1 読者・1 種別。** 冒頭に H1 の直下でヘッダーブロックを置く（4 行）：
+- **主読者を 1 つに絞り、種別を 1 つにする。** 冒頭に H1 の直下でヘッダーブロックを置く（4 行）。読者が
+  真に 2 つある文書（`AGENTS.md`・`learnings.md` など）は主読者を先に書き、副読者を続けて添える：
   - `読者`：エージェント（毎セッション／トリガで読み込む）｜人（必要なとき参照）
   - `種別`：overview（全体像）｜how-to（手順）｜reference（契約・一覧）｜explanation（なぜ）——1 文書で混ぜない
   - `分かること`：1 行（読者がこの文書から得る理解）
@@ -144,4 +145,5 @@
 - **各文書は単独で読める。** 用語集や他文書の定義に頼らず、その読者の既知語だけで完結させる（リンクは「より深く」のためだけ）。
 - **AI 向けと人向けを分ける。** 規則・schema・コマンド索引＝`AGENTS.md`／場面別の手順＝`.claude/skills/*`（どちらもエージェント向け）。全体像・reference・how-to＝`README.md`・`docs/*`（人向け）。なぜ・設計＝`method.md`・`docs/*-code.md`。規則は AGENTS に 1 度だけ書き、docs からはリンクする（重複させない＝F 節）。
 - **機械化しない。** これは書き手の規律＋レビューで守る（用語・読みやすさは散文なので機械検査に載せない。ヘッダーブロックの有無を将来 lint 化するかは、手運用で形が安定してから判断する）。
-- **出典（この標準の根拠）：** [Diátaxis](https://diataxis.fr/)（1 文書＝1 種別）・[AGENTS.md 標準](https://agents.md/)（エージェント用の操作マニュアルは 1 ファイル・詳細はリンク）・[llms.txt](https://llmstxt.org/)（エージェントの入口は薄い索引）・[Google developer style](https://developers.google.com/style/highlights)・[plain language: avoid jargon](https://digital.gov/guides/plain-language/principles/avoid-jargon)。
+- **出典（この標準の根拠）：** [Diátaxis](https://diataxis.fr/)（1 文書＝1 種別。原典の 4 分類は
+  tutorial／how-to／reference／explanation で、当基盤は tutorial 相当の文書が無いため overview に置き換えている）・[AGENTS.md 標準](https://agents.md/)（エージェント用の操作マニュアルは 1 ファイル・詳細はリンク）・[llms.txt](https://llmstxt.org/)（エージェントの入口は薄い索引）・[Google developer style](https://developers.google.com/style/highlights)・[plain language: avoid jargon](https://digital.gov/guides/plain-language/principles/avoid-jargon)。
