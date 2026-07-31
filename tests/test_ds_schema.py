@@ -48,6 +48,21 @@ def test_data_lint_clean(tmp_path: Path) -> None:
     assert not [p for p in schema.data_lint(tmp_path) if p.level == "error"]
 
 
+def test_malformed_schema_is_rejected_at_construction() -> None:
+    """列に無い primary_key・target_column、polars でない dtype は構築時に弾く（(a) 構造で不可能にする）。"""
+    from pydantic import ValidationError
+
+    base = {"id": "t", "description": "x", "layer": "raw", "columns": [{"name": "a", "dtype": "Int64"}]}
+    with pytest.raises(ValidationError, match="polars の型名でない"):
+        schema.TableSchema.model_validate({**base, "columns": [{"name": "a", "dtype": "Integer"}]})
+    with pytest.raises(ValidationError, match="primary_key の 'z' が列に無い"):
+        schema.TableSchema.model_validate({**base, "primary_key": ["z"]})
+    with pytest.raises(ValidationError, match="target_column 'z' が列に無い"):
+        schema.TableSchema.model_validate({**base, "target_column": "z"})
+    # 妥当なものは通る（回帰の対照）。
+    assert schema.TableSchema.model_validate({**base, "primary_key": ["a"], "target_column": "a"}).id == "t"
+
+
 def test_data_lint_bad_dtype(tmp_path: Path) -> None:
     _write(tmp_path, "t", "id: t\ndescription: x\nlayer: raw\ncolumns:\n  - {name: a, dtype: Integer}\n")
     assert any("polars の型名でない" in p.message for p in schema.data_lint(tmp_path))
@@ -360,7 +375,8 @@ def test_unknown_role_is_rejected_at_model_validation() -> None:
     """未知 role（既知語彙の外）は load 時に ValidationError（typo/亜種を構文で不可能にし fail-open を塞ぐ）。"""
     from pydantic import ValidationError
 
-    base = {"id": "t", "description": "x", "layer": "processed", "columns": [{"name": "a", "dtype": "Int64"}]}
+    # role 以外は構築が通る最小の妥当スキーマ（raw は lineage 不要）＝role だけを変えて検証する。
+    base = {"id": "t", "description": "x", "layer": "raw", "columns": [{"name": "a", "dtype": "Int64"}]}
     for bad in ("features", "feature_store", "Feature"):  # 綴り違い・亜種・大小差はすべて未知
         with pytest.raises(ValidationError, match="role"):
             schema.TableSchema.model_validate({**base, "role": bad})

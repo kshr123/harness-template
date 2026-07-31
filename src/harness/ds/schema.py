@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from harness import storage
 from harness.config import load_config
@@ -29,7 +29,7 @@ from harness.pm import Problem
 # 新しい役割を使う案件は、この集合に 1 行足す（＝どこを直せばよいかが 1 か所に集まる）。
 KNOWN_ROLES = frozenset({"raw", "cleaned", "feature", "split", "prediction", "evaluation"})
 
-# polars の型名（この集合以外は data-lint が失敗にする）。
+# polars の型名（この集合以外は TableSchema のバリデータが構築時に失敗にする＝(a) 構造で不可能にする）。
 POLARS_DTYPES = {
     "Int8", "Int16", "Int32", "Int64",
     "UInt8", "UInt16", "UInt32", "UInt64",
@@ -61,6 +61,14 @@ class Column(BaseModel):
     allowed_values: list[Any] | None = None
     range: dict[str, float] | None = None  # {"min": .., "max": ..}
     checks: list[str] = Field(default_factory=list)
+
+    @field_validator("dtype")
+    @classmethod
+    def _dtype_is_polars(cls, v: str) -> str:
+        """dtype を polars の型名に固定する（構築時に弾く＝不正な型を持つスキーマを作れなくする）。"""
+        if v not in POLARS_DTYPES:
+            raise ValueError(f"型 '{v}' は polars の型名でない（既知: {sorted(POLARS_DTYPES)}）")
+        return v
 
 
 class Lineage(BaseModel):
@@ -99,6 +107,22 @@ class TableSchema(BaseModel):
             raise ValueError(f"role '{v}' は未知（既知: {sorted(KNOWN_ROLES)}）。新しい役割は KNOWN_ROLES に足す")
         return v
 
+    @model_validator(mode="after")
+    def _columns_consistent(self) -> TableSchema:
+        """列との整合＝スキーマが**内部的に矛盾しない**ことを構築時に弾く（列に無い primary_key・target_column）。
+
+        ここに置くのは「オブジェクトとして壊れている」規則だけ。派生層の lineage 必須は**リポの受け入れ方針**
+        （well-formed なオブジェクトでも方針で拒む）なので data_lint に残す＝方針検査を構築ゲートに載せて
+        store.save のような無関係な経路まで巻き込まない。スキーマ間の規則（ID 重複・lineage 参照・越境）も data_lint。
+        """
+        col_names = {c.name for c in self.columns}
+        for key in self.primary_key:
+            if key not in col_names:
+                raise ValueError(f"primary_key の '{key}' が列に無い")
+        if self.target_column is not None and self.target_column not in col_names:
+            raise ValueError(f"target_column '{self.target_column}' が列に無い")
+        return self
+
 
 def _project_dir(root: Path) -> Path:
     """共有スコープのテーブル定義の置き場（config の metadata.uri をローカルパスに解決）。
@@ -128,12 +152,21 @@ def load_schemas(root: Path, problems: list[Problem] | None = None) -> list[Tabl
             out.append(TableSchema.model_validate(raw))
         except ValidationError as exc:
             if problems is not None:
-                problems.append(Problem("error", f"{path.name}: テーブル定義が不正: {exc.error_count()} 件"))
+                # 各違反の具体的な理由をそのまま出す（「N 件」だけだと直す場所が分からない）。
+                for err in exc.errors():
+                    problems.append(Problem("error", f"{path.name}: テーブル定義が不正: {err['msg']}"))
     return out
 
 
 def data_lint(root: Path) -> list[Problem]:
-    """テーブル定義の静的検査（実データは見ない）。ID重複・型名・系譜・越境参照などを見る。"""
+    """テーブル定義の静的検査（実データは見ない）。オブジェクトの well-formedness 以外を見る。
+
+    単一スキーマの**内部矛盾**（型名・列に無い primary_key／target_column）は `TableSchema` の
+    バリデータが構築時に弾き、`load_schemas` がそれを problems に載せる（(a) 構造で不可能にする）。
+    ここに残すのは (1) リポの受け入れ方針（派生層は lineage 必須・raw の source）と、(2) 他スキーマを
+    要する規則（ID 重複・lineage 参照先の実在・越境参照）＝どちらも「壊れたオブジェクト」ではないので構築ゲートに
+    載せない。
+    """
     problems: list[Problem] = []
     schemas = load_schemas(root, problems)
     by_id: dict[str, TableSchema] = {}
@@ -143,15 +176,6 @@ def data_lint(root: Path) -> list[Problem]:
         by_id[s.id] = s
 
     for s in schemas:
-        col_names = {c.name for c in s.columns}
-        for c in s.columns:
-            if c.dtype not in POLARS_DTYPES:
-                problems.append(Problem("error", f"{s.id}.{c.name}: 型 '{c.dtype}' は polars の型名でない"))
-        for key in s.primary_key:
-            if key not in col_names:
-                problems.append(Problem("error", f"{s.id}: primary_key の '{key}' が列に無い"))
-        if s.target_column is not None and s.target_column not in col_names:
-            problems.append(Problem("error", f"{s.id}: target_column '{s.target_column}' が列に無い"))
         if s.layer in (Layer.processed, Layer.split) and s.lineage is None:
             problems.append(Problem("error", f"{s.id}: {s.layer.value} だが lineage が無い"))
         if s.layer is Layer.raw and s.source is None:
