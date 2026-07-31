@@ -6,12 +6,12 @@ title: 決まりごとを撤回する経路を作る（追加しかできない�
 created: 2026-07-10
 depends_on: []
 verified_by:
-  - tests/test_retraction_lint.py::test_residue_in_asset_is_flagged
-  - tests/test_retraction_lint.py::test_empty_retracted_is_green
-  - tests/test_retraction_lint.py::test_word_boundary_avoids_substring_false_positive
-  - tests/test_retraction_lint.py::test_allowed_places_are_not_residue
-  - tests/test_retraction_lint.py::test_empty_reason_raises
+  - tests/test_verification_mechanism.py::test_retracted_checks_are_not_re_registered
 ---
+> 注：この検査 `retraction_lint` 自体を EP-53（L-026）で撤回した（`RETRACTED={}` で常に空＝no-op。残骸検査は
+> 撤回という一手の中で 1 度 grep すれば足りる＝AGENTS 撤回原則＋harvest スキルへ移した）。当初の条文（決まりごとを
+> 撤回する経路）は AGENTS に残る。verified_by は撤回の後戻り防止 tombstone を指す。
+
 ## 実装（done）
 - 条文：AGENTS.md の原則に「決まりごとは手段＝効かない決まりごとは撤回する」を追加（撤回の是非は人・
   記録先は docs/learnings.md・残骸は機械が検査）。

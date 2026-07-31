@@ -571,18 +571,3 @@ def _render_node(node: Node, lines: list[str], depth: int) -> None:
     lines.append(f"| {indent}{node.item.display} | {node.item.kind.value} | {plan} | {progress} | {blocked} | {reqs} |")
     for child in node.children:
         _render_node(child, lines, depth + 1)
-
-
-def spec_lint(root: Path) -> list[Problem]:
-    """作業単位に SPEC.md があれば、必要な見出しがそろっているか確認する。
-
-    SPEC は任意（無くてもよい）。ただし置いたら中身が欠けないようにする。
-    """
-    required = ["## 目的", "## 受け入れ基準", "## やらないこと", "## 最後の確認手順"]
-    problems: list[Problem] = []
-    for spec in sorted((root / WORK_DIR).rglob("SPEC.md")):
-        text = spec.read_text(encoding="utf-8")
-        missing = [h for h in required if h not in text]
-        if missing:
-            problems.append(Problem("error", f"{spec.parent.name}/SPEC.md: 必要な見出しが不足: {', '.join(missing)}"))
-    return problems

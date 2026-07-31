@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import tomllib
 from pathlib import Path
 
@@ -73,6 +74,18 @@ def test_checks_toml_uses_only_registered_markers() -> None:
     # 層の 3 目印（unit/integration/e2e）＋除外の 2 目印（slow・browser）が接続されている
     # （どれかが設定から抜け落ちていない）。browser は standard の integration から除外＝Chrome を毎回起動しない。
     assert used == {"unit", "integration", "e2e", "slow", "browser"}
+
+
+def test_retracted_checks_are_not_re_registered() -> None:
+    # EP-53 の撤回の後戻り防止（loops.py の tombstone と同じ作法）：
+    # retraction_lint（RETRACTED={} で常に空＝no-op）と pm.spec_lint（SPEC 見出しの有無だけの儀式）は
+    # INVARIANT_CHECKS から外した。誤って戻すとここで落ちる。
+    registered = " ".join(
+        f"{getattr(c, '__module__', '')}.{getattr(c, '__name__', '')}" for c in checks.INVARIANT_CHECKS
+    )
+    assert "spec_lint" not in registered, "pm.spec_lint は EP-53 で撤回済み（見出し有無だけの儀式）"
+    assert "retraction_lint" not in registered, "retraction_lint は EP-53 で撤回済み（常に空の no-op）"
+    assert importlib.util.find_spec("harness.retraction_lint") is None, "retraction_lint モジュールは削除済み"
 
 
 def test_merge_pytest_collapses_layers_into_one_union() -> None:

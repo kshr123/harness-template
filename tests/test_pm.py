@@ -676,19 +676,6 @@ def test_broken_frontmatter_is_error(tmp_path: Path) -> None:
     assert [p for p in pm.lint(tmp_path) if p.level == "error"]
 
 
-def test_spec_lint_requires_headings(tmp_path: Path) -> None:
-    _scaffold(tmp_path)
-    spec = tmp_path / "work" / "EP-01-foundation" / "E-0001-exp" / "SPEC.md"
-    _write(spec.parent / "item.md", {"id": "E-0001", "kind": "experiment", "status": "todo"})
-    spec.write_text("# SPEC\n## 目的\nあれ\n", encoding="utf-8")
-    assert [p for p in pm.spec_lint(tmp_path) if p.level == "error"]
-    spec.write_text(
-        "# SPEC\n## 目的\nx\n## 受け入れ基準\nx\n## やらないこと\nx\n## 最後の確認手順\nx\n",
-        encoding="utf-8",
-    )
-    assert not pm.spec_lint(tmp_path)
-
-
 def test_requirement_filename_with_suffix_matches_id(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # 要件ファイルは REQ-0009-<説明>.md でもよい（単位の命名規則と対称）。ID は先頭の REQ-0009。

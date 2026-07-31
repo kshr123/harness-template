@@ -78,9 +78,9 @@
 
 **新ルールの足し方**：
 1. 根拠を書く（軽微なら learnings、大きな方針転換はコミットメッセージに理由）。
-2. 強制点を選ぶ：作業単位の構造→pm.lint／文書の形→spec_lint／コードの振る舞い→pytest・checks.toml／書き方→ruff／型→mypy。
+2. 強制点を選ぶ：作業単位の構造→pm.lint／コードの振る舞い→pytest・checks.toml／書き方→ruff／型→mypy／規約→conventions。
 3. 検査を先に足し、既存の違反を直し、verify を全成功に戻す。
-4. AGENTS に 1 行足し、末尾に強制点を括弧書きする（例：「グローバルな種設定は禁止（spec_lint が `np.random.seed` を検出）」）。
+4. AGENTS に 1 行足し、末尾に強制点を括弧書きする（例：「グローバルな種設定は禁止（conventions が `np.random.seed` を検出）」）。
 5. 強制点を持てないルールは AGENTS 内で「（レビュー観点）」と明記する。review スキルはその印の付いた項目を確認する。
 
 これにより AGENTS.md 自体が「どのルールが機械で守られ、どれが人（レビュー）頼みか」の一覧になる。**括弧書きの無いルールを増やさないこと**が規約の腐敗を防ぐ歯止め。
@@ -117,7 +117,6 @@
 - 差し替え軸は sklearn Pipeline を背骨に、特徴量は `BLOCKS`・エンコーダは `ENCODERS`・モデル種は `MODELS`・保存形式は manifest の `format` 文字列で持つ（当初案の自前 Protocol 層は過剰分割だったため撤回）。
 
 **今すぐ入れた最小**：本文書（method.md）／AGENTS 原則に「着手は全体→詳細」1 行／plan スキルの分解手順に「最初のタスクは端まで通る最小の骨組み」1 行／harvest を C 節の 5 手順へ／learnings 書式に「状態」欄（ルール化済みの気づきをそう印す）。
-**後で足す分（通常タスク）**：spec_lint に `np.random.seed` 検出（AGENTS 既存ルールへ強制点を付ける最初のケース）／`experiment`・`eda` スキル（EP-06 着手時）。
 
 ## H. 既定＋上書き条件（業務価値の点のみ）
 

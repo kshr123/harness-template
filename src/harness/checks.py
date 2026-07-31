@@ -28,7 +28,6 @@ from harness import (
     pm,
     profile_doc_lint,
     profiles,
-    retraction_lint,
     testing,
 )
 from harness.profiles import InvariantCheck
@@ -42,7 +41,6 @@ LEVELS = ("fast", "standard", "full")
 # 実行時に集める（プロファイル境界。中核はプロファイルを import しない）。
 INVARIANT_CHECKS: list[InvariantCheck] = [
     pm.lint,
-    pm.spec_lint,
     issues.run_checks,
     doclint.run_checks,
     coverage_lint.run_checks,
@@ -51,7 +49,6 @@ INVARIANT_CHECKS: list[InvariantCheck] = [
     profile_doc_lint.run_checks,
     boundary_lint.run_checks,
     conventions.run_checks,
-    retraction_lint.run_checks,
     doc_sync.run_checks,
 ]
 
