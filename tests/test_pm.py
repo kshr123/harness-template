@@ -500,6 +500,25 @@ def test_epic_title_present_passes_and_done_and_tasks_are_grandfathered(tmp_path
     assert not any("title が無い" in m for m in msgs)  # 付与済み・done・タスクは無指摘
 
 
+def test_display_name_falls_back_title_then_heading_then_id(tmp_path: Path) -> None:
+    # 表示名の導出（status と WBS 共通の 1 か所）：title→本文見出し（# <ID> 名前 から ID を除く）→素の ID。
+    _write(
+        tmp_path / "work" / "EP-20/item.md",
+        {"id": "EP-20", "kind": "epic", "status": "done", "plan": "detailed", "title": "明示タイトル"},
+        body="# EP-20 見出しの方\n",
+    )
+    _write(
+        tmp_path / "work" / "EP-21/item.md",
+        {"id": "EP-21", "kind": "epic", "status": "done", "plan": "detailed"},
+        body="# EP-21 見出しからの名前\n",
+    )
+    _write(tmp_path / "work" / "EP-22/item.md", {"id": "EP-22", "kind": "epic", "status": "done", "plan": "detailed"})
+    by_id = {n.item.id: n for n in pm.load_tree(tmp_path)[0]}
+    assert pm.display_name(by_id["EP-20"]) == "明示タイトル"  # title 優先
+    assert pm.display_name(by_id["EP-21"]) == "見出しからの名前"  # title 無し→H1 から ID を除く
+    assert pm.display_name(by_id["EP-22"]) == "EP-22"  # title も H1 も無い→素の ID
+
+
 def test_investigation_done_requires_conclusion(tmp_path: Path) -> None:
     _scaffold(tmp_path)
     # done の調査に「## 結論」が無い＝失敗（verified_by の代わりの検査）。
