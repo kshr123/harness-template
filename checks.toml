@@ -14,7 +14,9 @@ commands = [
 [standard]
 commands = [
     ["mypy"],
-    ["pytest", "-q", "-m", "integration and not slow"],
+    # browser は除外＝既定の verify で実 Chrome を毎回起動しない（描画の幾何は Python 計算で
+    # test_deliver_geometry.py が検証済み・JS/DOM の振る舞いは CI の browser 実行が必須にする）。
+    ["pytest", "-q", "-m", "integration and not slow and not browser"],
 ]
 
 [full]

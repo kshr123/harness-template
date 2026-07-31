@@ -34,3 +34,10 @@ def test_ci_uses_the_shared_verify_command() -> None:
     runs = [step.get("run", "") for step in _verify_job()["steps"]]
     assert any("uv run verify" in r for r in runs)
     assert any("uv sync --all-extras" in r for r in runs)  # optional 依存のテストを skip しない規約
+
+
+def test_ci_runs_browser_tests_since_verify_excludes_them() -> None:
+    # 描画の browser テストは既定の verify から除外（Chrome を毎回起動しない）ので、merge 前に CI が
+    # 必ず走らせる＝どこにも走らない黙った空白を作らない（fail-closed をローカル skip から CI 必須へ移す）。
+    runs = [step.get("run", "") for step in _verify_job()["steps"]]
+    assert any("pytest" in r and "-m browser" in r for r in runs), "CI の verify ジョブに `pytest -m browser` が無い"

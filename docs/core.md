@@ -64,7 +64,7 @@ verify で失敗として教える（`src/harness/doc_sync.py`）。
 | `fast` | `ruff check .` |
 | `fast` | `pytest -q -m 'unit and not slow'` |
 | `standard` | `mypy` |
-| `standard` | `pytest -q -m 'integration and not slow'` |
+| `standard` | `pytest -q -m 'integration and not slow and not browser'` |
 | `full` | `pytest -q -m 'e2e and not slow'` |
 <!-- doc-sync:end -->
 

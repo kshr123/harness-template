@@ -27,6 +27,10 @@ jobs:
         run: uv sync --all-extras
       - name: 共通の検証コマンド（完了判定）
         run: uv run verify
+      - name: 描画の振る舞い検査（実 Chrome・既定の verify では除外＝毎回起動しない・merge 前にここで必須実行）
+        # ubuntu/windows ランナーは Chrome 同梱（tests/_headless._APP_PATHS）。幾何は verify 内の
+        # test_deliver_geometry（unit）が Chrome 無しで毎回検証済み＝ここは JS/DOM の振る舞いだけを守る。
+        run: uv run pytest -q -m browser
 
   audit:
     # 依存脆弱性監査（T-0102）。エージェントが自律的に extra を足す運用のため、部分環境でなく
