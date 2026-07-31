@@ -44,23 +44,14 @@ from __future__ import annotations
 
 import ast
 import io
-import re
 import tokenize
 from pathlib import Path
 
 from harness import pm
+from harness.lintkit import ids
 from harness.lintkit.exempt import validate_exemptions
 
-# 禁じる参照：具体的な一時単位への参照。
-# work/ パス（プレースホルダ `work/<…>` は ID を持たないので当たらない）。
-_WORK_REF_RE = re.compile(r"work/(?:EP|T|E|INV)-[0-9A-Za-z-]+")
-# 課題 ID（角括弧プレースホルダ `ISS-<番号>` は数字が続かないので当たらない）。
-_ISS_REF_RE = re.compile(r"ISS-\d+")
-# 気づき ID（`docs/learnings.md` の L-###）。定義元は案件領域で fork のたびに白紙化されるので、恒久資産が
-# これを根拠参照すると複製先で宙に浮く（work/・ISS と同じ壊れ方）。定義元の learnings.md 自身は走査しない。
-_LEARNING_REF_RE = re.compile(r"\bL-\d{3}\b")
-# 型録表記（`ISS-XXXX`・`ISS-0000` 形の説明用連番）はプレースホルダとみなして拾わない。
-_PLACEHOLDER_RE = re.compile(r"XXXX|0000", re.IGNORECASE)
+# 禁じる参照（work/ パス・ISS ID・気づき ID）とプレースホルダの文法は lintkit.ids に集約（1 か所・1 度だけテスト）。
 
 # docs 直下だが案件領域（fork の init-project で白紙化される）＝走査しない。work/・issues/ と同じ扱い。
 # learnings.md は L-ID の定義元、charter.md は案件の憲章。どちらも複製で消えるので「恒久資産」ではない。
@@ -162,18 +153,12 @@ def _py_prose_chunks(src: str) -> list[tuple[int, str]]:
 
 
 def _refs_in_line(line: str) -> list[str]:
-    """1 行から禁止参照（work/ パス・ISS ID・気づき ID）を集める。プレースホルダ型録表記は除く。"""
-    found: list[str] = [m.group(0) for m in _WORK_REF_RE.finditer(line)]
-    for m in _ISS_REF_RE.finditer(line):
-        ref = m.group(0)
-        if not _PLACEHOLDER_RE.search(ref):
-            found.append(ref)
-    found.extend(m.group(0) for m in _LEARNING_REF_RE.finditer(line))
-    return found
+    """1 行から禁止参照（work/ パス・ISS ID・気づき ID）を集める。プレースホルダ型録表記は除く（lintkit.ids）。"""
+    return ids.temp_unit_refs(line)
 
 
 def _problem(rel: str, lineno: int, ref: str) -> pm.Problem:
-    if _LEARNING_REF_RE.fullmatch(ref):
+    if ids.LEARNING_REF_RE.fullmatch(ref):
         return pm.Problem(
             "error",
             f"{rel}:{lineno}: 複製後も残る資産が案件領域の気づき ID '{ref}' を設計の根拠に参照している。"
