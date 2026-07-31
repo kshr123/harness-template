@@ -1,16 +1,24 @@
 # ops — 運用プロファイル（CI ゲート・継続学習・リリース戦略・監視の閉ループ）
 
-モデル配信の「その後」＝運用を扱うプロファイル。中身は 4 つ：CI の verify ゲート、継続学習
-（CT＝Continuous Training。定期的な再学習の自動化）、リリース戦略（Blue-Green・Canary）、
-監視から課題起票までの閉ループ。運用の実行基盤（GitHub Actions・k8s・クラウド）そのものは動かさず、
-利用者がコピーして使うテンプレートと、その陳腐化を止める静的検査だけを持つ。案件の運用を組む・CI/CT の
-雛形を使うエンジニアが読む Reference。
+- **読者**：人（案件の運用を組む・CI/CT の雛形を使うエンジニア／その方針を確かめるレビュアー）
+- **種別**：reference（雛形の使い方と、運用の閉ループの契約）
+- **分かること**：CI verify ゲート・継続学習・リリース戦略・監視→課題起票の閉ループを、どの雛形と既存部品で回すか
+- **ここからやること**：`profiles=[..., "harness.ops"]` を有効にし、`templates/ci/` を複製先の `.github/` へコピー
 
-実装は `src/harness/ops/`：`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
-**ops は CLI を持たない**＝使い方はこの正本と、`uv run verify` に自動で乗る検査
-（そのプロファイルが公開する検査の集合＝invariant_checks）だけ。中核へは `.harness/config.toml` の
-`profiles = [..., "harness.ops"]` 経由で PROFILE（プロファイル＝検査と部品の束）の
-検査だけを見せる（core はプロファイルを import しない境界・import を軽く保つ規律）。
+モデル配信の「その後」＝運用を扱うプロファイル。中身は 4 つ：
+
+- **CI の verify ゲート**（PR→`uv run verify`）。
+- **継続学習**（CT＝Continuous Training。定期的な再学習の自動化）。
+- **リリース戦略**（Blue-Green・Canary）。
+- **監視から課題起票までの閉ループ**。
+
+運用の実行基盤（GitHub Actions・k8s・クラウド）そのものは動かさず、利用者がコピーして使うテンプレートと、
+その陳腐化を止める静的検査だけを持つ。
+
+- **実装**：`src/harness/ops/`＝`profile.py`（検査の結線）・`ci_lint.py`（CI テンプレートの構造 lint）。
+- **ops は CLI を持たない**＝使い方はこの正本と、`uv run verify` に自動で乗る検査（invariant_checks）だけ。
+- **境界**：中核へは `.harness/config.toml` の `profiles = [..., "harness.ops"]` 経由で検査だけを見せる
+  （core はプロファイルを import しない・import を軽く保つ規律）。
 
 ## 思想（実行しない）
 

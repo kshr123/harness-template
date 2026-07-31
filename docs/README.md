@@ -1,25 +1,27 @@
-# docs 索引 — このリポジトリの文書の入り口（どこから読むかの案内）
+# docs 索引 — 人向けの文書の入り口
 
-このリポジトリは、AI（Claude Code など）に開発を任せても品質が崩れないようにするための**開発の土台**です。
-仕事の完成は自己申告でなく、`uv run verify` という 1 つのコマンドがテスト・型検査・決まりごとの検査に
-すべて合格したかどうかで判定します。文書・コード・検査はこの 1 リポジトリに同居し、新しい案件はリポジトリごと
-複製して使います。このページは人間向けの索引で、どの文書を・どの順に読めばよいかをここから辿れます。
+- **読者**：人（このリポジトリで作業する開発者・チーム）
+- **種別**：overview（索引）
+- **分かること**：どの文書を・どの順に・誰向けに読むか
+- **ここからやること**：下の「読む順」に沿って必要な文書へ進む
+
+- この基盤は AI（Claude Code など）中心で開発しても品質が崩れないようにする、**複製して使うテンプレート（土台）**。
+- 完了は自己申告でなく、`uv run verify`（テスト・型検査・決まりごとの検査）が全部通ったときだけ。
+- 文書・コード・検査は 1 リポジトリに同居し、新しい案件はリポジトリごと複製して使う。
+- **エージェントの入口は [../AGENTS.md](../AGENTS.md)**（規則・schema・コマンド索引）。このページは**人の入口**。
 
 ## 読む順（はじめての人へ）
+1. [../README.md](../README.md) … 全体像（何ができるか・主要コマンド・フォルダ構成）
+2. [charter.md](charter.md) … この案件は何のためにあるか（立ち上げ）
+3. [method.md](method.md) … 開発の進め方と、進め方自体を改善する仕組み（考え方の核）
+4. [DoD.md](DoD.md) … 「完了」と言ってよい条件
+5. [core.md](core.md) … 中核＝`uv run verify` が実際に何を回すか
+6. 必要な領域だけ … ds / agent / serve / ops / stats / deliver（下の文書地図から）
 
-1. [../README.md](../README.md) … 全体の 1 枚目（何ができるか・主要コマンド・フォルダ構成）。
-2. [charter.md](charter.md) … この案件は何のためにあるか（立ち上げ文書）。
-3. [method.md](method.md) … 開発の進め方と、進め方自体を改善する仕組み（考え方の核）。
-4. [../AGENTS.md](../AGENTS.md) … 人と AI が従う決まりごと（強制ルールの正本）。
-5. [DoD.md](DoD.md) … 「完了」と言ってよい条件のチェックリスト。
-6. [core.md](core.md) … 中核（プロファイルに依らない共通部分）。`uv run verify` が実際に何を回すか。
-7. 必要な領域だけ：[ds.md](ds.md)（表データの学習）・[agent.md](agent.md)（LLM エージェント）・
-   [serve.md](serve.md)（モデル配信）・[ops.md](ops.md)（CI・継続学習・監視）・[stats.md](stats.md)（ベイズ統計）・
-   [deliver.md](deliver.md)（顧客向けの WBS・ガント）。
+規則そのものを引くときは [../AGENTS.md](../AGENTS.md)（人も読めるが、主にエージェントが毎セッション参照する正本）。
 
 ## ID・略語の凡例
-
-文書中の ID は「接頭辞-番号」で種類を表す。
+ID は「接頭辞-番号」で種類を表す。
 
 | 接頭辞 | 意味 |
 | --- | --- |
@@ -38,36 +40,34 @@
 | `PII` | Personally Identifiable Information（個人を特定できる情報） |
 | `PM` | Project Management（プロジェクト管理。`src/harness/pm.py` の pm はこれ） |
 
-## 文書地図（Diátaxis 分類）
+## 文書地図（読者＋Diátaxis 分類）
+分類は [Diátaxis](https://diataxis.fr) の 4 分類を基にする（原典は tutorial／how-to／reference／explanation。
+tutorial に当たる文書がまだ無いため **overview**〔全体像〕に置き換えている）：**overview**（全体像）／
+**how-to**（目的を達成する手順）／**reference**（事実・契約の一覧）／**explanation**（背景・なぜ）。
 
-文書は [Diátaxis](https://diataxis.fr) の 4 分類で読む目的を示す：**Tutorial**（手を動かして学ぶ）／
-**How-to**（目的を達成する手順）／**Reference**（事実・契約の一覧）／**Explanation**（背景・なぜ）。
-
-| 文書 | 分類 | 何が分かるか |
-| --- | --- | --- |
-| [../README.md](../README.md) | Reference | 全体像・主要コマンド・フォルダ構成 |
-| [charter.md](charter.md) | Explanation | この案件の目的・スコープ・成功条件 |
-| [method.md](method.md) | Explanation | 開発の進め方（最小の骨組みを先に作る）と、進め方自体を進化させる仕組み |
-| [../AGENTS.md](../AGENTS.md) | Reference | 従うべき決まりごと（機械検査つき・正本） |
-| [DoD.md](DoD.md) | Reference | 完了の定義（チェックリスト） |
-| [core.md](core.md) | Reference | 中核の正本。`uv run verify` が回す検査の一覧（コードから生成）と、検査の足し方 |
-| [ds.md](ds.md) | Reference | データサイエンス（表データの学習）の全体像と使いどころの地図 |
-| [ds-code.md](ds-code.md) | Explanation | ds のコードの役割・組まれ方・今後の広がり（設計の説明） |
-| [agent.md](agent.md) | Reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
-| [agent-code.md](agent-code.md) | Explanation | agent のコードの役割・組まれ方・今後の広がり（設計の説明） |
-| [serve.md](serve.md) | Reference | モデル配信（FastAPI）と予測ログの契約 |
-| [serve-code.md](serve-code.md) | Explanation | serve のコードの役割・組まれ方・今後の広がり（設計の説明） |
-| [ops.md](ops.md) | Reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
-| [stats.md](stats.md) | Reference | ベイズ統計モデリング（モデル・サンプラー・診断・PPC）の全体像と使いどころ |
-| [deliver.md](deliver.md) | Reference | クライアントに見せる WBS・ガント（作業単位の木からの生成ビュー） |
-| [template-copy.md](template-copy.md) | How-to | この基盤を次の案件へ複製する手順 |
-| [learnings.md](learnings.md) | Explanation | 作業で得た気づきの記録（ルールにルール化する前の材料） |
-| [requirements/](requirements/) | Reference | 案件の要件（REQ） |
-| [data/](data/) | Reference | テーブル定義の正本（YAML） |
-| `../.claude/skills/` | How-to | セッション中の作業手順（実験・レビュー・検証など） |
-
-Tutorial に当たる文書は現状無い（最も近いのは experiment スキル＋実験雛形 `E-0001` を写経する流れ）。
+| 文書 | 読者 | 分類 | 何が分かるか |
+| --- | --- | --- | --- |
+| [../README.md](../README.md) | 人 | overview | 全体像・主要コマンド・フォルダ構成 |
+| [../AGENTS.md](../AGENTS.md) | エージェント | reference | 従うべき決まりごと（機械検査つき・正本） |
+| [charter.md](charter.md) | 人 | explanation | この案件の目的・スコープ・成功条件 |
+| [method.md](method.md) | 人 | explanation | 開発の進め方と、進め方自体を進化させる仕組み・文書の書き方の標準 |
+| [DoD.md](DoD.md) | 人 | reference | 完了の定義（チェックリスト） |
+| [core.md](core.md) | 人 | reference | 中核の正本。`uv run verify` が回す検査の一覧（コードから生成）と検査の足し方 |
+| [ds.md](ds.md) | 人 | reference | データサイエンス（表データの学習）の全体像と使いどころ |
+| [ds-code.md](ds-code.md) | 人 | explanation | ds のコードの役割・組まれ方・設計 |
+| [agent.md](agent.md) | 人 | reference | LLM エージェント（AgentSpec）の契約・CLI・ライフサイクル |
+| [agent-code.md](agent-code.md) | 人 | explanation | agent のコードの役割・組まれ方・設計 |
+| [serve.md](serve.md) | 人 | reference | モデル配信（FastAPI）と予測ログの契約 |
+| [serve-code.md](serve-code.md) | 人 | explanation | serve のコードの役割・組まれ方・設計 |
+| [ops.md](ops.md) | 人 | reference | 運用（CI ゲート・継続学習・リリース戦略・監視の閉ループ） |
+| [stats.md](stats.md) | 人 | reference | ベイズ統計モデリング（モデル・サンプラー・診断・PPC）の全体像 |
+| [deliver.md](deliver.md) | 人 | reference | クライアントに見せる WBS・ガント（作業単位の木からの生成ビュー） |
+| [deliver-code.md](deliver-code.md) | 人 | explanation | deliver のコードの役割・描画/編集の設計 |
+| [template-copy.md](template-copy.md) | 人 | how-to | この基盤を次の案件へ複製する手順 |
+| [learnings.md](learnings.md) | 人・エージェント | explanation | 作業で得た気づきの記録（ルールにする前の材料） |
+| [requirements/](requirements/) | 人 | reference | 案件の要件（REQ） |
+| [data/](data/) | 人 | reference | テーブル定義の正本（YAML） |
+| `../.claude/skills/` | エージェント | how-to | セッション中の作業手順（実験・レビュー・検証など） |
 
 ## archive
-
 [archive/](archive/) は日付付きの作業メモ（過去のレビュー記録・一時的な計画）の保管庫。正本ではない。
